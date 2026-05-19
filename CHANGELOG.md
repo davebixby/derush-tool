@@ -4,6 +4,26 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.0] — 2026-05-19
+
+### ✨ Ajouté
+- **Auto-détection de plans** : bouton 🔍 Auto-plans qui scanne les rushs via ffmpeg scene change et propose des markers candidats. Clic gauche = accepter, droit = rejeter.
+- **Session live** : un utilisateur peut diriger la session et ses actions (clip select, seek, play/pause) sont diffusées aux autres en temps réel via WebSocket. Bouton 🎬 Diriger / 👁 Suivre.
+- **Édition collaborateurs** : bouton ✏️ dans la gestion utilisateurs pour modifier rôle, couleur, ou régénérer une clé d'invitation perdue.
+- **Stats dashboard** 📊 : modal avec cards totaux, progression %, distribution ratings/markers/caméras/jours, top tags, activité par utilisateur.
+- **Modal À propos** ℹ️ : logo + version + liens GitHub/Releases/Guide.
+- **Splash window amélioré** : logo embarqué + animation breath + barre progress, fond gradient.
+- **Icône taskbar Electron** : icône custom dans la barre Windows + barre titre.
+
+### 🐛 Corrigé
+- **Auto-détection 0 candidats** : `-loglevel info` masquait les lignes showinfo de ffmpeg → 0 résultats. Passé à `verbose` + regex stricte pour éliminer le faux positif à t=0 venant du log graph.
+- **Bouton 🔑 invite key cassé** : `JSON.stringify(uname)` dans attribut HTML double-quoted → guillemets imbriqués → onclick invalide. Fix : attribut single-quoted.
+
+### 🧪 Stabilité
+- **Tests E2E auto-detect + session-live** : 9 tests supplémentaires (Playwright), total 23/23 passants.
+
+---
+
 ## [0.2.0] — 2026-05-19
 
 ### ✨ Ajouté

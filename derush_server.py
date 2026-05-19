@@ -2787,6 +2787,120 @@ def _auto_detect_job(pid, threshold=0.4, clip_ids=None):
     with _auto_detect_jobs_lock:
         _auto_detect_jobs[pid] = {'status': 'done', 'done': total, 'total': total, 'new_candidates': new_count}
 
+# ─── Project stats (dashboard) ──────────────────────────────────────────────
+def project_stats(proj):
+    """Agrège les stats du projet pour le dashboard : totaux, distribution par
+    user, par rating, par catégorie, par caméra, par jour, top tags."""
+    clips = proj.get('clips', [])
+    notes = proj.get('notes', {})
+    users = proj.get('users', [])
+
+    # Map username → user info (pour color/role)
+    user_by_id = {user_note_key(u): {'name': u.get('username') or u.get('name', ''), 'color': u.get('color', '#888')} for u in users}
+
+    total_clips = len(clips)
+    clips_with_any_anno = set()
+    clips_rated = set()       # clips avec au moins un rating (1/2/3)
+    clips_rejected = set()    # clips avec rating X
+    clips_validated = set()   # status='valide'
+    clips_to_review = set()   # status='arevoir'
+
+    total_markers = 0
+    total_tags_set = set()    # tags uniques
+    tag_counts = {}           # tag → count
+    cat_counts = {'1':0, '2':0, '3':0, 'X':0, 'T':0, 'S':0, 'D':0}
+    rating_dist = {'3':0, '2':0, '1':0, 'X':0, 'none':0}
+
+    by_user = {}              # uid → {markers, ratings, tags, last_ts}
+    for uid, user_notes in notes.items():
+        u_stats = by_user.setdefault(uid, {
+            'name': user_by_id.get(uid, {}).get('name', uid),
+            'color': user_by_id.get(uid, {}).get('color', '#888'),
+            'markers': 0, 'ratings': 0, 'tags': 0, 'clips_touched': 0,
+        })
+        for clip_id, cn in user_notes.items():
+            if not cn: continue
+            touched = False
+            r = cn.get('rating')
+            if r in ('1','2','3'):
+                u_stats['ratings'] += 1
+                clips_rated.add(clip_id); touched = True
+            elif r == 'X':
+                clips_rejected.add(clip_id); touched = True
+            status = cn.get('status')
+            if status == 'valide': clips_validated.add(clip_id); touched = True
+            elif status == 'arevoir': clips_to_review.add(clip_id); touched = True
+            mks = cn.get('markers', [])
+            for m in mks:
+                cat = str(m.get('cat', ''))
+                if cat in cat_counts: cat_counts[cat] += 1
+                total_markers += 1
+                u_stats['markers'] += 1
+                touched = True
+            tg_list = cn.get('tags', [])
+            for t in tg_list:
+                if not t: continue
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+                total_tags_set.add(t)
+                u_stats['tags'] += 1
+                touched = True
+            if (cn.get('notes') or '').strip(): touched = True
+            if touched:
+                clips_with_any_anno.add(clip_id)
+                u_stats['clips_touched'] = u_stats.get('clips_touched', 0) + 1
+
+    # Rating distribution global (max rating across users per clip)
+    for c in clips:
+        max_r = 'none'
+        rejected = False
+        for u in users:
+            uid = user_note_key(u)
+            cn = (notes.get(uid) or {}).get(c['id'])
+            if not cn: continue
+            r = str(cn.get('rating', ''))
+            if r == 'X': rejected = True
+            elif r in ('3','2','1') and (max_r == 'none' or int(r) > int(max_r if max_r != 'none' else '0')):
+                max_r = r
+        if rejected: rating_dist['X'] += 1
+        elif max_r != 'none': rating_dist[max_r] += 1
+        else: rating_dist['none'] += 1
+
+    # Distribution par caméra
+    cam_counts = {}
+    for c in clips:
+        cam = c.get('camera') or '?'
+        cam_counts[cam] = cam_counts.get(cam, 0) + 1
+
+    # Distribution par jour
+    day_counts = {}
+    for c in clips:
+        d = c.get('day') or '?'
+        day_counts[d] = day_counts.get(d, 0) + 1
+
+    # Top 10 tags
+    top_tags = sorted(tag_counts.items(), key=lambda x: -x[1])[:10]
+
+    return {
+        'totals': {
+            'clips': total_clips,
+            'clips_touched': len(clips_with_any_anno),
+            'clips_untouched': total_clips - len(clips_with_any_anno),
+            'clips_rated': len(clips_rated),
+            'clips_rejected': len(clips_rejected),
+            'clips_validated': len(clips_validated),
+            'clips_to_review': len(clips_to_review),
+            'markers': total_markers,
+            'unique_tags': len(total_tags_set),
+            'users': len(users),
+        },
+        'by_user': list(by_user.values()),
+        'cat_counts': cat_counts,
+        'rating_dist': rating_dist,
+        'cam_counts': cam_counts,
+        'day_counts': day_counts,
+        'top_tags': [{'tag': t, 'count': c} for t, c in top_tags],
+    }
+
 # ─── Import Functions ───
 
 def project_health(proj, pid):
@@ -3147,6 +3261,15 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
             return
 
+        if re.match(r'^/api/project/([^/]+)/stats$', path):
+            pid = re.match(r'^/api/project/([^/]+)/stats$', path).group(1)
+            proj = load_project(pid)
+            if proj:
+                self._json_response(project_stats(proj))
+            else:
+                self.send_error(404)
+            return
+
         m = re.match(r'^/api/project/([^/]+)/multicam$', path)
         if m:
             pid = m.group(1)
@@ -3254,6 +3377,14 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
 
         if path == '/api/version':
             self._json_response({'version': _read_version()})
+            return
+
+        if path == '/api/icon':
+            icon = BUNDLE_DIR / 'derush_icon.png'
+            if icon.exists():
+                self._serve_file(icon, 'image/png')
+            else:
+                self.send_error(404)
             return
 
         if path == '/api/changelog':
@@ -3772,6 +3903,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 return
             if 'color' in body: user['color'] = body['color']
             if 'is_admin' in body: user['is_admin'] = body['is_admin']
+            if 'role' in body:
+                user['role'] = body['role']
+                user['is_admin'] = body['role'] == 'admin'  # garde la cohérence avec is_admin
             if body.get('reset_key'):
                 import string as _string
                 user['invite_key'] = ''.join(secrets.choice(_string.ascii_uppercase + _string.digits) for _ in range(8))

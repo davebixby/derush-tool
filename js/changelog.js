@@ -63,6 +63,16 @@ function closeChangelogModal() {
     document.getElementById('changelogModal').style.display = 'none';
 }
 
+// ─── About modal (ℹ️ À propos) ─────────────────────────────────────
+function openAboutModal() {
+    document.getElementById('aboutModal').style.display = 'flex';
+    const vLabel = document.getElementById('aboutVersion');
+    if (vLabel && _appVersion) vLabel.textContent = 'v' + _appVersion;
+}
+function closeAboutModal() {
+    document.getElementById('aboutModal').style.display = 'none';
+}
+
 // Markdown léger : ## ### **bold** *italic* `code` listes — suffisant pour un changelog
 function _renderMarkdown(md) {
     let html = escapeHtml(md);

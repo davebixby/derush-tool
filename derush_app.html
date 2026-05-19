@@ -326,6 +326,7 @@
         <div style="margin-top:18px;text-align:center;display:flex;gap:14px;justify-content:center;font-size:0.75em;flex-wrap:wrap;">
             <a href="#" onclick="openChangelogModal();return false;" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">📜 Nouveautés</a>
             <a href="#" onclick="openCrashModal();return false;" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">🐞 Journal des erreurs</a>
+            <a href="#" onclick="openAboutModal();return false;" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">ℹ️ À propos</a>
             <a href="/setup" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">⚙️ Configuration</a>
             <span id="appVersionLabel" style="color:var(--dim);opacity:0.4;font-family:monospace;"></span>
         </div>
@@ -341,6 +342,34 @@
         <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">
             <button onclick="closeShareModal()">Fermer</button>
         </div>
+    </div>
+</div>
+
+<!-- Modal : stats dashboard -->
+<div id="statsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:640px;max-width:920px;width:92%;max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <h2 style="margin:0;">📊 Statistiques du projet</h2>
+            <button onclick="closeStatsModal()" style="font-size:0.82em;">Fermer</button>
+        </div>
+        <div id="statsBody" style="overflow-y:auto;flex:1;padding-right:8px;font-size:0.85em;line-height:1.5;"></div>
+    </div>
+</div>
+
+<!-- Modal : à propos -->
+<div id="aboutModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:420px;max-width:560px;width:90%;text-align:center;">
+        <img src="/api/icon" alt="Derush Tool" style="width:96px;height:96px;border-radius:50%;border:2px solid rgba(167,139,250,.5);box-shadow:0 0 24px rgba(167,139,250,.4);margin:0 auto 14px;display:block;" onerror="this.style.display='none'">
+        <h1 style="font-size:1.4em;margin-bottom:4px;">DERUSH <span style="color:var(--accent);">TOOL</span></h1>
+        <p id="aboutVersion" style="font-family:monospace;color:var(--dim);font-size:0.85em;margin-bottom:18px;"></p>
+        <p style="font-size:0.88em;color:var(--text);margin-bottom:18px;">Outil collaboratif de dérushage vidéo multi-utilisateurs.<br>Sync multi-caméra TC, son ingé BWF, annotations équipe, exports DaVinci &amp; Premiere.</p>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:14px;">
+            <a href="https://github.com/davebixby/derush-tool" target="_blank" style="background:rgba(167,139,250,.15);color:var(--accent);border:1px solid rgba(167,139,250,.3);border-radius:6px;padding:6px 12px;text-decoration:none;font-size:0.82em;">📦 GitHub</a>
+            <a href="https://github.com/davebixby/derush-tool/releases" target="_blank" style="background:rgba(167,139,250,.15);color:var(--accent);border:1px solid rgba(167,139,250,.3);border-radius:6px;padding:6px 12px;text-decoration:none;font-size:0.82em;">🚀 Releases</a>
+            <a href="/GUIDE.html" target="_blank" style="background:rgba(167,139,250,.15);color:var(--accent);border:1px solid rgba(167,139,250,.3);border-radius:6px;padding:6px 12px;text-decoration:none;font-size:0.82em;">📖 Guide</a>
+        </div>
+        <p style="font-size:0.74em;color:var(--dim);margin-bottom:16px;">Développé par Sébastien Delahaye<br>avec l'assistance de Claude Code (Anthropic)</p>
+        <button onclick="closeAboutModal()">Fermer</button>
     </div>
 </div>
 
@@ -718,7 +747,39 @@
             <button style="margin-top:16px;width:100%;" onclick="hideUserMgmt()">Fermer</button>
         </div>
     </div>
-    
+
+    <!-- Modal : édition d'un collaborateur existant -->
+    <div id="editUserModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:400;align-items:center;justify-content:center;">
+        <div class="card" style="min-width:380px;max-width:480px;width:90%;">
+            <h2 style="margin-bottom:6px;">✏️ Modifier <span id="euTargetName" style="color:var(--accent);"></span></h2>
+            <p style="font-size:0.78em;color:var(--dim);margin-bottom:14px;">Modifier le rôle, la couleur ou regénérer une clé d'invitation.</p>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <label style="font-size:0.82em;color:var(--dim);">Rôle</label>
+                <select id="euRole" style="font-size:0.88em;padding:6px 8px;">
+                    <option value="annotator">Annotateur</option>
+                    <option value="viewer">Lecteur seul</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <label style="font-size:0.82em;color:var(--dim);margin-top:4px;">Couleur</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <input type="color" id="euColor" value="#60a5fa" style="width:48px;height:36px;padding:0;cursor:pointer;">
+                    <span style="font-size:0.78em;color:var(--dim);">Identifie ses annotations dans le panneau "Avis des autres"</span>
+                </div>
+                <hr style="border:0;border-top:1px solid var(--border);margin:8px 0;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85em;">
+                    <input type="checkbox" id="euResetKey" style="width:auto;margin:0;">
+                    Régénérer une nouvelle clé d'invitation
+                </label>
+                <p style="font-size:0.72em;color:var(--dim);margin-top:-4px;margin-left:24px;">Utile si la précédente a été perdue ou si tu veux révoquer un accès en attente.</p>
+                <div id="euError" style="color:var(--red);font-size:0.85em;display:none;"></div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
+                <button onclick="closeEditUserModal()">Annuler</button>
+                <button class="btn-primary" onclick="saveEditUser()">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
     <div class="main">
         <div class="player-area" onclick="if(event.target===this||event.target.id==='player')togglePlay()">
             <div id="noVideoMsg" style="color: var(--dim);">Sélectionnez un clip</div>
@@ -780,6 +841,7 @@
             <button onclick="openExportModal()" title="Exporter vers DaVinci Resolve">📤 Exporter</button>
             <button onclick="openShareModal()" title="Créer un lien de review public">🔗 Partager</button>
             <button onclick="openHealthModal()" title="Project Health Check">🩺</button>
+            <button onclick="openStatsModal()" title="Statistiques du projet">📊</button>
             <button onclick="document.getElementById('kbdModal').style.display='flex'" title="Raccourcis clavier">⌨️</button>
             <button id="syncBtn" onclick="triggerSync()" title="Synchroniser maintenant" style="display:none;">
                 <span id="syncDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6b7280;margin-right:4px;vertical-align:middle;"></span><span id="syncLabel">Sync</span>
@@ -1331,6 +1393,13 @@ function renderUsersList() {
             <span style="flex:1;"><strong>${uname}</strong> ${u.is_admin?'<span style="color:var(--accent);font-size:0.75em;">Admin</span>':''} ${pending}</span>
             ${u.pending ? `<button title="Voir la clé d'invitation" onclick='showInviteKey(${JSON.stringify(uname)})' style="padding:2px 8px;font-size:0.8em;">🔑</button>` : ''}`;
         if (!isSelf) {
+            const edit = document.createElement('button');
+            edit.textContent = '✏️';
+            edit.title = 'Modifier rôle / couleur';
+            edit.style.cssText = 'padding:2px 8px;font-size:0.8em;';
+            edit.onclick = () => editUserPrompt(u);
+            d.appendChild(edit);
+
             const del = document.createElement('button');
             del.textContent = '🗑';
             del.title = 'Supprimer';
@@ -1386,10 +1455,65 @@ async function authorizeUser() {
 async function showInviteKey(username) {
     const res = await apiFetch(`/api/project/${currentProjectId}/invite_key/${encodeURIComponent(username)}`);
     const data = await res.json();
-    if (!res.ok) { alert(data.error || 'Erreur'); return; }
+    if (!res.ok) { showToast(data.error || 'Erreur', 'err'); return; }
     document.getElementById('nuInviteCode').textContent = data.invite_key || '—';
     document.getElementById('nuInviteBox').style.display = 'block';
     document.getElementById('nuFormSection').style.display = 'none';
+}
+
+// ─── Edit collaborateur (modifier rôle/couleur/clé) ────────────────────────
+let _editUserTarget = null;
+
+function editUserPrompt(user) {
+    _editUserTarget = user.username || user.name || '';
+    document.getElementById('euTargetName').textContent = _editUserTarget;
+    // Pré-remplit avec valeurs courantes
+    document.getElementById('euRole').value = user.role || (user.is_admin ? 'admin' : 'annotator');
+    document.getElementById('euColor').value = user.color || '#60a5fa';
+    document.getElementById('euResetKey').checked = false;
+    document.getElementById('euError').style.display = 'none';
+    document.getElementById('editUserModal').style.display = 'flex';
+}
+
+function closeEditUserModal() {
+    document.getElementById('editUserModal').style.display = 'none';
+    _editUserTarget = null;
+}
+
+async function saveEditUser() {
+    if (!_editUserTarget) return;
+    const body = {
+        username: _editUserTarget,
+        role: document.getElementById('euRole').value,
+        color: document.getElementById('euColor').value,
+        reset_key: document.getElementById('euResetKey').checked,
+    };
+    try {
+        const r = await apiFetch(`/api/project/${currentProjectId}/edit_user`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        const d = await r.json();
+        if (!r.ok) {
+            const err = document.getElementById('euError');
+            err.textContent = d.error || 'Erreur'; err.style.display = 'block';
+            return;
+        }
+        // Recharge le config du projet pour mettre à jour la liste
+        const cRes = await apiFetch(`/api/project/${currentProjectId}/config`);
+        currentProject = await cRes.json();
+        renderUsersList();
+        closeEditUserModal();
+        if (d.invite_key) {
+            showToast(`Nouvelle clé : ${d.invite_key}`, 'ok', 8000);
+            document.getElementById('nuInviteCode').textContent = d.invite_key;
+            document.getElementById('nuInviteBox').style.display = 'block';
+        } else {
+            showToast(`${body.username} mis à jour`, 'ok');
+        }
+    } catch(e) {
+        showToast('Erreur réseau', 'err');
+    }
 }
 
 async function deleteUser(username) {
@@ -3028,6 +3152,7 @@ async function quitApp() {
 <script src="js/crash.js"></script>
 <script src="js/auto-detect.js"></script>
 <script src="js/session-live.js"></script>
+<script src="js/stats.js"></script>
 
 <!-- Bootstrap final : init() une fois tous les modules chargés -->
 <script>

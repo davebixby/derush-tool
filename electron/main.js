@@ -21,6 +21,14 @@ const { autoUpdater } = require('electron-updater');
 
 const SERVER_PORT = 8765;
 const SERVER_URL = `http://localhost:${SERVER_PORT}`;
+const ICON_PATH = path.join(__dirname, 'derush_icon.png');
+
+// Lit l'icône en base64 une fois au boot pour l'embed dans le splash HTML
+let ICON_DATA_URL = '';
+try {
+  const buf = fs.readFileSync(ICON_PATH);
+  ICON_DATA_URL = 'data:image/png;base64,' + buf.toString('base64');
+} catch (e) { console.warn('[derush] icon not found at', ICON_PATH); }
 
 let backendProc = null;
 let mainWindow = null;
@@ -98,8 +106,8 @@ function waitForServer(timeoutMs = 15000) {
 // ── Splash window pendant le démarrage du backend ───────────────────────────
 function createSplash() {
   splashWindow = new BrowserWindow({
-    width: 380,
-    height: 220,
+    width: 420,
+    height: 260,
     frame: false,
     transparent: false,
     alwaysOnTop: true,
@@ -108,17 +116,26 @@ function createSplash() {
     skipTaskbar: false,
     backgroundColor: '#0f0f13',
     title: 'Derush Tool',
+    icon: ICON_PATH,
     webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
+  const logo = ICON_DATA_URL
+    ? `<img src="${ICON_DATA_URL}" class="logo" alt="Derush">`
+    : '<div class="logo logo-fallback">🎬</div>';
   const splashHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-    html,body{margin:0;height:100%;background:#0f0f13;color:#e0e0e8;font-family:'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none;}
-    .title{font-size:18px;font-weight:600;color:#a78bfa;letter-spacing:.04em;margin-bottom:6px;}
-    .sub{font-size:12px;color:#6b6b80;letter-spacing:.06em;text-transform:uppercase;}
-    .bar{margin-top:18px;width:240px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;position:relative;}
-    .bar::before{content:'';position:absolute;left:-40%;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,#a78bfa,transparent);animation:slide 1.1s ease-in-out infinite;}
+    html,body{margin:0;height:100%;background:linear-gradient(135deg,#0f0f13 0%,#1a1530 100%);color:#e0e0e8;font-family:'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none;overflow:hidden;}
+    .logo{width:80px;height:80px;border-radius:50%;border:2px solid rgba(167,139,250,.5);box-shadow:0 0 24px rgba(167,139,250,.4),inset 0 0 0 4px rgba(15,15,19,.3);image-rendering:auto;animation:breath 2.5s ease-in-out infinite;}
+    .logo-fallback{font-size:48px;display:flex;align-items:center;justify-content:center;}
+    @keyframes breath{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
+    .title{font-size:22px;font-weight:700;color:#fff;letter-spacing:.03em;margin-top:18px;text-shadow:0 0 12px rgba(167,139,250,.4);}
+    .title .accent{color:#a78bfa;}
+    .sub{font-size:11px;color:#6b6b80;letter-spacing:.12em;text-transform:uppercase;margin-top:4px;}
+    .bar{margin-top:22px;width:280px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;position:relative;}
+    .bar::before{content:'';position:absolute;left:-40%;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,#a78bfa,transparent);animation:slide 1.2s ease-in-out infinite;}
     @keyframes slide{from{left:-40%}to{left:100%}}
   </style></head><body>
-    <div class="title">🎬 Derush Tool</div>
+    ${logo}
+    <div class="title">DERUSH <span class="accent">TOOL</span></div>
     <div class="sub">Démarrage du serveur…</div>
     <div class="bar"></div>
   </body></html>`;
@@ -141,6 +158,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     title: 'Derush Tool',
+    icon: ICON_PATH,
     backgroundColor: '#0f0f13',
     autoHideMenuBar: true,
     show: false,  // restera caché jusqu'à did-finish-load (évite le flash blanc)
