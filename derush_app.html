@@ -1,0 +1,3109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DRIFT_CLUB — Dérushage Multi-Projet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0a0a0f; --surface: #12121a; --border: rgba(255,255,255,.08); --text: #e0e0e8; --dim: #6b6b80; --accent: #a78bfa; --green: #34d399; --red: #ef4444; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* Scrollbars custom — fines, dark, accent purple (Chrome/Electron + Firefox) */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(167,139,250,.22); border-radius: 4px; transition: background .15s; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(167,139,250,.55); }
+        ::-webkit-scrollbar-corner { background: transparent; }
+        * { scrollbar-width: thin; scrollbar-color: rgba(167,139,250,.28) transparent; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Modals & Screens */
+        .screen { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 100; flex-direction: column; padding: 40px; overflow-y: auto; }
+        .screen.active { display: flex; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 600px; margin: 0 auto; width: 100%; }
+        h1, h2 { color: var(--accent); margin-bottom: 16px; }
+        input, button, select { font-family: inherit; font-size: 14px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+        button { cursor: pointer; background: rgba(167,139,250,.15); color: var(--accent); border-color: rgba(167,139,250,.2); }
+        button:hover { background: rgba(167,139,250,.3); }
+        .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+        .btn-primary:hover { background: #b8a2fb; }
+        
+        /* Main Layout */
+        .sidebar { width: 320px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+        .clip-list { flex: 1; overflow-y: auto; }
+        .day-header { padding: 5px 16px 4px; font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1; }
+        .clip-item { display: flex; gap: 8px; align-items: flex-start; }
+        .clip-thumb-wrap { position: relative; width: 60px; height: 34px; flex-shrink: 0; margin-top: 2px; border-radius: 3px; overflow: hidden; background: #12121a; }
+        .clip-thumb { width: 60px; height: 34px; object-fit: cover; display: block; }
+        .clip-scrub-bar { position: absolute; bottom: 0; left: 0; height: 2px; background: rgba(167,139,250,.9); width: 0%; pointer-events: none; }
+        .clip-scrub-tc { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-family: monospace; font-size: 0.52em; color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000; opacity: 0; pointer-events: none; transition: opacity .1s; }
+        .clip-thumb-wrap:hover .clip-scrub-tc { opacity: 1; }
+        .clip-item-body { flex: 1; min-width: 0; }
+        #scrub-preview { position: fixed; left: 326px; z-index: 999; pointer-events: none; border-radius: 6px; overflow: hidden; background: #12121a; border: 1px solid rgba(167,139,250,.4); box-shadow: 0 8px 32px rgba(0,0,0,.8); }
+        .preview-frame { width: 260px; height: 146px; background-color: #12121a; background-repeat: no-repeat; background-position: 0 0; background-size: 260px 146px; }
+        #scrub-preview .preview-tc { font-family: monospace; font-size: 0.78em; color: rgba(255,255,255,.7); text-align: center; padding: 4px 0; background: rgba(0,0,0,.6); letter-spacing: .05em; }
+        .spd-btn { padding: 1px 5px; font-size: 0.7em; border-radius: 3px; border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer; }
+        .spd-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+        .tech-meta { font-size: 0.7em; color: var(--dim); margin-top: 1px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tags-area { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 22px; }
+        .tag-chip { display: inline-flex; align-items: center; gap: 3px; background: rgba(167,139,250,.15); border: 1px solid rgba(167,139,250,.3); border-radius: 10px; padding: 1px 7px; font-size: 0.72em; color: #c4b5fd; }
+        .tag-chip .tag-x { cursor: pointer; opacity: 0.5; margin-left: 2px; line-height: 1; }
+        .tag-chip .tag-x:hover { opacity: 1; }
+        #tagInput { background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--fg); font-size: 0.78em; padding: 1px 4px; width: 90px; outline: none; }
+        #tagInput:focus { border-bottom-color: var(--accent); }
+        #clipSearch { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; color: var(--fg); font-size: 0.82em; box-sizing: border-box; }
+        .clip-item { padding: 10px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .clip-item:hover { background: rgba(167,139,250,.05); }
+        .angle-row:not(.active):hover { background: rgba(167,139,250,.08) !important; }
+        /* ─── Multi-cam 4-up viewer ─── */
+        #mcViewerOverlay { display:none; position:fixed; inset:0; background:#000; z-index:300; flex-direction:column; }
+        #mcViewerOverlay.active { display:flex; }
+        .mc-toolbar { display:flex; gap:10px; padding:8px 14px; background:#0a0a10; border-bottom:1px solid var(--border); align-items:center; flex-shrink:0; }
+        .mc-toolbar strong { font-size:0.92em; }
+        .mc-toolbar button { padding:4px 10px; font-size:0.82em; }
+        .mc-stage { flex:1; display:grid; grid-template-columns: 1fr 200px; gap:8px; padding:8px; min-height:0; }
+        .mc-primary { background:#000; display:flex; align-items:center; justify-content:center; position:relative; border:2px solid var(--accent); border-radius:4px; overflow:hidden; }
+        .mc-primary video { max-width:100%; max-height:100%; }
+        .mc-thumbs { display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
+        .mc-thumb { background:#000; border:1px solid var(--border); border-radius:4px; overflow:hidden; cursor:pointer; position:relative; aspect-ratio:16/9; }
+        .mc-thumb video { width:100%; height:100%; object-fit:cover; }
+        .mc-thumb:hover { border-color:var(--accent); }
+        .mc-primary-inner { width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+        .mc-grid-cell { background:#000; border:1px solid var(--border); border-radius:4px; overflow:hidden; cursor:pointer; position:relative; aspect-ratio:16/9; }
+        .mc-grid-cell video { width:100%; height:100%; object-fit:contain; }
+        .mc-grid-cell:hover { border-color:var(--accent); }
+        .mc-grid-cell.mc-grid-active { border:2px solid var(--accent); }
+        .mc-prop-row { background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:10px 12px; margin-bottom:6px; cursor:pointer; user-select:none; transition:background .12s; }
+        .mc-prop-row:hover { background:rgba(167,139,250,.06); }
+        .mc-prop-sel { background:rgba(99,102,241,.18) !important; border-color:var(--accent) !important; }
+        .mc-thumb-label { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(transparent, rgba(0,0,0,.85)); color:#fff; font-size:0.72em; padding:8px 6px 4px; pointer-events:none; }
+        .mc-thumb-num { position:absolute; top:4px; left:4px; background:rgba(0,0,0,.7); color:#fff; font-size:0.7em; font-weight:700; padding:1px 6px; border-radius:3px; }
+        .mc-out-of-range { opacity:0.45; }
+        .mc-waiting-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.55); color:#fff; font-size:0.85em; pointer-events:auto; cursor:not-allowed; opacity:0; transition:opacity .15s; border-radius:inherit; }
+        .mc-out-of-range .mc-waiting-overlay { opacity:1; }
+        .mc-bottom { background:#0a0a10; border-top:1px solid var(--border); padding:10px 14px 12px; flex-shrink:0; }
+        .mc-tl-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; gap:12px; }
+        .mc-tl-header .mc-tl-label { font-size:0.72em; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); }
+        .mc-tl-header .mc-tl-dur { font-family:monospace; font-size:0.76em; color:var(--dim); }
+        .mc-tl { height:42px; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:6px; overflow:visible; cursor:pointer; position:relative; }
+        .mc-tl-prog { position:absolute; top:0; left:0; height:100%; background:linear-gradient(90deg, rgba(124,58,237,.16), rgba(167,139,250,.26)); width:0%; pointer-events:none; border-radius:6px 0 0 6px; }
+        .mc-tl-head { position:absolute; top:-4px; width:3px; height:50px; background:#fff; border-radius:2px; pointer-events:none; left:0%; box-shadow:0 0 8px rgba(255,255,255,.8); z-index:4; }
+        .mc-tl-overlap { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(135deg, rgba(52,211,153,.18) 0 6px, rgba(52,211,153,.08) 6px 12px); border-left:1.5px solid rgba(52,211,153,.7); border-right:1.5px solid rgba(52,211,153,.7); pointer-events:none; z-index:1; }
+        .mc-tl-overlap-lbl { position:absolute; top:-16px; left:50%; transform:translateX(-50%); font-size:0.62em; font-weight:700; color:#34d399; letter-spacing:.08em; white-space:nowrap; pointer-events:none; text-shadow:0 0 4px rgba(0,0,0,.9); }
+        .mc-tl-clip { position:absolute; border-radius:3px; pointer-events:none; z-index:2; box-shadow:0 1px 2px rgba(0,0,0,.4); }
+        .mc-tl-clip-label { position:absolute; left:5px; top:50%; transform:translateY(-50%); font-size:0.62em; color:#000; font-weight:600; font-family:monospace; pointer-events:none; line-height:1; white-space:nowrap; overflow:hidden; max-width:calc(100% - 8px); text-overflow:ellipsis; }
+        .mc-tl-clip.is-secondary .mc-tl-clip-label { color:rgba(255,255,255,.85); }
+        .mc-tl-ticks { display:flex; justify-content:space-between; margin-top:4px; font-family:monospace; font-size:0.62em; color:var(--dim); padding:0 2px; }
+        .clip-item.active { background: rgba(167,139,250,.15); border-left: 3px solid var(--accent); }
+        .clip-item .name { font-weight: 600; font-size: 0.85em; }
+        .clip-item .meta { font-size: 0.7em; color: var(--dim); margin-top: 4px; display: flex; gap: 8px; }
+        
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .player-area { background: #000; flex: 1; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .video-wrapper { position: relative; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
+        video { display: block; width: 100%; height: 100%; object-fit: contain; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        canvas.drawing { pointer-events: auto; cursor: crosshair; }
+        
+        .video-wrapper:fullscreen { background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .video-wrapper:-webkit-full-screen { background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+
+        .player-controls { background: var(--surface); padding: 6px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+        .tc-display { font-family: monospace; color: var(--accent); font-size: 0.9em; min-width: 90px; }
+
+        /* Timeline */
+        .timeline-bar { position: relative; height: 88px; background: #0a0a12; border-top: 1px solid var(--border); cursor: pointer; user-select: none; flex-shrink: 0; isolation: isolate; }
+        .timeline-track { position: absolute; bottom: 14px; left: 12px; right: 12px; height: 4px; background: rgba(255,255,255,0.07); border-radius: 2px; overflow: visible; }
+        .timeline-progress { position: absolute; top: 0; left: 0; height: 100%; background: linear-gradient(90deg, #7c3aed, var(--accent)); border-radius: 2px; pointer-events: none; }
+        .timeline-head { position: absolute; bottom: 9px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transform: translateX(-50%); box-shadow: 0 0 8px rgba(167,139,250,1); pointer-events: none; z-index: 20; }
+        /* Pin par défaut = cercle (ratings 1/2/3). Shapes spécifiques pour les
+           autres catégories : carré (image), triangle (son), losange (note), croix (cut).
+           Différenciation visuelle immédiate vs les markers de qualité. */
+        .timeline-marker-pin { position: absolute; top: var(--pin-top, 4px); width: 12px; height: 12px; transform: translateX(-50%); border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; cursor: grab; user-select: none; transition: width .1s, height .1s, top .1s, box-shadow .1s; }
+        .timeline-marker-pin.cat-T { border-radius: 2px; }                                                    /* Problème image = carré */
+        .timeline-marker-pin.cat-S { background: transparent; box-shadow: none; clip-path: polygon(50% 0, 100% 100%, 0 100%); }  /* Problème son = triangle */
+        .timeline-marker-pin.cat-S::after { content:''; position:absolute; inset:0; background:currentColor; clip-path: polygon(50% 0, 100% 100%, 0 100%); filter: drop-shadow(0 0 4px currentColor); }
+        .timeline-marker-pin.cat-D { border-radius: 2px; transform: translateX(-50%) rotate(45deg); }         /* Note = losange */
+        .timeline-marker-pin.cat-X { background: transparent; box-shadow: none; border-radius: 0; }           /* À couper = croix */
+        .timeline-marker-pin.cat-X::after,
+        .timeline-marker-pin.cat-X::before { content:''; position:absolute; top:50%; left:0; right:0; height:3px; background:currentColor; transform: translateY(-50%) rotate(45deg); box-shadow: 0 0 4px currentColor; }
+        .timeline-marker-pin.cat-X::before { transform: translateY(-50%) rotate(-45deg); }
+        .timeline-marker-pin.has-drawing { border-radius: 2px; transform: translateX(-50%) rotate(45deg); }
+        .timeline-marker-pin.selected { z-index: 3; width: 16px; height: 16px; box-shadow: 0 0 0 2.5px #fff, 0 0 10px currentColor; }
+        .timeline-marker-pin.cat-S.selected { box-shadow: 0 0 10px currentColor; outline: 2px solid #fff; outline-offset: 1px; }
+        .timeline-marker-pin.cat-X.selected { box-shadow: 0 0 10px currentColor; outline: 2px solid #fff; outline-offset: 1px; }
+        .timeline-marker-pin.dragging { cursor: grabbing !important; z-index: 5; }
+        .timeline-marker-pin:hover { width: 15px; height: 15px; box-shadow: 0 0 0 1.5px rgba(255,255,255,.7), 0 0 8px currentColor; }
+        .timeline-marker-pin:not(.dragging):hover::after { content: attr(data-label); position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: rgba(10,10,20,0.95); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; font-size: 0.68em; white-space: nowrap; color: var(--text); z-index: 10; pointer-events: none; }
+        /* Petit segment vertical reliant le pin (stack haut) à la timeline (en bas) — repère visuel discret */
+        .timeline-marker-pin::before { content: ''; position: absolute; top: 100%; left: 50%; width: 1px; height: var(--pin-stem, 0px); background: currentColor; opacity: .35; transform: translateX(-50%); pointer-events: none; }
+        .marker-row.selected { background: rgba(167,139,250,.18); }
+        .timeline-tc-start { position: absolute; bottom: 3px; left: 12px; font-size: 0.62em; font-family: monospace; color: var(--dim); pointer-events: none; }
+
+        /* LUT canvas overlay */
+        #lutCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; z-index: 1; }
+        #lutBadge { display: none; position: absolute; top: 8px; right: 8px; background: rgba(99,102,241,.9); color: #fff; font-size: 0.7em; font-weight: 700; padding: 2px 8px; border-radius: 4px; z-index: 2; pointer-events: none; }
+        /* LUT toggle visuel : éclatant si actif, barré si désactivé */
+        #lutBtn.lut-on { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; box-shadow: 0 0 8px rgba(167,139,250,.5); }
+        #lutBtn.lut-off { opacity: 0.55; text-decoration: line-through; text-decoration-thickness: 1.5px; }
+        /* Bouton Son ingé : éclatant vert quand ON (= son ingé actif),
+           barré et dimmed quand OFF (= son caméra). Cohérent avec le LUT toggle. */
+        .bwf-on  { background: rgba(52,211,153,.18); color: #34d399; border-color: rgba(52,211,153,.55); font-weight: 700; box-shadow: 0 0 6px rgba(52,211,153,.4); }
+        .bwf-off { opacity: 0.55; color: var(--dim); border-color: var(--border); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+        #lutBtn.lut-not-applicable { opacity: 0.35; cursor: not-allowed; }
+        #lutBtn.lut-not-applicable::after { content: " (hors scope)"; font-size: 0.7em; font-style: italic; }
+
+        /* Compare overlay */
+        #compareOverlay { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 150; flex-direction: column; }
+        #compareOverlay.active { display: flex; }
+        .compare-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .compare-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--border); overflow: hidden; min-height: 0; }
+        .compare-slot { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+        .compare-slot-header { padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .compare-slot-header select { flex: 1; font-size: 0.82em; }
+        .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; }
+        .compare-video-area video { max-width: 100%; max-height: 100%; display: block; }
+        .compare-info { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 0.8em; height: 90px; overflow-y: auto; flex-shrink: 0; }
+        .cmp-rating { font-size: 0.85em; margin-bottom: 4px; }
+        .cmp-marker { color: var(--dim); font-size: 0.78em; padding: 1px 0; cursor: pointer; }
+        .cmp-marker:hover { color: var(--text); }
+        .cmp-tc { font-family: monospace; color: var(--dim); font-size: 0.75em; }
+        .compare-timeline { position: relative; height: 52px; background: #0a0a12; border-top: 1px solid var(--border); cursor: pointer; user-select: none; flex-shrink: 0; }
+        .compare-timeline .cmp-tl-track { position: absolute; top: 40px; left: 10px; right: 10px; height: 3px; background: rgba(255,255,255,0.10); transform: translateY(-50%); border-radius: 2px; overflow: visible; }
+        .compare-timeline .cmp-tl-progress { position: absolute; top: 0; left: 0; height: 100%; background: linear-gradient(90deg, #7c3aed, var(--accent)); border-radius: 2px; pointer-events: none; }
+        .compare-timeline .cmp-tl-head { position: absolute; top: 40px; width: 13px; height: 13px; background: #fff; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 8px rgba(167,139,250,1); pointer-events: none; }
+        .compare-timeline .cmp-pin { position: absolute; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); cursor: pointer; }
+        .compare-timeline .cmp-pin::before { content: ''; position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 13px; height: 13px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; transition: width .1s, height .1s, top .1s; }
+        .compare-timeline .cmp-pin:hover::before { width: 16px; height: 16px; top: 4px; box-shadow: 0 0 0 2px #fff, 0 0 8px currentColor; }
+        .compare-timeline .cmp-pin:hover::after { content: attr(data-label); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(10,10,20,0.95); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 0.65em; white-space: nowrap; color: var(--text); z-index: 10; pointer-events: none; margin-bottom: 4px; }
+        .timeline-tc-end { position: absolute; bottom: 3px; right: 12px; font-size: 0.62em; font-family: monospace; color: var(--dim); pointer-events: none; }
+
+        /* Marker popup */
+        /* Overlay = juste un voile visuel, JAMAIS interactif. Ferme via Escape ou bouton.
+           Pointer-events:none empêche tout risque d'interception du click sur la textarea du popup. */
+        .popup-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 299; pointer-events: none; }
+        .marker-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--surface); border: 1px solid rgba(167,139,250,.3); border-radius: 14px; padding: 24px; z-index: 300; box-shadow: 0 24px 64px rgba(0,0,0,.8); min-width: 360px; }
+        .marker-popup h3 { color: var(--accent); margin-bottom: 14px; font-size: 1em; display: flex; align-items: center; gap: 8px; }
+        .marker-popup .cat-btns { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+        .marker-popup .cat-btns button { font-size: 0.85em; padding: 5px 12px; opacity: 0.45; transition: opacity .15s, transform .1s; }
+        .marker-popup .cat-btns button:hover { opacity: 0.8; }
+        .marker-popup .cat-btns button.selected { opacity: 1; outline: 2px solid var(--accent); transform: scale(1.05); }
+        .marker-popup textarea { width: 100%; height: 70px; margin-bottom: 12px; }
+        .marker-popup .popup-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+        .notes-panel { height: 370px; background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; }
+        .notes-header { padding: 6px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .notes-body { flex: 1; display: flex; overflow: hidden; }
+        .markers-list { width: 50%; border-right: 1px solid var(--border); overflow-y: auto; padding: 6px; }
+        .marker-row { font-size: 0.78em; padding: 5px 6px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 6px; align-items: center; border-radius: 4px; }
+        .marker-row:hover { background: rgba(167,139,250,.08); }
+        .marker-tc { font-family: monospace; color: var(--accent); flex-shrink: 0; }
+        .marker-cat { flex-shrink: 0; }
+        .marker-desc { color: var(--dim); line-height: 1.3; word-break: break-word; font-size: 0.95em; flex: 1; }
+        .marker-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+        .marker-row:hover .marker-actions { opacity: 1; }
+        .marker-actions button { font-size: 0.75em; padding: 1px 5px; opacity: 0.7; background: transparent; }
+        .marker-actions button:hover { opacity: 1; background: rgba(255,255,255,.08); }
+        .note-area { width: 50%; padding: 8px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+        textarea { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px; resize: none; border-radius: 6px; font-family: inherit; font-size: 0.85em; }
+        #clipNotes { flex: none; height: 72px; }
+        
+        /* Draw Tools */
+        .draw-tools { position: absolute; top: 16px; left: 16px; background: rgba(18,18,26,0.8); backdrop-filter: blur(4px); padding: 8px; border-radius: 8px; border: 1px solid var(--border); display: flex; gap: 8px; }
+        .draw-tools button { padding: 4px 8px; font-size: 1.2em; }
+        .draw-tools button.active { background: var(--accent); color: #000; }
+
+        
+        /* Project List */
+        .proj-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer; }
+        .proj-item:hover { background: rgba(167,139,250,.05); border-color: var(--accent); }
+        /* Filters */
+        .filter-bar { border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+        .filter-chips { display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px 4px; }
+        .fchip { font-size:0.72em;padding:2px 8px;opacity:0.45;border-radius:20px;transition:opacity .15s; }
+        .fchip.active { opacity:1;background:rgba(167,139,250,.2);border-color:var(--accent); }
+        .filter-selects { display:flex;gap:4px;padding:0 8px 5px; }
+        .filter-selects select { flex:1;font-size:0.72em;padding:2px 4px; }
+        /* Multi-user panel */
+        .mu-row { display:flex;align-items:center;gap:6px;padding:2px 0;font-size:0.75em; }
+        .mu-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block; }
+        .mu-block { border-left:2px solid var(--border);padding:6px 0 6px 10px;margin-bottom:8px; }
+        .mu-block:last-child { margin-bottom:0; }
+        .mu-user-header { display:flex;align-items:center;gap:6px;margin-bottom:4px; }
+        .mu-note { font-size:0.78em;color:var(--fg);background:rgba(255,255,255,0.04);border-radius:4px;padding:4px 6px;margin-bottom:4px;white-space:pre-wrap;line-height:1.4; }
+        .mu-marker { display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:3px 0;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.04); }
+        .mu-replies { width:100%;margin:3px 0 2px 10px;border-left:2px solid rgba(255,255,255,0.07);padding-left:8px; }
+        .mu-reply { font-size:0.75em;padding:1px 0;color:var(--dim);line-height:1.5; }
+        .mu-reply strong { font-size:1em; }
+        .mu-reply-form { display:flex;gap:4px;margin-top:4px; }
+        .mu-reply-form input { flex:1;font-size:0.75em;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--fg);min-width:0; }
+        .mu-reply-form button { font-size:0.72em;padding:2px 8px;flex-shrink:0; }
+        .mu-ext-block { border-left-color:#34d399; background:rgba(52,211,153,.04); border-radius:0 4px 4px 0; padding-right:8px; }
+        .mu-ext-comment { background:rgba(52,211,153,.07); border-radius:4px; padding:6px 8px; margin-top:4px; }
+        .mu-ext-head { display:flex; gap:8px; align-items:baseline; margin-bottom:2px; }
+        .mu-ext-text { font-size:0.8em; color:var(--text); white-space:pre-wrap; line-height:1.4; }
+        .marker-replies { padding:3px 6px 3px 22px;border-bottom:1px solid var(--border); }
+        .marker-reply { font-size:0.72em;color:var(--dim);padding:1px 0;line-height:1.5; }
+        /* Status badge */
+        .status-badge { font-size:0.65em;padding:1px 5px;border-radius:10px;border:1px solid;margin-left:4px; }
+        .status-valide { color:#34d399;border-color:#34d399; }
+        .status-arevoir { color:#f59e0b;border-color:#f59e0b; }
+        /* Export modal */
+        .export-modal { min-width:420px;max-width:560px;max-height:80vh;overflow-y:auto; }
+        .export-step { display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.85em; }
+        .export-step:last-child { border-bottom:none; }
+        .export-step-num { width:22px;height:22px;border-radius:50%;background:var(--accent);color:#000;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.85em; }
+        .val-ok { color:#34d399; }
+        .val-warn { color:#f59e0b; }
+        .val-err { color:#ef4444; }
+        /* Kbd shortcuts modal */
+        .kbd-row { display:flex;gap:8px;align-items:center;padding:4px 0;font-size:0.82em;border-bottom:1px solid var(--border); }
+        .kbd { display:inline-block;background:rgba(255,255,255,.08);border:1px solid var(--border);border-radius:3px;padding:1px 6px;font-family:monospace;font-size:0.9em;min-width:24px;text-align:center; }
+        .kbd-desc { color:var(--dim);flex:1; }
+        /* Health modal */
+        .health-modal { min-width:480px;max-width:620px;max-height:85vh;overflow-y:auto; }
+        .health-section { margin-bottom:18px; }
+        .health-section h3 { font-size:0.78em;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:8px;font-weight:600; }
+        .health-row { display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:0.85em; }
+        .health-row:last-child { border-bottom:none; }
+        .health-val { font-weight:500; }
+        .health-ok { color:#34d399; }
+        .health-warn { color:#f59e0b; }
+        .health-err { color:#ef4444; }
+        .health-info { color:var(--dim); }
+        .health-badge { font-size:0.75em;padding:1px 7px;border-radius:10px;border:1px solid;margin-left:6px; }
+    </style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="screenLogin" class="screen active">
+    <div class="card">
+        <h1>🎥 Dérushage</h1>
+        <p style="color:var(--dim);margin-bottom:24px;">Connectez-vous pour accéder à vos projets.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+            <label style="font-size:0.8em;color:var(--dim);">Identifiant</label>
+            <input type="text" id="loginUser" placeholder="Votre nom" autocomplete="username">
+            <label style="font-size:0.8em;color:var(--dim);">Mot de passe</label>
+            <input type="password" id="loginPass" placeholder="Mot de passe ou code d'invitation" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.82em;color:var(--dim);cursor:pointer;user-select:none;">
+                <input type="checkbox" id="loginRemember" style="width:auto;margin:0;cursor:pointer;">
+                Se souvenir de moi
+            </label>
+            <div id="loginError" style="color:var(--red);font-size:0.85em;display:none;"></div>
+            <button class="btn-primary" onclick="login()">Se connecter</button>
+            <hr style="border:0;border-top:1px solid var(--border);">
+            <button id="joinCloudBtn" onclick="showJoinCloud()" style="display:none;">🔑 Rejoindre un projet (clé d'invitation)</button>
+        </div>
+        <div style="margin-top:16px;text-align:center;">
+            <a href="/setup" style="font-size:0.75em;color:var(--dim);text-decoration:none;opacity:0.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">⚙️ Configuration</a>
+        </div>
+    </div>
+</div>
+
+<!-- PROJECTS SCREEN (post-login) -->
+<div id="screenProjects" class="screen">
+    <div class="card" style="max-width:480px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <h1 style="font-size:1.3em;margin:0;">🎬 Mes projets</h1>
+            <div style="display:flex;gap:6px;">
+                <button onclick="doLogout()" style="font-size:0.8em;background:none;border:1px solid var(--border);color:var(--dim);padding:4px 12px;">Déconnexion</button>
+                <button onclick="quitApp()" title="Fermer le logiciel" style="font-size:0.8em;background:none;border:1px solid rgba(239,68,68,.3);color:#ef4444;padding:4px 10px;">⏻</button>
+            </div>
+        </div>
+        <div id="myProjectsList" style="margin-bottom:16px;min-height:40px;"></div>
+        <hr style="border:0;border-top:1px solid var(--border);margin:16px 0;">
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            <button onclick="showScreen('screenHome')">+ Créer un nouveau projet</button>
+            <button id="joinCloudBtn2" onclick="showJoinCloud()" style="display:none;">🔑 Rejoindre un projet (clé d'invitation)</button>
+        </div>
+        <div style="margin-top:18px;text-align:center;display:flex;gap:14px;justify-content:center;font-size:0.75em;flex-wrap:wrap;">
+            <a href="#" onclick="openChangelogModal();return false;" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">📜 Nouveautés</a>
+            <a href="#" onclick="openCrashModal();return false;" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">🐞 Journal des erreurs</a>
+            <a href="/setup" style="color:var(--dim);text-decoration:none;opacity:0.55;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.55">⚙️ Configuration</a>
+            <span id="appVersionLabel" style="color:var(--dim);opacity:0.4;font-family:monospace;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Modal : lien de review partageable -->
+<div id="shareModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:480px;max-width:640px;width:90%;">
+        <h2 style="margin-bottom:6px;">🔗 Lien de review</h2>
+        <p style="font-size:0.82em;color:var(--dim);margin-bottom:16px;">Génère une URL publique read-only : le destinataire (client, réalisateur…) voit les annotations + contact strips, et peut laisser des commentaires par clip. Pas besoin d'installer quoi que ce soit.</p>
+        <div id="shareModalBody"></div>
+        <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">
+            <button onclick="closeShareModal()">Fermer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal : changelog / nouveautés -->
+<div id="changelogModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:540px;max-width:760px;width:90%;max-height:85vh;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <h2 style="margin:0;">📜 Nouveautés Derush Tool</h2>
+            <button onclick="closeChangelogModal()" style="font-size:0.8em;">Fermer</button>
+        </div>
+        <p id="changelogIntro" style="font-size:0.82em;color:var(--dim);margin-bottom:14px;"></p>
+        <div id="changelogBody" style="overflow-y:auto;flex:1;padding-right:8px;"></div>
+    </div>
+</div>
+
+<!-- Modal : scope d'application d'une LUT -->
+<div id="lutScopeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:380px;max-width:520px;width:90%;">
+        <h2 style="margin-bottom:6px;">🎨 Appliquer la LUT à…</h2>
+        <p id="lutScopeFile" style="font-size:0.78em;color:var(--dim);margin-bottom:14px;font-family:monospace;"></p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="radio" name="lutScopeMode" value="cameras" id="lutScopeRadioCameras" checked style="width:auto;margin:0;">
+                <span><strong>Caméra(s)</strong> — la LUT s'activera automatiquement sur les rushs de ces caméras</span>
+            </label>
+            <div id="lutScopeCameras" style="display:flex;flex-direction:column;gap:6px;margin-left:28px;font-size:0.88em;"></div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;">
+                <input type="radio" name="lutScopeMode" value="clip" id="lutScopeRadioClip" style="width:auto;margin:0;">
+                <span><strong>Ce rush uniquement</strong> — LUT appliquée seulement au clip sélectionné</span>
+            </label>
+        </div>
+        <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">
+            <button onclick="closeLutScopeModal()">Annuler</button>
+            <button class="btn-primary" onclick="confirmLutScope()">Valider</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal : journal des crashes -->
+<div id="crashModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:560px;max-width:820px;width:90%;max-height:80vh;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <h2 style="margin:0;">🐞 Journal des erreurs</h2>
+            <div style="display:flex;gap:6px;">
+                <button onclick="clearCrashes()" style="font-size:0.78em;color:#ef4444;border-color:rgba(239,68,68,.3);">Effacer</button>
+                <button onclick="closeCrashModal()" style="font-size:0.78em;">Fermer</button>
+            </div>
+        </div>
+        <p style="font-size:0.78em;color:var(--dim);margin-bottom:10px;">Erreurs JS frontend et exceptions Python backend, capturées localement (<code>%APPDATA%\\DerushTool\\crashes.jsonl</code>).</p>
+        <div id="crashList" style="overflow-y:auto;flex:1;font-family:monospace;font-size:0.78em;background:rgba(0,0,0,.35);border-radius:6px;padding:10px;"></div>
+    </div>
+</div>
+
+<!-- HOME SCREEN (create project) -->
+<div id="screenHome" class="screen">
+    <div class="card">
+        <h1>🎬 Nouveau projet</h1>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+            <label style="font-size:0.8em;color:var(--dim);">Nom du projet</label>
+            <input type="text" id="newProjName" placeholder="ex: DRIFT_CLUB">
+            <label style="font-size:0.8em;color:var(--dim);">Dossier racine des rushes</label>
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="newProjPath" placeholder="Chemin absolu du dossier des rushes" style="flex:1;">
+                <button onclick="browseFolder()">&#128193; Parcourir</button>
+            </div>
+            <div id="createProjError" style="color:var(--red);font-size:0.85em;display:none;"></div>
+            <button class="btn-primary" id="createProjBtn" onclick="createProject()">Créer &amp; Scanner</button>
+            <button onclick="goBackFromHome()">Retour</button>
+        </div>
+    </div>
+</div>
+
+<!-- WORKSPACE SCREEN -->
+<div id="screenWork" class="screen" style="padding:0; flex-direction: row;">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2 id="wsProjName" style="font-size: 1em; margin:0;">Projet</h2>
+            <div style="display: flex; gap: 4px; margin-top: 8px;">
+                <span id="userBadge" style="flex:1;padding:4px 8px;border-radius:6px;font-size:0.8em;font-weight:600;"></span>
+                <button onclick="showUserMgmt()" title="Gestion utilisateurs">⚙️</button>
+                <button onclick="showRootPathModal(true)" title="Chemin local des rushs">📁</button>
+                <button onclick="rescanProject(this)" title="Rescanner les médias">🔄</button>
+                <button onclick="doLogout()" title="Se déconnecter">Déco</button>
+                <button onclick="quitApp()" title="Fermer le logiciel" style="color:#ef4444;border-color:rgba(239,68,68,.3);">⏻</button>
+            </div>
+        </div>
+        <div class="filter-bar">
+            <input id="clipSearch" placeholder="🔍 Rechercher (notes, markers, tags, clips…)" oninput="onSearchInput(this.value)" style="margin-bottom:6px;">
+            <div class="filter-chips">
+                <button class="fchip active" data-filter="all" onclick="setFilter('all')">Tous</button>
+                <button class="fchip" data-filter="3" onclick="setFilter('3')">⭐⭐⭐</button>
+                <button class="fchip" data-filter="2+" onclick="setFilter('2+')">⭐⭐+</button>
+                <button class="fchip" data-filter="markers" onclick="setFilter('markers')">📌</button>
+                <button class="fchip" data-filter="unseen" onclick="setFilter('unseen')">Non vus</button>
+                <button class="fchip" data-filter="rejected" onclick="setFilter('rejected')">❌</button>
+                <button class="fchip" data-filter="disagree" onclick="setFilter('disagree')">⚡ Désaccord</button>
+            </div>
+            <div class="filter-selects">
+                <select id="filterCam" onchange="renderClipList()"><option value="">All</option></select>
+                <select id="filterDay" onchange="renderClipList()"><option value="">All</option></select>
+            </div>
+        </div>
+        <div class="clip-list" id="clipList"></div>
+    </div>
+
+    <!-- Export modal -->
+    <div id="exportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;">
+        <div class="card export-modal">
+            <h2>📤 Exporter</h2>
+            <p style="font-size:0.78em;color:var(--dim);margin:-8px 0 14px;">Formats pour DaVinci Resolve et Adobe Premiere Pro.</p>
+            <div id="validatorSection" style="margin-bottom:14px;background:rgba(0,0,0,.3);border-radius:8px;padding:10px 12px;font-size:0.82em;"></div>
+
+            <!-- Workflow complet -->
+            <p style="font-size:0.78em;color:var(--dim);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Workflow complet DaVinci</p>
+            <div class="export-step">
+                <div class="export-step-num">1</div>
+                <div>
+                    <strong>Timeline FCPXML</strong> — tous les clips annotés<br>
+                    <span style="color:var(--dim);font-size:0.85em;">File › Import › Timeline…</span><br>
+                    <button class="btn-primary" style="margin-top:6px;" onclick="exportDataWithParams('fcpxml')">📥 FCPXML complet</button>
+                </div>
+            </div>
+            <div class="export-step">
+                <div class="export-step-num">2</div>
+                <div>
+                    <strong>Markers EDL</strong> — commentaires et couleurs<br>
+                    <span style="color:var(--dim);font-size:0.85em;">Clic droit timeline › Timelines › Import › Timeline Markers from EDL</span><br>
+                    <button style="margin-top:6px;" onclick="exportData('markers_edl')">📥 Markers EDL</button>
+                </div>
+            </div>
+
+            <!-- Timelines de selects -->
+            <p style="font-size:0.78em;color:var(--dim);margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Timelines de selects</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
+                <button onclick="exportDataWithParams('fcpxml',{min_rating:3,label:'selects_3stars'})">⭐⭐⭐ uniquement</button>
+                <button onclick="exportDataWithParams('fcpxml',{min_rating:2,label:'selects_2stars_plus'})">⭐⭐ et ⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('fcpxml',{cats:'S',label:'problemes_son'})">🎵 Problèmes son</button>
+                <button onclick="exportDataWithParams('fcpxml',{cats:'T',label:'problemes_image'})">👁️ Problèmes image</button>
+                <button onclick="exportDataWithParams('fcpxml',{rejected:1,label:'a_couper'})">❌ À couper</button>
+            </div>
+
+            <!-- Rough cut auto-monté -->
+            <p style="font-size:0.78em;color:var(--dim);margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">🎬 Rough cut auto-monté</p>
+            <div style="font-size:0.8em;color:var(--dim);margin-bottom:8px;">Timeline pré-montée : tous les selects bout à bout dans l'ordre TC, prête à raffiner dans Resolve.</div>
+            <div style="font-size:0.85em;margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <label>Annotateur
+                    <select id="rcUser" style="font-size:0.82em;padding:3px 6px;margin-left:4px;">
+                        <option value="">— Toute l'équipe</option>
+                    </select>
+                </label>
+                <label>Rating min.
+                    <select id="rcRating" style="font-size:0.82em;padding:3px 6px;margin-left:4px;">
+                        <option value="3">⭐⭐⭐ uniquement</option>
+                        <option value="2" selected>⭐⭐ et plus</option>
+                        <option value="1">⭐ et plus</option>
+                    </select>
+                </label>
+                <button class="btn-primary" onclick="exportRoughCut()">📥 Générer rough cut</button>
+            </div>
+
+            <!-- Subclips autour des markers -->
+            <p style="font-size:0.78em;color:var(--dim);margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Subclips autour des markers</p>
+            <div style="font-size:0.85em;margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <label>Pré-roll <input type="number" id="subPre" value="3" min="0" max="60" style="width:50px;padding:3px 6px;"> s</label>
+                <label>Post-roll <input type="number" id="subPost" value="7" min="0" max="60" style="width:50px;padding:3px 6px;"> s</label>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+                <button onclick="exportSubclips()">📌 Tous les markers</button>
+                <button onclick="exportSubclips({cats:'S'})">🎵 Son</button>
+                <button onclick="exportSubclips({cats:'T'})">👁️ Image</button>
+                <button onclick="exportSubclips({min_rating:3})">⭐⭐⭐</button>
+            </div>
+
+            <!-- Adobe Premiere Pro -->
+            <p style="font-size:0.78em;color:var(--dim);margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Adobe Premiere Pro</p>
+            <div style="font-size:0.8em;color:var(--dim);margin-bottom:8px;">Format XML Final Cut Pro 7 (xmeml v5) — accepté nativement par Premiere via <em>File › Import…</em>. Inclut markers, ratings et zones X coupées.</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
+                <button class="btn-primary" onclick="exportDataWithParams('xml_fcp7')">📥 XML Premiere complet</button>
+                <button onclick="exportDataWithParams('xml_fcp7',{min_rating:3,label:'selects_3stars'})">⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('xml_fcp7',{min_rating:2,label:'selects_2stars_plus'})">⭐⭐ et ⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('xml_fcp7',{cats:'S',label:'problemes_son'})">🎵 Son</button>
+                <button onclick="exportDataWithParams('xml_fcp7',{cats:'T',label:'problemes_image'})">👁️ Image</button>
+            </div>
+
+            <!-- Rapports -->
+            <div class="export-step" style="margin-top:8px;">
+                <div class="export-step-num" style="background:var(--dim);">+</div>
+                <div>
+                    <strong>Rapports</strong><br>
+                    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+                        <button onclick="window.open(`/api/project/${currentProjectId}/export/report_html`,'_blank')">📋 Rapport HTML</button>
+                        <button onclick="exportData('csv')">📥 CSV</button>
+                    </div>
+                </div>
+            </div>
+            <button style="margin-top:14px;width:100%;" onclick="document.getElementById('exportModal').style.display='none'">Fermer</button>
+        </div>
+    </div>
+
+    <!-- Multi-cam modal -->
+    <div id="multicamModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
+        <div class="card" style="max-width:680px;width:95%;max-height:90vh;overflow-y:auto;">
+            <h2>🎥 Synchronisation multi-caméra</h2>
+            <p style="font-size:0.85em;color:var(--dim);margin:8px 0 14px;">
+                Détecte les clips multi-caméras dont les TC source se chevauchent. Le calage est frame-accurate quand les caméras sont jam-syncées. Si la caméra a un TC incohérent (ex. FS5 sur certains jours du tournage DRIFT), la paire ne sera pas détectée — pas de méthode audio de secours.
+            </p>
+            <div style="border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:10px 12px;margin-bottom:14px;background:rgba(255,255,255,.02);">
+                <div style="font-size:0.8em;font-weight:600;color:var(--accent);margin-bottom:7px;">📼 Son ingé (optionnel)</div>
+                <p style="font-size:0.78em;color:var(--dim);margin:0 0 8px;">Dossier contenant les BWF/WAV de l'ingénieur son (timecode BEXT). Permet d'entendre le son de référence dans le viewer multicam — n'influence pas la détection.</p>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <input id="sonDirInput" type="text" placeholder="/chemin/vers/les/sons" style="flex:1;padding:5px 9px;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:inherit;font-size:0.83em;">
+                    <button id="sonScanBtn" onclick="scanSonDir()" class="btn-primary" style="font-size:0.8em;padding:4px 11px;">Scanner</button>
+                </div>
+                <div id="sonStatus" style="font-size:0.77em;margin-top:5px;min-height:1.1em;color:var(--dim);"></div>
+            </div>
+            <div style="border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:10px 12px;margin-bottom:14px;background:rgba(255,255,255,.02);">
+                <div style="font-size:0.8em;font-weight:600;color:var(--accent);margin-bottom:7px;">🎶 LTC (Linear Timecode)</div>
+                <p style="font-size:0.78em;color:var(--dim);margin:0 0 8px;">Décode le LTC depuis la piste audio L des proxys. Permet de récupérer le vrai TC pour les caméras dont l'horloge interne n'est pas fiable (ex. FS5 sans jam-sync). Utilisé en priorité par la détection multi-cam à la place de <code>format.timecode</code>.</p>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                    <button id="ltcDecodeBtn" onclick="runDecodeLtc()" class="btn-primary" style="font-size:0.8em;padding:4px 11px;">🎶 Décoder LTC</button>
+                    <button id="ltcDecodeForceBtn" onclick="runDecodeLtc(true)" style="font-size:0.78em;padding:4px 9px;" title="Re-décoder même les clips déjà décodés">↻ Re-décoder tout</button>
+                    <span id="ltcSummary" style="font-size:0.77em;color:var(--dim);margin-left:8px;"></span>
+                </div>
+                <div id="ltcProgress" style="display:none;margin-top:8px;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.78em;margin-bottom:4px;">
+                        <span><strong>Décodage LTC</strong> <span id="ltcCurrent" style="color:var(--dim);font-family:monospace;font-size:0.92em;"></span></span>
+                        <span id="ltcCount" style="font-family:monospace;color:var(--accent);">—</span>
+                    </div>
+                    <div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;">
+                        <div id="ltcBar" style="height:100%;width:0%;background:linear-gradient(90deg,#a78bfa,#c4b5fd);transition:width .3s;"></div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;">
+                <button id="mcDetectBtn" class="btn-primary" onclick="runMulticamDetect()">🔍 Lancer la détection</button>
+                <span id="mcStatus" style="font-size:0.82em;color:var(--dim);"></span>
+            </div>
+            <div id="mcProgress" style="display:none;background:rgba(0,0,0,.3);border-radius:8px;padding:12px 14px;margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;font-size:0.78em;margin-bottom:4px;">
+                    <span><strong>Appariement TC</strong></span>
+                    <span id="mcCorrCount" style="font-family:monospace;color:var(--accent);">—</span>
+                </div>
+                <div style="height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;margin-bottom:8px;">
+                    <div id="mcCorrBar" style="height:100%;width:0%;background:linear-gradient(90deg,#10b981,#34d399);transition:width .3s;"></div>
+                </div>
+                <div id="mcEta" style="font-size:0.78em;color:var(--dim);text-align:right;"></div>
+            </div>
+            <div id="mcContent">
+                <p style="color:var(--dim);font-size:0.85em;text-align:center;padding:20px 0;">Aucun groupe détecté. Cliquez sur « Lancer la détection » pour analyser le projet.</p>
+            </div>
+            <button style="margin-top:14px;width:100%;" onclick="document.getElementById('multicamModal').style.display='none'">Fermer</button>
+        </div>
+    </div>
+
+    <!-- Keyboard shortcuts modal -->
+    <div id="kbdModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:400px;">
+            <h2>⌨️ Raccourcis clavier</h2>
+            <div style="margin-bottom:12px;">
+                <div class="kbd-row"><span class="kbd">1</span><span class="kbd">2</span><span class="kbd">3</span><span class="kbd-desc">Rating ⭐ / ⭐⭐ / ⭐⭐⭐</span></div>
+                <div class="kbd-row"><span class="kbd">X</span><span class="kbd-desc">Rejeter le clip ❌</span></div>
+                <div class="kbd-row"><span class="kbd">M</span><span class="kbd-desc">Ajouter un marker 📌</span></div>
+                <div class="kbd-row"><span class="kbd">I</span><span class="kbd-desc">Marker problème image 👁️</span></div>
+                <div class="kbd-row"><span class="kbd">S</span><span class="kbd-desc">Marker problème son 🎵</span></div>
+                <div class="kbd-row"><span class="kbd">Espace</span><span class="kbd-desc">Play / Pause</span></div>
+                <div class="kbd-row"><span class="kbd">J</span><span class="kbd-desc">Lecture arrière (×1 → ×2 → ×4)</span></div>
+                <div class="kbd-row"><span class="kbd">K</span><span class="kbd-desc">Stop / Pause</span></div>
+                <div class="kbd-row"><span class="kbd">L</span><span class="kbd-desc">Lecture avant (×1 → ×2 → ×4)</span></div>
+                <div class="kbd-row"><span class="kbd">←</span><span class="kbd-desc">Image précédente (1 frame)</span></div>
+                <div class="kbd-row"><span class="kbd">→</span><span class="kbd-desc">Image suivante (1 frame)</span></div>
+                <div class="kbd-row"><span class="kbd">⇧←</span><span class="kbd">⇧→</span><span class="kbd-desc">Saut ±5 secondes</span></div>
+                <div class="kbd-row"><span class="kbd">N</span><span class="kbd-desc">Clip suivant</span></div>
+                <div class="kbd-row"><span class="kbd">P</span><span class="kbd-desc">Clip précédent</span></div>
+                <div class="kbd-row"><span class="kbd">Ctrl+S</span><span class="kbd-desc">Sauvegarder</span></div>
+                <div class="kbd-row"><span class="kbd">Ctrl+Z</span><span class="kbd-desc">Annuler (undo)</span></div>
+                <div class="kbd-row"><span class="kbd">?</span><span class="kbd-desc">Afficher ces raccourcis</span></div>
+            </div>
+            <button style="width:100%;" onclick="document.getElementById('kbdModal').style.display='none'">Fermer</button>
+        </div>
+    </div>
+
+    <!-- Health check modal -->
+    <div id="healthModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
+        <div class="card health-modal">
+            <h2>🩺 Project Health Check</h2>
+            <div id="healthContent" style="margin-top:14px;">
+                <p style="color:var(--dim);text-align:center;">Chargement…</p>
+            </div>
+            <button style="width:100%;margin-top:16px;" onclick="document.getElementById('healthModal').style.display='none'">Fermer</button>
+        </div>
+    </div>
+
+    <!-- User management modal -->
+    <div id="userMgmtModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center;">
+        <div class="card" style="max-width:500px;width:95%;max-height:90vh;overflow-y:auto;">
+            <h2 style="margin-bottom:12px;">Gestion des utilisateurs</h2>
+            <div id="usersList" style="margin-bottom:4px;"></div>
+
+            <!-- Clé d'invitation (affichée après autorisation ou via 🔑) -->
+            <div id="nuInviteBox" style="display:none;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.35);border-radius:6px;padding:12px;margin:12px 0;">
+                <div style="font-size:0.8em;color:var(--dim);margin-bottom:6px;">Clé d'invitation — à transmettre au collaborateur :</div>
+                <div id="nuInviteCode" style="font-size:1.8em;font-weight:700;letter-spacing:6px;color:var(--accent);font-family:monospace;text-align:center;padding:6px 0;"></div>
+                <div style="font-size:0.75em;color:var(--dim);text-align:center;margin-top:4px;">Le collaborateur en aura besoin pour rejoindre le projet</div>
+            </div>
+
+            <!-- Bouton ajouter (masqué quand le formulaire est ouvert) -->
+            <button id="nuAddBtn" onclick="showAddForm()" style="width:100%;margin-top:12px;">+ Autoriser un collaborateur</button>
+
+            <!-- Formulaire d'autorisation (masqué par défaut) -->
+            <div id="nuFormSection" style="display:none;margin-top:12px;">
+                <hr style="border:0;border-top:1px solid var(--border);margin-bottom:12px;">
+                <h2 id="nuFormTitle" style="font-size:0.9em;margin-bottom:8px;">Autoriser l'accès</h2>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <input type="text" id="nuName" placeholder="Identifiant du collaborateur">
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="color" id="nuColor" value="#60a5fa" style="width:36px;height:36px;padding:0;cursor:pointer;">
+                        <label style="font-size:0.8em;color:var(--dim);">Couleur</label>
+                        <select id="nuRole" style="font-size:0.82em;padding:4px 8px;flex:1;">
+                            <option value="annotator">Annotateur</option>
+                            <option value="viewer">Lecteur seul</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div id="nuError" style="color:var(--red);font-size:0.8em;display:none;"></div>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn-primary" id="nuSubmitBtn" onclick="authorizeUser()" style="flex:1;">Générer la clé d'accès</button>
+                        <button id="nuCancelBtn" onclick="resetUserForm()">Annuler</button>
+                    </div>
+                </div>
+            </div>
+
+            <button style="margin-top:16px;width:100%;" onclick="hideUserMgmt()">Fermer</button>
+        </div>
+    </div>
+    
+    <div class="main">
+        <div class="player-area" onclick="if(event.target===this||event.target.id==='player')togglePlay()">
+            <div id="noVideoMsg" style="color: var(--dim);">Sélectionnez un clip</div>
+            <div class="video-wrapper" id="videoWrapper">
+                <video id="player" style="display:none;"></video>
+                <canvas id="drawCanvas"></canvas>
+                <canvas id="lutCanvas"></canvas>
+                <span id="lutBadge">LUT</span>
+                <div id="lutSettingsPanel" style="display:none;position:absolute;top:36px;right:8px;z-index:3;background:rgba(15,15,22,.96);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:240px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.6);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <strong style="font-size:0.82em;color:var(--accent);">🎚️ Réglages LUT</strong>
+                        <button onclick="resetLutSettings()" style="font-size:0.7em;padding:1px 6px;background:none;border:1px solid var(--border);color:var(--dim);">Reset</button>
+                    </div>
+                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Intensité <span id="lutIntensityVal" style="color:var(--text);float:right;font-family:monospace;">100%</span></label>
+                    <input type="range" id="lutIntensity" min="0" max="1" step="0.01" value="1" oninput="setLutSetting('intensity', this.value)" style="width:100%;margin-bottom:10px;">
+                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Exposition <span id="lutExposureVal" style="color:var(--text);float:right;font-family:monospace;">+0.00 EV</span></label>
+                    <input type="range" id="lutExposure" min="-2" max="2" step="0.05" value="0" oninput="setLutSetting('exposure', this.value)" style="width:100%;margin-bottom:10px;">
+                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Saturation <span id="lutSaturationVal" style="color:var(--text);float:right;font-family:monospace;">100%</span></label>
+                    <input type="range" id="lutSaturation" min="0" max="2" step="0.01" value="1" oninput="setLutSetting('saturation', this.value)" style="width:100%;">
+                </div>
+            </div>
+            
+            <div class="draw-tools" style="display:none;" id="drawTools">
+                <button onclick="setDrawMode('circle')" id="toolCircle">⭕</button>
+                <button onclick="setDrawMode('arrow')" id="toolArrow">↗️</button>
+                <button onclick="setDrawMode('free')" id="toolFree">✏️</button>
+                <input type="color" id="drawColor" value="#ef4444" style="padding:0; width: 30px; height: 30px;">
+                <button onclick="clearCanvas()">🗑</button>
+                <button onclick="saveDrawing()" class="btn-primary">✅ Valider</button>
+                <button onclick="cancelDrawing()">❌</button>
+            </div>
+        </div>
+        
+        <div class="player-controls">
+            <span class="tc-display" id="tcDisplay">00:00:00:00</span>
+            <button onclick="skip(-5)" title="-5s">◀5s</button>
+            <button onclick="skip(-1)" title="-1s">◀1s</button>
+            <button onclick="togglePlay()" style="font-size:1.1em;">⏯</button>
+            <button onclick="skip(1)" title="+1s">1s▶</button>
+            <button onclick="skip(5)" title="+5s">5s▶</button>
+            <button onclick="promptAddMarker()" style="color:#f59e0b;border-color:#f59e0b44;">📌 Marker</button>
+            <button onclick="startDrawing()">🖌 Dessin</button>
+            <button onclick="toggleFullscreen()" title="Plein écran (Touche Echap pour quitter)" style="font-size:1.1em;">⤢</button>
+            <button id="bwfBtn" onclick="toggleSingleBwf()" title="Lire le son BWF de l'ingé en sync" style="display:none;">🔊 Son ingé</button>
+            <div style="flex:1;"></div>
+            <div style="display:flex;gap:2px;align-items:center;margin-right:4px;">
+                <button class="spd-btn active" id="spd10" onclick="setSpeed(1)">1×</button>
+                <button class="spd-btn" id="spd125" onclick="setSpeed(1.25)">1.25×</button>
+                <button class="spd-btn" id="spd15" onclick="setSpeed(1.5)">1.5×</button>
+                <button class="spd-btn" id="spd20" onclick="setSpeed(2)">2×</button>
+            </div>
+            <button onclick="openCompare()" title="Comparer deux clips">⚡ Comparer</button>
+            <button id="lutBtn" onclick="toggleLUT()" title="Activer/désactiver la LUT" style="display:none;">🎨 LUT</button>
+            <input type="file" id="lutFileInput" accept=".cube" style="display:none;" onchange="onLUTFileSelected(event)">
+            <button onclick="document.getElementById('lutFileInput').click()" title="Charger une LUT .cube">📂 LUT</button>
+            <button onclick="openMulticamModal()" title="Détecter et gérer les groupes multi-caméra">🎥 Multi-cam</button>
+            <button onclick="openExportModal()" title="Exporter vers DaVinci Resolve">📤 Exporter</button>
+            <button onclick="openShareModal()" title="Créer un lien de review public">🔗 Partager</button>
+            <button onclick="openHealthModal()" title="Project Health Check">🩺</button>
+            <button onclick="document.getElementById('kbdModal').style.display='flex'" title="Raccourcis clavier">⌨️</button>
+            <button id="syncBtn" onclick="triggerSync()" title="Synchroniser maintenant" style="display:none;">
+                <span id="syncDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6b7280;margin-right:4px;vertical-align:middle;"></span><span id="syncLabel">Sync</span>
+            </button>
+            <span id="saveStatus" style="font-size:0.75em;color:#34d399;opacity:0;transition:opacity .6s;"></span>
+            <button onclick="saveNotes()" class="btn-primary" title="Sauvegarder (Ctrl+S)">💾 Sauver</button>
+        </div>
+
+        <!-- Timeline -->
+        <div class="timeline-bar" id="timelineBar" onmousedown="timelineSeek(event)">
+            <canvas id="waveformCanvas" style="position:absolute;left:12px;right:12px;top:0;bottom:0;width:calc(100% - 24px);height:100%;pointer-events:none;z-index:0;opacity:0.55;"></canvas>
+            <div class="timeline-track" id="timelineTrack">
+                <div class="timeline-progress" id="timelineProgress"></div>
+                <div class="timeline-head" id="timelineHead"></div>
+            </div>
+            <span class="timeline-tc-start" id="tlTcStart">00:00:00:00</span>
+            <span class="timeline-tc-end" id="tlTcEnd">--:--:--:--</span>
+        </div>
+        <!-- Marker popup -->
+        <div class="popup-overlay" id="popupOverlay"></div>
+        <div class="marker-popup" id="markerPopup">
+            <h3 id="popupTitle">📌 Nouveau Marker <span id="popupTc" style="font-family:monospace;font-size:0.85em;color:var(--dim);"></span></h3>
+            <div class="cat-btns">
+                <button onclick="selectPopupCat('3')" id="pcat3" style="color:#fcd34d;border-color:#fcd34d;">⭐⭐⭐ Top</button>
+                <button onclick="selectPopupCat('2')" id="pcat2" style="color:#a78bfa;border-color:#a78bfa;">⭐⭐ Bien</button>
+                <button onclick="selectPopupCat('1')" id="pcat1" style="color:#9ca3af;border-color:#9ca3af;">⭐ OK</button>
+                <button onclick="selectPopupCat('T')" id="pcatT" style="color:#3b82f6;border-color:#3b82f6;">⚠️ Problème image</button>
+                <button onclick="selectPopupCat('S')" id="pcatS" style="color:#10b981;border-color:#10b981;">⚠️ Problème son</button>
+                <button onclick="selectPopupCat('X')" id="pcatX" style="color:#ef4444;border-color:#ef4444;">❌ À couper</button>
+                <button onclick="selectPopupCat('D')" id="pcatD" style="color:#f59e0b;border-color:#f59e0b;">📌 Note</button>
+            </div>
+            <textarea id="popupDesc" placeholder="Commentaire (optionnel)..."></textarea>
+            <div class="popup-actions">
+                <button onclick="cancelMarkerPopup()">Annuler</button>
+                <button class="btn-primary" id="popupConfirmBtn" onclick="confirmMarker()">Ajouter le marker</button>
+            </div>
+        </div>
+
+        <div class="notes-panel">
+            <div class="notes-header">
+                <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <strong id="clipTitle" style="font-size:0.85em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</strong>
+                        <span id="clipStatusBadge"></span>
+                    </div>
+                    <div id="techMeta" class="tech-meta"></div>
+                </div>
+                <div id="ratingBtns" style="display:flex;gap:4px;flex-shrink:0;">
+                    <button onclick="setRating(3)" title="Top">⭐⭐⭐</button>
+                    <button onclick="setRating(2)" title="Bien">⭐⭐</button>
+                    <button onclick="setRating(1)" title="OK">⭐</button>
+                    <button onclick="setRating('X')" title="Rejet" style="color:var(--red);">❌</button>
+                    <button onclick="cycleStatus()" id="statusBtn" title="Statut clip" style="font-size:0.8em;padding:2px 6px;color:var(--dim);">—</button>
+                </div>
+            </div>
+            <div class="notes-body">
+                <div class="markers-list" id="markersList"></div>
+                <div class="note-area">
+                    <div id="anglesPanelWrap" style="display:none;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <label style="font-size:0.7em;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;">🎥 Autres angles</label>
+                            <button id="openMcViewerBtn" onclick="openMcViewer()" style="font-size:0.7em;padding:2px 8px;" title="Vue 4-up plein écran">⛶ Voir le groupe</button>
+                        </div>
+                        <div id="anglesPanel" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;"></div>
+                    </div>
+                    <div id="multiUserPanelWrap" style="display:none;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px;">
+                        <label style="font-size:0.7em;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;">Avis des autres</label>
+                        <div id="multiUserPanel" style="margin-top:4px;"></div>
+                    </div>
+                    <label style="font-size:0.75em;color:var(--dim);">Notes globales</label>
+                    <textarea id="clipNotes"></textarea>
+                    <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                        <label style="font-size:0.72em;color:var(--dim);letter-spacing:0.05em;text-transform:uppercase;">Tags</label>
+                        <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+                            <div id="tagsDisplay" class="tags-area" style="display:contents;"></div>
+                            <input id="tagInput" placeholder="+ tag (Entrée)…" onkeydown="handleTagInput(event)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- CRASH REPORTER (placé tout en haut pour capturer même les erreurs init) ---
+(function() {
+    let _crashThrottle = 0;
+    function _postCrash(payload) {
+        // Throttle : pas plus d'1 crash report par 500ms (évite tempête)
+        const now = Date.now();
+        if (now - _crashThrottle < 500) return;
+        _crashThrottle = now;
+        try {
+            fetch('/api/crash', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+                keepalive: true,
+            }).catch(() => {});
+        } catch (e) {}
+    }
+    window.addEventListener('error', (e) => {
+        _postCrash({
+            type: (e.error && e.error.name) || 'Error',
+            message: (e.message || '').slice(0, 2000),
+            stack: ((e.error && e.error.stack) || '').slice(0, 6000),
+            url: (e.filename || location.href).slice(0, 500),
+            line: e.lineno || null,
+            col: e.colno || null,
+        });
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+        const r = e.reason;
+        _postCrash({
+            type: (r && r.name) || 'UnhandledRejection',
+            message: ((r && r.message) || String(r || '')).slice(0, 2000),
+            stack: ((r && r.stack) || '').slice(0, 6000),
+            url: location.href,
+        });
+    });
+})();
+
+// --- STATE ---
+let currentProjectId = null;
+let currentProject = null;
+let currentSession = null; // {user_id, name, color, root_path, project_id, is_admin, token}
+let clips = [];
+let allNotes = {};
+let activeClip = null;
+let activeFilter = 'all';
+let seenClipIds = new Set();
+const CLIP_STATUSES = [null, 'arevoir', 'valide'];
+
+// --- PRÉ-GÉNÉRATION (thumbnails + strips en arrière-plan) ---
+const _pregen = { q: [], n: 0, max: 3 };
+let _activeHoverClipId = null;
+let selectedMarkerId = null;
+
+function timeToTC(t, fps) {
+    fps = fps || 25;
+    const h = Math.floor(t / 3600);
+    const mn = Math.floor((t % 3600) / 60);
+    const s = Math.floor(t % 60);
+    const f = Math.floor((t % 1) * fps);
+    return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`;
+}
+function _pregenRun() {
+    while (_pregen.n < _pregen.max && _pregen.q.length > 0) {
+        const url = _pregen.q.shift();
+        _pregen.n++;
+        const img = new Image();
+        img.onload = img.onerror = () => { _pregen.n--; _pregenRun(); };
+        img.src = url;
+    }
+}
+function _pregenAdd(url) { _pregen.q.push(url); _pregenRun(); }
+let _stripObserver = null;
+const STATUS_LABELS = { arevoir: '↺ À revoir', valide: '✓ Validé' };
+const STATUS_CSS = { arevoir: 'status-arevoir', valide: 'status-valide' };
+let undoStack = [];
+let waveformPeaks = [];
+let allDiscussions = {};
+let pollingInterval = null;
+let activeSearch = '';
+let _searchHits = null;       // Set<clip_id> when FTS search is active, null otherwise
+let _searchSnippets = {};     // clip_id → snippet HTML (for badge tooltip)
+let _searchTimer = null;
+let currentSpeed = 1;
+// Auto-save
+let lastSavedHash = null;
+
+// --- HELPERS ---
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+}
+
+function authHeaders() {
+    return currentSession ? {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentSession.token} : {'Content-Type': 'application/json'};
+}
+
+async function apiFetch(url, opts={}) {
+    if(!opts.headers) opts.headers = {};
+    if(currentSession) opts.headers['Authorization'] = 'Bearer ' + currentSession.token;
+    return fetch(url, opts);
+}
+
+// --- INIT ---
+async function init() {
+    // Check if profile exists on this machine
+    try {
+        const pr = await fetch('/api/profile');
+        const pd = await pr.json();
+        if (!pd.exists) { window.location.href = '/setup'; return; }
+    } catch(e) {}
+
+    document.getElementById('joinCloudBtn').style.display = 'block';
+    document.getElementById('joinCloudBtn2').style.display = 'block';
+
+    // Restore session from localStorage
+    const saved = localStorage.getItem('derush_session');
+    if(saved) {
+        try {
+            const s = JSON.parse(saved);
+            const r = await fetch('/api/me', {headers: {'Authorization': 'Bearer ' + s.token}});
+            if(r.ok) {
+                currentSession = s;
+                // Restore project session if needed
+                if(s.project_id) {
+                    const enterRes = await fetch('/api/project/enter', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.token}, body: JSON.stringify({project_id: s.project_id})});
+                    if(enterRes.ok) {
+                        const enterData = await enterRes.json();
+                        currentSession = {...s, ...enterData.user, token: s.token};
+                        localStorage.setItem('derush_session', JSON.stringify(currentSession));
+                        await enterWorkspace(s.project_id);
+                        return;
+                    }
+                }
+                await showProjectsScreen();
+                return;
+            }
+        } catch(e) {}
+        localStorage.removeItem('derush_session');
+    }
+    _prefillLogin();
+    showScreen('screenLogin');
+    setTimeout(() => {
+        const p = document.getElementById('loginPass');
+        if (p && p.value) p.focus(); // si pré-rempli → focus sur le mdp pour Enter immédiat
+    }, 0);
+}
+
+async function showProjectsScreen() {
+    showScreen('screenProjects');
+    const list = document.getElementById('myProjectsList');
+    list.innerHTML = '<span style="color:var(--dim);font-size:0.85em;">Chargement…</span>';
+    const h1 = document.querySelector('#screenProjects h1');
+    if(h1 && currentSession) h1.textContent = '🎬 Bonjour, ' + (currentSession.name || currentSession.username);
+    try {
+        const res = await apiFetch('/api/my_projects');
+        const projs = await res.json();
+        list.innerHTML = '';
+        if(!projs.length) {
+            list.innerHTML = '<p style="color:var(--dim);font-size:0.85em;">Aucun projet. Créez-en un ou rejoignez un projet existant.</p>';
+            return;
+        }
+        projs.forEach(p => {
+            const div = document.createElement('div');
+            div.className = 'proj-item';
+            div.innerHTML = `<strong>${p.name}</strong><span style="float:right;font-size:0.8em;color:var(--dim);">${p.clip_count} clips</span>`;
+            div.onclick = () => enterWorkspace(p.id);
+            list.appendChild(div);
+        });
+    } catch(e) {
+        list.innerHTML = '<span style="color:var(--red);font-size:0.85em;">Erreur de chargement</span>';
+    }
+}
+
+// --- ROOT PATH ---
+let _rootPathCallback = null; // called after save if set (used for first-time flow)
+
+function showRootPathModal(isEdit = false) {
+    const modal = document.getElementById('rootPathModal');
+    document.getElementById('rootPathError').style.display = 'none';
+    document.getElementById('rootPathInput').value = currentSession.root_path || '';
+    document.getElementById('rootPathModalTitle').textContent = isEdit ? '📁 Chemin local des rushs' : '📁 Définir le dossier des rushs';
+    document.getElementById('rootPathModalDesc').innerHTML = isEdit
+        ? 'Modifiez l\'emplacement des fichiers vidéo sur <strong>cet ordinateur</strong>.'
+        : 'Indiquez où se trouvent les fichiers vidéo sur <strong>cet ordinateur</strong>. Chaque collaborateur configure son propre chemin.';
+    document.getElementById('rootPathCancelBtn').style.display = isEdit ? '' : 'none';
+    modal.style.display = 'flex';
+    setTimeout(() => document.getElementById('rootPathInput').focus(), 50);
+}
+
+function closeRootPathModal() {
+    document.getElementById('rootPathModal').style.display = 'none';
+    _rootPathCallback = null;
+}
+
+async function browseRootPath() {
+    try {
+        const r = await apiFetch('/api/browse');
+        if(r.ok) {
+            const d = await r.json();
+            if(d.path) document.getElementById('rootPathInput').value = d.path;
+        }
+    } catch(e) {}
+}
+
+async function saveRootPath() {
+    const path = document.getElementById('rootPathInput').value.trim();
+    const errEl = document.getElementById('rootPathError');
+    errEl.style.display = 'none';
+    if(!path) { errEl.textContent = 'Veuillez indiquer un chemin.'; errEl.style.display = 'block'; return; }
+    const btn = document.querySelector('#rootPathModal .btn-primary');
+    btn.disabled = true; btn.textContent = 'Enregistrement…';
+    try {
+        const res = await apiFetch(`/api/project/${currentProjectId}/set_root_path`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({root_path: path})
+        });
+        const data = await res.json();
+        if(!res.ok) { errEl.textContent = data.error || 'Erreur'; errEl.style.display = 'block'; return; }
+        currentSession.root_path = path;
+        localStorage.setItem('derush_session', JSON.stringify(currentSession));
+        closeRootPathModal();
+        if(_rootPathCallback) { const cb = _rootPathCallback; _rootPathCallback = null; cb(); }
+    } catch(e) {
+        errEl.textContent = 'Erreur réseau : ' + e.message; errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false; btn.textContent = 'Valider →';
+    }
+}
+
+function showJoinCloud() {
+    document.getElementById('joinCloudModal').style.display = 'flex';
+    document.getElementById('joinCloudError').style.display = 'none';
+    document.getElementById('joinProjectId').value = '';
+    document.getElementById('joinInviteKey').value = '';
+    setTimeout(() => document.getElementById('joinProjectId').focus(), 50);
+}
+
+function closeJoinCloud() {
+    document.getElementById('joinCloudModal').style.display = 'none';
+}
+
+async function joinCloudProject() {
+    const errEl = document.getElementById('joinCloudError');
+    errEl.style.display = 'none';
+    const pid = document.getElementById('joinProjectId').value.trim();
+    const key = document.getElementById('joinInviteKey').value.trim().toUpperCase();
+    if (!pid || !key) { errEl.textContent = 'ID du projet et clé d\'invitation requis.'; errEl.style.display = 'block'; return; }
+    const btn = document.querySelector('#joinCloudModal .btn-primary');
+    btn.disabled = true; btn.textContent = 'Téléchargement…';
+    try {
+        const res = await apiFetch('/api/sync/join_with_key', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project_id: pid, invite_key: key})});
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erreur');
+        closeJoinCloud();
+        await showProjectsScreen();
+    } catch(e) {
+        errEl.textContent = e.message;
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false; btn.textContent = 'Rejoindre →';
+    }
+}
+
+async function login() {
+    const user = document.getElementById('loginUser').value.trim();
+    const pass = document.getElementById('loginPass').value;
+    const errEl = document.getElementById('loginError');
+    errEl.style.display = 'none';
+    if(!user) { errEl.textContent = 'Identifiant requis'; errEl.style.display = 'block'; return; }
+    const res = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username: user, password: pass})});
+    const data = await res.json();
+    if(!res.ok) { errEl.textContent = data.error || 'Erreur'; errEl.style.display = 'block'; return; }
+    currentSession = {...data.user, token: data.token};
+    localStorage.setItem('derush_session', JSON.stringify(currentSession));
+    // Si "Se souvenir de moi" coché : sauvegarde les identifiants pour pré-remplissage.
+    // Sinon : nettoie toute trace précédente.
+    const remember = document.getElementById('loginRemember');
+    if (remember && remember.checked) {
+        try { localStorage.setItem('derush_remember', JSON.stringify({username: user, password: pass})); } catch(e) {}
+    } else {
+        try { localStorage.removeItem('derush_remember'); } catch(e) {}
+    }
+    await showProjectsScreen();
+}
+
+function _prefillLogin() {
+    const cb = document.getElementById('loginRemember');
+    try {
+        const saved = localStorage.getItem('derush_remember');
+        if (!saved) { if (cb) cb.checked = false; return; }
+        const {username, password} = JSON.parse(saved);
+        const uEl = document.getElementById('loginUser');
+        const pEl = document.getElementById('loginPass');
+        if (uEl && username) uEl.value = username;
+        if (pEl && password) pEl.value = password;
+        if (cb) cb.checked = true;
+    } catch(e) { if (cb) cb.checked = false; }
+}
+
+
+async function doLogout() {
+    if(pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+    stopWebSocket();
+    _jklStopRev(); _jklSpeed = 0;
+    closeCompare();
+    closeMcViewer();
+    await apiFetch('/api/logout', {method:'POST'});
+    currentSession = null;
+    currentProjectId = null;
+    localStorage.removeItem('derush_session');
+    activeClip = null; clips = []; allNotes = {}; allDiscussions = {};
+    showScreen('screenLogin');
+    document.getElementById('loginUser').value = '';
+    document.getElementById('loginPass').value = '';
+    _prefillLogin();
+}
+
+function goBackFromHome() {
+    if(currentSession) showProjectsScreen();
+    else showScreen('screenLogin');
+}
+
+async function enterWorkspace(pid) {
+    // Set project-specific session (color, is_admin, root_path)
+    const enterRes = await apiFetch('/api/project/enter', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project_id: pid})});
+    if(!enterRes.ok) {
+        const err = await enterRes.json().catch(()=>({}));
+        alert(err.error || 'Accès refusé à ce projet');
+        showProjectsScreen();
+        return;
+    }
+    const enterData = await enterRes.json();
+    currentSession = {...currentSession, ...enterData.user};
+    localStorage.setItem('derush_session', JSON.stringify(currentSession));
+
+    currentProjectId = pid;
+    const cRes = await apiFetch(`/api/project/${pid}/config`);
+    currentProject = await cRes.json();
+    const clipRes = await apiFetch(`/api/project/${pid}/clips`);
+    clips = await clipRes.json();
+    const notesRes = await apiFetch(`/api/project/${pid}/notes`);
+    allNotes = await notesRes.json();
+    const myKey = currentSession.user_id || currentSession.username;
+    if(myKey && !allNotes[myKey]) allNotes[myKey] = {};
+    const discRes = await apiFetch(`/api/project/${pid}/discussions`);
+    allDiscussions = discRes.ok ? await discRes.json() : {};
+    // Load share state (lien partagé + commentaires externes)
+    _shareState = null;
+    try {
+        const sRes = await apiFetch(`/api/project/${pid}/share/info`);
+        if (sRes.ok) _shareState = await sRes.json();
+    } catch(e) {}
+    // Assign IDs to existing markers that don't have one
+    for(const userNotes of Object.values(allNotes)) {
+        for(const clipNotes of Object.values(userNotes)) {
+            for(const m of (clipNotes.markers || [])) {
+                if(!m.id) m.id = Math.random().toString(36).slice(2, 10);
+            }
+        }
+    }
+    document.getElementById('wsProjName').textContent = currentProject.name;
+    const badge = document.getElementById('userBadge');
+    badge.textContent = currentSession.name;
+    badge.style.background = currentSession.color + '33';
+    badge.style.color = currentSession.color;
+    // Show/hide user mgmt button for non-admins
+    document.querySelectorAll('[onclick="showUserMgmt()"]').forEach(b => b.style.display = currentSession.is_admin ? '' : 'none');
+    // Reset filters and dropdown caches
+    activeFilter = 'all';
+    activeSearch = '';
+    _searchHits = null;
+    _searchSnippets = {};
+    seenClipIds = new Set();
+    document.querySelectorAll('.fchip').forEach(b => b.classList.toggle('active', b.dataset.filter==='all'));
+    const searchEl = document.getElementById('clipSearch');
+    if(searchEl) searchEl.value = '';
+    const camSel = document.getElementById('filterCam');
+    const daySel = document.getElementById('filterDay');
+    if(camSel) camSel.innerHTML = '<option value="">All</option>';
+    if(daySel) daySel.innerHTML = '<option value="">All</option>';
+    showScreen('screenWork');
+    renderClipList();
+    applyRoleUI(currentSession.role || (currentSession.is_admin ? 'admin' : 'annotator'));
+    // Si root_path vide → demander à l'utilisateur (premier accès sur cette machine)
+    if(!currentSession.root_path) {
+        _rootPathCallback = () => rescanProject(null);
+        showRootPathModal(false);
+    }
+    // Pré-générer thumbnails pour tous les clips dès le chargement
+    clips.forEach(c => _pregenAdd(`/api/project/${pid}/thumbnail/${c.id}`));
+    // Load multicam groups so the badges appear on the clip list
+    refreshMulticam().then(renderClipList);
+    startWebSocket();
+    startNotesPolling();
+    startSyncPolling();
+    // Sync immédiate au chargement du projet
+    fetch('/api/sync/now', {method:'POST'}).then(r=>r.json()).then(d=>{
+        if(d.ok){ const nRes=apiFetch(`/api/project/${pid}/notes`).then(r=>r.json()).then(n=>{for(const[k,v] of Object.entries(n)) allNotes[k]=v; renderClipList();}); }
+        pollSyncStatus();
+    }).catch(()=>{});
+}
+
+async function createProject() {
+    const name = document.getElementById('newProjName').value.trim();
+    const root = document.getElementById('newProjPath').value.trim();
+    const errEl = document.getElementById('createProjError');
+    errEl.style.display = 'none';
+    if(!name || !root) { errEl.textContent = 'Nom et dossier requis.'; errEl.style.display = 'block'; return; }
+    const btn = document.getElementById('createProjBtn');
+    btn.textContent = 'Scan en cours...'; btn.disabled = true;
+    try {
+        const res = await apiFetch('/api/project/open', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, root_path: root})});
+        const data = await res.json();
+        if(!res.ok || data.error) { errEl.textContent = data.error || 'Erreur'; errEl.style.display = 'block'; return; }
+        await enterWorkspace(data.id);
+    } finally {
+        btn.textContent = 'Créer & Scanner'; btn.disabled = false;
+    }
+}
+
+// --- USER MANAGEMENT ---
+async function rescanProject(btn) {
+    if(!currentProjectId) return;
+    const orig = btn ? btn.textContent : '';
+    if(btn) { btn.textContent = '⏳'; btn.disabled = true; }
+    try {
+        const res = await apiFetch(`/api/project/${currentProjectId}/scan`, {method:'POST'});
+        if(!res.ok) { alert('Erreur lors du scan'); return; }
+        const data = await res.json();
+        clips = data.clips || clips;
+        showSaveStatus(`🔄 ${clips.length} clips`, '#60a5fa');
+        seenClipIds = new Set();
+        const camSel = document.getElementById('filterCam');
+        const daySel = document.getElementById('filterDay');
+        if(camSel) camSel.innerHTML = '<option value="">All</option>';
+        if(daySel) daySel.innerHTML = '<option value="">All</option>';
+        renderClipList();
+    } finally {
+        if(btn) { btn.textContent = orig; btn.disabled = false; }
+    }
+}
+
+function showUserMgmt() {
+    document.getElementById('userMgmtModal').style.display = 'flex';
+    renderUsersList();
+}
+function renderUsersList() {
+    const ul = document.getElementById('usersList');
+    ul.innerHTML = '';
+    const myUsername = (currentSession.username || currentSession.name || '').toLowerCase();
+    (currentProject.users || []).forEach(u => {
+        const uname = u.username || u.name || '';
+        const isSelf = uname.toLowerCase() === myUsername;
+        const d = document.createElement('div');
+        d.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.85em;';
+        const pending = u.pending ? '<span style="background:#f59e0b22;color:#f59e0b;border-radius:4px;padding:1px 6px;font-size:0.75em;">En attente</span>' : '';
+        d.innerHTML = `<span style="width:12px;height:12px;border-radius:50%;background:${u.color||'#888'};flex-shrink:0;display:inline-block;"></span>
+            <span style="flex:1;"><strong>${uname}</strong> ${u.is_admin?'<span style="color:var(--accent);font-size:0.75em;">Admin</span>':''} ${pending}</span>
+            ${u.pending ? `<button title="Voir la clé d'invitation" onclick="showInviteKey(${JSON.stringify(uname)})" style="padding:2px 8px;font-size:0.8em;">🔑</button>` : ''}`;
+        if (!isSelf) {
+            const del = document.createElement('button');
+            del.textContent = '🗑';
+            del.title = 'Supprimer';
+            del.style.cssText = 'padding:2px 8px;font-size:0.8em;color:var(--red);';
+            del.onclick = () => deleteUser(uname);
+            d.appendChild(del);
+        }
+        ul.appendChild(d);
+    });
+}
+function hideUserMgmt() {
+    document.getElementById('userMgmtModal').style.display = 'none';
+    resetUserForm();
+}
+function resetUserForm() {
+    document.getElementById('nuName').value = '';
+    document.getElementById('nuColor').value = '#60a5fa';
+    document.getElementById('nuRole').value = 'annotator';
+    document.getElementById('nuFormTitle').textContent = 'Autoriser l\'accès';
+    document.getElementById('nuError').style.display = 'none';
+    document.getElementById('nuFormSection').style.display = 'none';
+    document.getElementById('nuAddBtn').style.display = '';
+    document.getElementById('nuInviteBox').style.display = 'none';
+}
+
+function showAddForm() {
+    document.getElementById('nuInviteBox').style.display = 'none';
+    document.getElementById('nuFormSection').style.display = '';
+    document.getElementById('nuAddBtn').style.display = 'none';
+    document.getElementById('nuName').value = '';
+    document.getElementById('nuName').focus();
+}
+
+async function authorizeUser() {
+    const errEl = document.getElementById('nuError');
+    errEl.style.display = 'none';
+    const username = document.getElementById('nuName').value.trim();
+    if (!username) { errEl.textContent = 'L\'identifiant est requis'; errEl.style.display = 'block'; return; }
+    const role = document.getElementById('nuRole').value;
+    const body = {username, color: document.getElementById('nuColor').value, role, is_admin: role === 'admin'};
+    const res = await apiFetch(`/api/project/${currentProjectId}/authorize_user`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || 'Erreur'; errEl.style.display = 'block'; return; }
+    document.getElementById('nuFormSection').style.display = 'none';
+    document.getElementById('nuAddBtn').style.display = '';
+    document.getElementById('nuInviteCode').textContent = data.invite_key || '—';
+    document.getElementById('nuInviteBox').style.display = 'block';
+    const cRes = await apiFetch(`/api/project/${currentProjectId}/config`);
+    currentProject = await cRes.json();
+    renderUsersList();
+}
+
+async function showInviteKey(username) {
+    const res = await apiFetch(`/api/project/${currentProjectId}/invite_key/${encodeURIComponent(username)}`);
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Erreur'); return; }
+    document.getElementById('nuInviteCode').textContent = data.invite_key || '—';
+    document.getElementById('nuInviteBox').style.display = 'block';
+    document.getElementById('nuFormSection').style.display = 'none';
+}
+
+async function deleteUser(username) {
+    const res = await apiFetch(`/api/project/${currentProjectId}/delete_user`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username})});
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Erreur', 'err'); return; }
+    showToast(`${username} supprimé du projet`, 'ok');
+    const cRes = await apiFetch(`/api/project/${currentProjectId}/config`);
+    currentProject = await cRes.json();
+    renderUsersList();
+}
+
+
+
+function closeProject() {
+    doLogout();
+}
+
+// switchUser is no longer needed (login handles user switching)
+
+// --- CLIPS ---
+function setFilter(f) {
+    activeFilter = f;
+    document.querySelectorAll('.fchip').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
+    renderClipList();
+}
+
+// FTS search via /api/search (debounced). For >=2 chars, we restrict the clip
+// list to indexed hits; below that, fall back to local substring match.
+function onSearchInput(v) {
+    activeSearch = (v || '').toLowerCase();
+    if (_searchTimer) clearTimeout(_searchTimer);
+    if (activeSearch.length < 2) {
+        _searchHits = null;
+        _searchSnippets = {};
+        renderClipList();
+        return;
+    }
+    _searchTimer = setTimeout(async () => {
+        try {
+            const url = `/api/search?q=${encodeURIComponent(activeSearch)}&pid=${encodeURIComponent(currentProjectId || '')}`;
+            const r = await apiFetch(url);
+            const j = await r.json();
+            _searchHits = new Set();
+            _searchSnippets = {};
+            for (const hit of (j.results || [])) {
+                _searchHits.add(hit.clip_id);
+                if (!_searchSnippets[hit.clip_id]) _searchSnippets[hit.clip_id] = hit.snippet || '';
+            }
+        } catch(e) {
+            _searchHits = null;  // network failure → fall back to local match
+        }
+        renderClipList();
+    }, 200);
+}
+
+function renderClipList() {
+    const list = document.getElementById('clipList');
+    list.innerHTML = '';
+    const uid = currentSession ? (currentSession.user_id || currentSession.username) : null;
+    const RATING_LABELS = {3: '⭐⭐⭐', 2: '⭐⭐', 1: '⭐', 'X': '❌', 'T': '🎨', 'S': '🎵'};
+
+    // Populate camera/day dropdowns once
+    const camSel = document.getElementById('filterCam');
+    const daySel = document.getElementById('filterDay');
+    if(camSel && camSel.options.length <= 1) {
+        [...new Set(clips.map(c => c.camera).filter(Boolean))].sort().forEach(cam => {
+            const o = document.createElement('option'); o.value = cam; o.textContent = cam; camSel.appendChild(o);
+        });
+    }
+    if(daySel && daySel.options.length <= 1) {
+        [...new Set(clips.map(c => c.day).filter(Boolean))].sort().forEach(day => {
+            const o = document.createElement('option'); o.value = day; o.textContent = day; daySel.appendChild(o);
+        });
+    }
+    const filterCam = camSel ? camSel.value : '';
+    const filterDay = daySel ? daySel.value : '';
+
+    let currentDay = null;
+    clips.forEach(c => {
+        const n = uid && allNotes[uid] ? (allNotes[uid][c.id] || {}) : {};
+        const rating = n.rating;
+        const ratingNum = parseInt(rating) || 0;
+        const markerCount = (n.markers || []).filter(m => m.cat !== 'X').length;
+        const hasAnyNote = rating || markerCount || (n.notes || '').trim();
+        const isSeen = seenClipIds.has(c.id);
+
+        // Filter logic
+        if(filterCam && c.camera !== filterCam) return;
+        if(filterDay && c.day !== filterDay) return;
+        if(activeFilter === '3' && rating != 3) return;
+        if(activeFilter === '2+' && ratingNum < 2) return;
+        if(activeFilter === 'markers' && !markerCount) return;
+        if(activeFilter === 'unseen' && (isSeen || hasAnyNote)) return;
+        if(activeFilter === 'rejected' && rating !== 'X') return;
+        if(activeSearch) {
+            if (_searchHits) {
+                if (!_searchHits.has(c.id)) return;
+            } else {
+                const tags = (n.tags || []).join(' ').toLowerCase();
+                const hay = (c.stem + ' ' + (c.camera || '') + ' ' + (c.day || '') + ' ' + tags).toLowerCase();
+                if(!hay.includes(activeSearch)) return;
+            }
+        }
+        if(activeFilter === 'disagree') {
+            const ratings = (currentProject.users || [])
+                .map(u => { const key = u.id || u.username || u.name; return ((allNotes[key] || {})[c.id] || {}).rating; })
+                .filter(r => r);
+            if(ratings.length < 2 || ratings.every(r => r === ratings[0])) return;
+        }
+
+        // Day separator header
+        if(c.day && c.day !== currentDay) {
+            currentDay = c.day;
+            const hdr = document.createElement('div');
+            hdr.className = 'day-header';
+            hdr.textContent = c.day;
+            list.appendChild(hdr);
+        }
+
+        const div = document.createElement('div');
+        div.id = 'clip_' + c.id;
+        div.dataset.clipId = c.id;
+        div.className = 'clip-item' + (activeClip && activeClip.id === c.id ? ' active' : '');
+        const RCOL = {'3':'#fcd34d','2':'#a78bfa','1':'#9ca3af','X':'#ef4444'};
+        const ratingBadge = rating ? `<span style="font-size:0.75em;">${RATING_LABELS[rating] || ''}</span>` : '';
+        const markerBadge = markerCount ? `<span style="font-size:0.7em;color:var(--accent);">📌${markerCount}</span>` : '';
+        const status = n.status;
+        const statusBadge = status ? `<span class="status-badge ${STATUS_CSS[status]}">${STATUS_LABELS[status]}</span>` : '';
+        // Scores des autres annotateurs
+        const teamDots = (currentProject && currentProject.users || [])
+            .filter(u2 => { const k = u2.id || u2.username || u2.name; return k !== uid; })
+            .map(u2 => {
+                const k2 = u2.id || u2.username || u2.name;
+                const un = (allNotes[k2] || {})[c.id] || {};
+                if(!un.rating) return '';
+                const col = RCOL[String(un.rating)] || '#888';
+                const label = u2.username || u2.name || k2;
+                return `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${col};" title="${label} : ${RATING_LABELS[un.rating]||un.rating}"></span>`;
+            }).join('');
+        const tagsBadge = (n.tags||[]).length ? `<span style="font-size:0.7em;color:#a78bfa;">🏷${(n.tags||[]).length}</span>` : '';
+        let mcBadge = '';
+        for (const g of (_mcGroups.groups || [])) {
+            if ((g.clip_ids || []).includes(c.id)) {
+                mcBadge = `<span style="font-size:0.72em;color:#60a5fa;" title="Groupe multi-cam (${g.clip_ids.length} angles)">🎥${g.clip_ids.length}</span>`;
+                break;
+            }
+        }
+        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onerror="this.style.opacity='0'"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}${teamDots ? `<span style="display:flex;gap:3px;align-items:center;margin-left:auto;">${teamDots}</span>` : ''}</div></div>`;
+        if(rating === 'X') div.style.opacity = '0.4';
+        div.onclick = () => selectClip(c);
+
+        // Scrub : bande-contact (strip) chargée une fois, puis background-position instantané
+        const dur = c.duration_sec || 0;
+        if (dur > 0) {
+            const scrubBar = div.querySelector('.clip-scrub-bar');
+            const scrubTcEl = div.querySelector('.clip-scrub-tc');
+            const preview = document.getElementById('scrub-preview');
+            const previewFrame = preview && preview.querySelector('.preview-frame');
+            const previewTcEl = preview && preview.querySelector('.preview-tc');
+            const thumbBase = `/api/project/${currentProjectId}/thumbnail/${c.id}`;
+            const stripUrl = `/api/project/${currentProjectId}/strip/${c.id}?n=12`;
+            const N = 12;
+            let stripReady = false;
+
+            div.addEventListener('mouseenter', (e) => {
+                _activeHoverClipId = c.id;
+                if (preview) {
+                    preview.style.top = Math.max(4, e.clientY - 83) + 'px';
+                    preview.style.display = 'block';
+                }
+                if (previewFrame) {
+                    if (stripReady) {
+                        previewFrame.style.backgroundImage = `url(${stripUrl})`;
+                        previewFrame.style.backgroundSize = `${N * 260}px 146px`;
+                    } else {
+                        // Thumbnail par défaut pendant le chargement du strip
+                        previewFrame.style.backgroundImage = `url(${thumbBase})`;
+                        previewFrame.style.backgroundSize = '260px 146px';
+                        previewFrame.style.backgroundPosition = '0 0';
+                        const loader = new Image();
+                        loader.onload = () => {
+                            stripReady = true;
+                            // Seulement si la souris est encore sur CE clip
+                            if (_activeHoverClipId === c.id && previewFrame) {
+                                previewFrame.style.backgroundImage = `url(${stripUrl})`;
+                                previewFrame.style.backgroundSize = `${N * 260}px 146px`;
+                            }
+                        };
+                        loader.src = stripUrl;
+                    }
+                }
+            });
+
+            div.addEventListener('mousemove', (e) => {
+                const rect = div.getBoundingClientRect();
+                const ratio = Math.max(0, Math.min(0.9999, (e.clientX - rect.left) / rect.width));
+                const frameIdx = Math.floor(ratio * N);
+                const tSec = Math.floor(frameIdx * dur / N);
+                if (scrubBar) scrubBar.style.width = (ratio * 100) + '%';
+                const tcStr = String(Math.floor(tSec / 60)).padStart(2, '0') + ':' + String(tSec % 60).padStart(2, '0');
+                if (scrubTcEl) scrubTcEl.textContent = tcStr;
+                if (previewTcEl) previewTcEl.textContent = tcStr;
+                if (preview) preview.style.top = Math.max(4, e.clientY - 83) + 'px';
+                if (stripReady && previewFrame) {
+                    previewFrame.style.backgroundPosition = `-${frameIdx * 260}px 0`;
+                }
+            });
+
+            div.addEventListener('mouseleave', () => {
+                if (_activeHoverClipId === c.id) _activeHoverClipId = null;
+                if (scrubBar) scrubBar.style.width = '0%';
+                if (preview) preview.style.display = 'none';
+            });
+        }
+
+        list.appendChild(div);
+    });
+
+}
+
+// Main player audio routing. Same idea as the multicam viewer's _mcAttachAudio:
+// FS5 clips have LTC on the L channel of their proxy audio, so we route R onto
+// both output channels to silence the LTC's BZZZZ. FX6 and other clips use
+// stereo natively. We attach the WebAudio graph once per player element and
+// switch gains between the two routes.
+let _playerAudioCtx = null;
+let _playerGainStereo = null;
+let _playerGainMonoR = null;
+
+function _attachPlayerAudio() {
+    const video = document.getElementById('player');
+    if (!video || video._audioAttached) return;
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        _playerAudioCtx = ctx;
+        const src = ctx.createMediaElementSource(video);
+        const splitter = ctx.createChannelSplitter(2);
+        src.connect(splitter);
+        // Route A: stereo natif
+        const mergerS = ctx.createChannelMerger(2);
+        splitter.connect(mergerS, 0, 0);
+        splitter.connect(mergerS, 1, 1);
+        _playerGainStereo = ctx.createGain();
+        _playerGainStereo.gain.value = 1;
+        mergerS.connect(_playerGainStereo);
+        _playerGainStereo.connect(ctx.destination);
+        // Route B: mono R dupliqué (R sur L et R)
+        const mergerM = ctx.createChannelMerger(2);
+        splitter.connect(mergerM, 1, 0);
+        splitter.connect(mergerM, 1, 1);
+        _playerGainMonoR = ctx.createGain();
+        _playerGainMonoR.gain.value = 0;
+        mergerM.connect(_playerGainMonoR);
+        _playerGainMonoR.connect(ctx.destination);
+        video._audioAttached = true;
+    } catch(e) { console.warn('Player audio routing fail:', e); }
+}
+
+function _setPlayerMonoR(on) {
+    if (!_playerAudioCtx) return;
+    if (_playerAudioCtx.state === 'suspended') _playerAudioCtx.resume().catch(()=>{});
+    if (_playerGainStereo) _playerGainStereo.gain.value = on ? 0 : 1;
+    if (_playerGainMonoR)  _playerGainMonoR.gain.value  = on ? 1 : 0;
+    // Mémoriser l'état mono-R pour pouvoir le restaurer après usage du BWF
+    _playerMonoRActive = !!on;
+}
+
+// ─── audio-bwf.js : module externalisé → js/audio-bwf.js ───────────
+
+// ─── multicam-viewer.js : module externalisé → js/multicam-viewer.js ───────────
+
+// --- NOTES & MARKERS ---
+function saveClipNotes() {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    if(!allNotes[uid]) allNotes[uid] = {};
+    if(!allNotes[uid][activeClip.id]) allNotes[uid][activeClip.id] = {};
+    allNotes[uid][activeClip.id].notes = document.getElementById('clipNotes').value;
+}
+
+function setRating(r) {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    if(!allNotes[uid]) allNotes[uid] = {};
+    if(!allNotes[uid][activeClip.id]) allNotes[uid][activeClip.id] = {};
+    pushUndo();
+    const cur = allNotes[uid][activeClip.id].rating;
+    allNotes[uid][activeClip.id].rating = (String(cur) === String(r)) ? null : r;
+    renderClipList();
+}
+
+function getCurrentTC() {
+    const v = document.getElementById('player');
+    if(!v || !v.duration || !activeClip) return '00:00:00:00';
+    // Simplified TC display
+    const t = v.currentTime;
+    const f = Math.floor((t % 1) * 25);
+    const s = Math.floor(t % 60);
+    const m = Math.floor((t / 60) % 60);
+    const h = Math.floor(t / 3600);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`;
+}
+
+function addMarker(cat='1', desc='Nouveau marker', drawing=null) {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    const tc = getCurrentTC();
+    const time = document.getElementById('player').currentTime || 0;
+    if(!allNotes[uid]) allNotes[uid] = {};
+    if(!allNotes[uid][activeClip.id]) allNotes[uid][activeClip.id] = {};
+    pushUndo();
+    const n = allNotes[uid][activeClip.id];
+    if(!n.markers) n.markers = [];
+    const marker = {id: Math.random().toString(36).slice(2, 10), tc, time, cat, desc};
+    if(drawing) marker.drawing = drawing;
+    n.markers.push(marker);
+    n.markers.sort((a,b) => a.time - b.time);
+    renderMarkers();
+    renderClipList(); // update 📌 count badge
+}
+
+function renderMarkers() {
+    const list = document.getElementById('markersList');
+    list.innerHTML = '';
+    const track = document.getElementById('timelineTrack');
+    if (track) {
+        track.querySelectorAll('.timeline-marker-pin').forEach(p => p.remove());
+    }
+
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    const n = (allNotes[uid] || {})[activeClip.id] || {};
+    const RATING_COLORS = {'3':'#fcd34d', '2':'#a78bfa', '1':'#9ca3af', 'X':'#ef4444', 'T':'#3b82f6', 'S':'#10b981', 'D':'#f59e0b'};
+    const RATING_LABELS = {'3':'Top', '2':'Bien', '1':'OK', 'X':'À couper', 'T':'Problème image', 'S':'Problème son', 'D':'Note'};
+
+    const v = document.getElementById('player');
+    const dur = (v && v.duration && !isNaN(v.duration)) ? v.duration : 1; // avoid / 0
+
+    // Pré-calcul des stack levels pour les pins (anti-overlap horizontal).
+    // Markers proches dans le temps s'empilent verticalement → tous restent cliquables.
+    const trackWidthPx = track ? (track.getBoundingClientRect().width || 1000) : 1000;
+    const MIN_SEP_PX = 22;  // distance minimale entre 2 pins sur le même stack
+    const MAX_STACK = 2;    // 3 niveaux : 0, 1, 2 (au-delà on revient à 0, overlap accepté)
+    const STACK_OFFSET_PX = 13;
+    const sortedMarkers = (n.markers || []).map((m, i) => ({m, i, x: (m.time || 0) / dur * trackWidthPx}))
+        .sort((a, b) => a.x - b.x);
+    const stackByIdx = new Array((n.markers || []).length).fill(0);
+    const lastXByLevel = [];  // lastXByLevel[level] = x du dernier pin placé à ce niveau
+    for (const {i, x} of sortedMarkers) {
+        let level = 0;
+        while (level <= MAX_STACK) {
+            if (lastXByLevel[level] === undefined || x - lastXByLevel[level] >= MIN_SEP_PX) break;
+            level++;
+        }
+        if (level > MAX_STACK) level = 0;  // recommence au top si trop de clusters
+        stackByIdx[i] = level;
+        lastXByLevel[level] = x;
+    }
+
+    (n.markers || []).forEach((m, idx) => {
+        const color = RATING_COLORS[m.cat] || '#a78bfa';
+        const label = RATING_LABELS[m.cat] || 'Marker';
+        const hasDraw = m.drawing ? '<span style="color:#f59e0b;margin-left:4px;" title="Dessin inclus">🖌</span>' : '';
+
+        // List item
+        const div = document.createElement('div');
+        div.className = 'marker-row' + (m.id === selectedMarkerId ? ' selected' : '');
+        div.dataset.markerId = m.id;
+        div.innerHTML = `<div class="marker-tc">${m.tc}</div>
+                         <div class="marker-cat" style="color:${color};font-weight:600;font-size:0.85em;">[${label}]</div>
+                         <div class="marker-desc">${m.desc} ${hasDraw}</div>
+                         <div class="marker-actions">
+                           <button title="Éditer" onclick="editMarker(${idx},event)">✏️</button>
+                           <button title="Supprimer" onclick="deleteMarker(${idx},event)" style="color:#ef4444;">🗑</button>
+                         </div>`;
+        div.onclick = (e) => {
+            if(e.target.closest('.marker-actions')) return;
+            selectedMarkerId = m.id;
+            document.querySelectorAll('.marker-row').forEach(r => r.classList.toggle('selected', r.dataset.markerId === m.id));
+            document.querySelectorAll('.timeline-marker-pin').forEach(p => p.classList.toggle('selected', p.dataset.markerId === m.id));
+            if(v) v.currentTime = m.time;
+            if(m.drawing) showDrawing(m.drawing);
+            else clearCanvas();
+        };
+        list.appendChild(div);
+
+        // Replies from teammates on this marker
+        const replies = m.id ? ((allDiscussions[activeClip.id] || {})[m.id] || []) : [];
+        if(replies.length) {
+            const rd = document.createElement('div');
+            rd.className = 'marker-replies';
+            rd.innerHTML = replies.map(r =>
+                `<div class="marker-reply"><strong style="color:${r.color}">${r.user_name}</strong> ${r.text}</div>`
+            ).join('');
+            list.appendChild(rd);
+        }
+
+        // Timeline pin
+        if (track && v && v.duration) {
+            const pin = document.createElement('div');
+            pin.className = 'timeline-marker-pin cat-' + (m.cat || '1') + (m.id === selectedMarkerId ? ' selected' : '') + (m.drawing ? ' has-drawing' : '');
+            pin.dataset.markerId = m.id;
+            pin.style.left = (m.time / v.duration * 100) + '%';
+            pin.style.color = color;
+            // Stack vertical pour anti-overlap
+            const stack = stackByIdx[idx] || 0;
+            const pinTop = 4 + stack * STACK_OFFSET_PX;
+            pin.style.setProperty('--pin-top', pinTop + 'px');
+            // Stem : ligne fine reliant le pin (en haut) à la track (en bas) pour la lisibilité quand le pin est haut
+            const trackTopY = 88 - 14 - 4;  // bar 88 - bottom 14 - track height 4 = 70
+            const stemHeight = Math.max(0, trackTopY - (pinTop + 12));
+            pin.style.setProperty('--pin-stem', stemHeight + 'px');
+            const rawLabel = m.desc || label;
+            pin.setAttribute('data-label', rawLabel.length > 48 ? rawLabel.slice(0, 45) + '…' : rawLabel);
+            pin.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                // Select
+                selectedMarkerId = m.id;
+                document.querySelectorAll('.timeline-marker-pin').forEach(p => p.classList.toggle('selected', p.dataset.markerId === m.id));
+                document.querySelectorAll('.marker-row').forEach(r => r.classList.toggle('selected', r.dataset.markerId === m.id));
+                if(v) v.currentTime = m.time;
+                if(m.drawing) showDrawing(m.drawing); else clearCanvas();
+                // Drag
+                const rect = document.getElementById('timelineTrack').getBoundingClientRect();
+                const startX = e.clientX;
+                let wasDragged = false;
+                const onMove = (e2) => {
+                    if(!wasDragged && Math.abs(e2.clientX - startX) < 8) return;
+                    wasDragged = true;
+                    pin.classList.add('dragging');
+                    const ratio = Math.max(0, Math.min(1, (e2.clientX - rect.left) / rect.width));
+                    pin.style.left = (ratio * 100) + '%';
+                    if(v && !isNaN(v.duration)) v.currentTime = ratio * v.duration;
+                };
+                const onUp = (e2) => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    pin.classList.remove('dragging');
+                    if(!wasDragged) return;
+                    const ratio = Math.max(0, Math.min(1, (e2.clientX - rect.left) / rect.width));
+                    pushUndo();
+                    m.time = ratio * v.duration;
+                    m.tc = timeToTC(m.time, activeClip.fps || 25);
+                    const uid2 = currentSession.user_id;
+                    const notes2 = (allNotes[uid2] || {})[activeClip.id] || {};
+                    if(notes2.markers) notes2.markers.sort((a, b) => a.time - b.time);
+                    selectedMarkerId = m.id;
+                    renderMarkers();
+                    renderClipList();
+                };
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+            track.appendChild(pin);
+        }
+    });
+}
+
+// Marker Popup Logic
+let popupSelectedCat = '1';
+let popupEditIdx = null; // null = ajout, number = index du marker à éditer
+
+// Recrée un textarea popupDesc tout neuf, sans aucun listener/attribut hérité.
+// Approche bulldozer pour éviter les leaks fantômes (ex: listener resté collé
+// après une suppression/édition rapide qui empêche le focus/click au prochain open).
+function _resetPopupDesc() {
+    const old = document.getElementById('popupDesc');
+    if (!old) return null;
+    const fresh = document.createElement('textarea');
+    fresh.id = 'popupDesc';
+    fresh.placeholder = 'Commentaire (optionnel)...';
+    old.parentNode.replaceChild(fresh, old);
+    // Diagnostic temporaire : si on clique sans recevoir le focus, on saura
+    fresh.addEventListener('mousedown', () => {
+        console.log('[diag] textarea mousedown — activeElement avant:', document.activeElement && document.activeElement.tagName, document.activeElement && document.activeElement.id);
+    });
+    fresh.addEventListener('click', () => {
+        console.log('[diag] textarea click reçu');
+        setTimeout(() => console.log('[diag] textarea après click — activeElement:', document.activeElement && document.activeElement.id || document.activeElement && document.activeElement.tagName), 0);
+    });
+    fresh.addEventListener('focus', () => { console.log('[diag] textarea FOCUSED ✓'); });
+    // Re-attach le handler Enter = confirm
+    fresh.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmMarker(); }
+    });
+    return fresh;
+}
+
+function promptAddMarker() {
+    if(!activeClip || !currentSession) return;
+    popupEditIdx = null;
+    const v = document.getElementById('player');
+    if(v && !v.paused) v.pause();
+    document.getElementById('popupTitle').innerHTML = '📌 Nouveau Marker <span id="popupTc" style="font-family:monospace;font-size:0.85em;color:var(--dim);"></span>';
+    document.getElementById('popupTc').textContent = getCurrentTC();
+    document.getElementById('popupConfirmBtn').textContent = 'Ajouter le marker';
+    selectPopupCat('1');
+    // IMPORTANT: afficher le popup AVANT de créer la textarea. Chromium n'initialise
+    // pas le renderer de caret sur un input créé dans un container display:none →
+    // l'élément reçoit focus (activeElement OK) mais le curseur clignotant n'apparaît jamais.
+    document.getElementById('popupOverlay').style.display = 'block';
+    document.getElementById('markerPopup').style.display = 'block';
+    // Double RAF garantit que le layout est complet avant création + focus
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        const desc = _resetPopupDesc();
+        if (desc) desc.focus();
+    }));
+}
+
+function editMarker(idx, e) {
+    e.stopPropagation();
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    const n = (allNotes[uid] || {})[activeClip.id] || {};
+    const m = (n.markers || [])[idx];
+    if(!m) return;
+    popupEditIdx = idx;
+    document.getElementById('popupTitle').innerHTML = '✏️ Éditer Marker <span style="font-family:monospace;font-size:0.85em;color:var(--dim);">' + m.tc + '</span>';
+    document.getElementById('popupConfirmBtn').textContent = 'Mettre à jour';
+    selectPopupCat(m.cat || '1');
+    document.getElementById('popupOverlay').style.display = 'block';
+    document.getElementById('markerPopup').style.display = 'block';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        const desc = _resetPopupDesc();
+        if (desc) {
+            desc.value = m.desc === 'Marker' ? '' : (m.desc || '');
+            desc.focus();
+        }
+    }));
+}
+
+function deleteMarker(idx, e) {
+    e.stopPropagation();
+    if(!activeClip || !currentSession) return;
+    // Pas de confirm() : le native dialog laisse le focus state de Chromium dans
+    // un mode où les inputs créés ensuite ne reçoivent pas de caret visible.
+    // L'utilisateur peut annuler via Ctrl+Z (undo).
+    try { e.target.blur(); } catch(_) {}
+    setTimeout(() => {
+        const uid = currentSession.user_id;
+        const n = (allNotes[uid] || {})[activeClip.id] || {};
+        if(n.markers) {
+            if(n.markers[idx] && n.markers[idx].id === selectedMarkerId) selectedMarkerId = null;
+            pushUndo();
+            n.markers.splice(idx, 1);
+            renderMarkers();
+            renderClipList();
+            showSaveStatus('🗑 Marker supprimé (Ctrl+Z pour annuler)', '#f59e0b');
+        }
+    }, 0);
+}
+
+function cancelMarkerPopup() {
+    document.getElementById('popupOverlay').style.display = 'none';
+    document.getElementById('markerPopup').style.display = 'none';
+    popupEditIdx = null;
+    _pendingDrawing = null;  // évite que le dessin se colle au prochain marker
+}
+
+function selectPopupCat(cat) {
+    popupSelectedCat = cat;
+    document.querySelectorAll('.cat-btns button').forEach(b => b.classList.remove('selected'));
+    const btn = document.getElementById('pcat' + cat);
+    if(btn) btn.classList.add('selected');
+}
+
+function confirmMarker() {
+    const desc = document.getElementById('popupDesc').value.trim();
+    if(popupEditIdx !== null) {
+        // Mode édition : mettre à jour le marker existant
+        const uid = currentSession.user_id;
+        const n = (allNotes[uid] || {})[activeClip.id] || {};
+        const m = (n.markers || [])[popupEditIdx];
+        if(m) {
+            pushUndo();
+            m.cat = popupSelectedCat;
+            m.desc = desc || 'Marker';
+        }
+        cancelMarkerPopup();
+        renderMarkers();
+        renderClipList();
+    } else {
+        // Mode ajout : si un dessin est en attente (depuis saveDrawing), on l'attache
+        const drawing = _pendingDrawing;
+        _pendingDrawing = null;
+        cancelMarkerPopup();
+        addMarker(popupSelectedCat, desc || 'Marker', drawing);
+    }
+}
+
+let _pendingDrawing = null;
+
+
+function setSpeed(rate) {
+    currentSpeed = rate;
+    const v = document.getElementById('player');
+    if(v) v.playbackRate = rate;
+    const ids = {1:'spd10', 1.25:'spd125', 1.5:'spd15', 2:'spd20'};
+    document.querySelectorAll('.spd-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById(ids[rate]);
+    if(btn) btn.classList.add('active');
+}
+
+function renderTags() {
+    const disp = document.getElementById('tagsDisplay');
+    if(!disp || !activeClip || !currentSession) { if(disp) disp.innerHTML = ''; return; }
+    const uid = currentSession.user_id;
+    const tags = ((allNotes[uid] || {})[activeClip.id] || {}).tags || [];
+    disp.innerHTML = tags.map(t =>
+        `<span class="tag-chip">${t}<span class="tag-x" onclick="removeTag('${t.replace(/'/g,"\\'")}')">×</span></span>`
+    ).join('');
+}
+
+function handleTagInput(e) {
+    if(e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const tag = e.target.value.trim().replace(/,/g, '');
+    if(!tag || !activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    if(!allNotes[uid]) allNotes[uid] = {};
+    if(!allNotes[uid][activeClip.id]) allNotes[uid][activeClip.id] = {};
+    const n = allNotes[uid][activeClip.id];
+    if(!n.tags) n.tags = [];
+    if(!n.tags.includes(tag)) { pushUndo(); n.tags.push(tag); renderTags(); renderClipList(); }
+    e.target.value = '';
+}
+
+function removeTag(tag) {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    const n = (allNotes[uid] || {})[activeClip.id];
+    if(!n || !n.tags) return;
+    pushUndo();
+    n.tags = n.tags.filter(t => t !== tag);
+    renderTags(); renderClipList();
+}
+
+// ─── Sync ────────────────────────────────────────────────────────────────────
+let _syncPollInterval = null;
+
+// ─── J/K/L SHUTTLE ──────────────────────────────────────────────────────────
+let _jklSpeed = 0; // <0 = reverse, 0 = stopped, >0 = forward
+let _jklRevRaf = null;
+let _jklRevLast = null;
+
+function _jklStopRev() {
+    if(_jklRevRaf) { cancelAnimationFrame(_jklRevRaf); _jklRevRaf = null; }
+    _jklRevLast = null;
+}
+
+function _jklStartRev(rate) {
+    _jklStopRev();
+    const v = document.getElementById('player');
+    if(!v) return;
+    v.pause();
+    const abs = Math.abs(rate);
+    function tick(ts) {
+        if(_jklRevLast === null) _jklRevLast = ts;
+        const dt = (ts - _jklRevLast) / 1000;
+        _jklRevLast = ts;
+        v.currentTime = Math.max(0, v.currentTime - dt * abs);
+        if(v.currentTime <= 0) { _jklStopRev(); _jklSpeed = 0; return; }
+        _jklRevRaf = requestAnimationFrame(tick);
+    }
+    _jklRevRaf = requestAnimationFrame(tick);
+}
+
+function _jklPress(dir) {
+    const v = document.getElementById('player');
+    if(!v || !activeClip) return;
+    if(dir === 0) { // K = stop
+        _jklStopRev(); v.pause(); v.playbackRate = 1; _jklSpeed = 0;
+        document.querySelectorAll('.spd-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('spd10')?.classList.add('active');
+        return;
+    }
+    if(dir === 1) { // L = forward
+        _jklStopRev();
+        if(_jklSpeed <= 0) _jklSpeed = 1;
+        else _jklSpeed = _jklSpeed >= 4 ? 4 : (_jklSpeed === 1 ? 2 : 4);
+        v.playbackRate = _jklSpeed; v.play();
+        document.querySelectorAll('.spd-btn').forEach(b => b.classList.remove('active'));
+        const ids = {1:'spd10',2:'spd20',4:'spd20'}; document.getElementById(ids[_jklSpeed] || 'spd20')?.classList.add('active');
+    } else { // J = reverse
+        v.pause(); v.playbackRate = 1;
+        if(_jklSpeed >= 0) _jklSpeed = -1;
+        else _jklSpeed = _jklSpeed <= -4 ? -4 : (_jklSpeed === -1 ? -2 : -4);
+        _jklStartRev(_jklSpeed);
+    }
+}
+
+// ─── WEBSOCKET REAL-TIME ─────────────────────────────────────────────────────
+let _ws = null;
+
+function startWebSocket() {
+    if(!currentSession?.token || !currentProjectId) return;
+    if(_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    try {
+        _ws = new WebSocket(`${proto}//${location.host}/ws?token=${currentSession.token}`);
+        _ws.onmessage = async (e) => {
+            try {
+                const msg = JSON.parse(e.data);
+                if(msg.type === 'notes_updated') {
+                    const r = await apiFetch(`/api/project/${currentProjectId}/notes`);
+                    if(!r.ok) return;
+                    const fresh = await r.json();
+                    const uid = currentSession.user_id || currentSession.username;
+                    let changed = false;
+                    for(const [k, v] of Object.entries(fresh)) {
+                        if(k === uid) continue;
+                        if(JSON.stringify(allNotes[k]) !== JSON.stringify(v)) {
+                            for(const cn of Object.values(v)) for(const m of (cn.markers||[])) if(!m.id) m.id = Math.random().toString(36).slice(2,10);
+                            allNotes[k] = v; changed = true;
+                        }
+                    }
+                    if(changed) { renderClipList(); if(activeClip) { renderMultiUser(); renderMarkers(); } showSaveStatus('↻ Live', '#60a5fa'); }
+                } else if(msg.type === 'discussion_updated') {
+                    const r = await apiFetch(`/api/project/${currentProjectId}/discussions`);
+                    if(r.ok) { allDiscussions = await r.json(); if(activeClip) renderMultiUser(); }
+                }
+            } catch(e2) {}
+        };
+        _ws.onclose = () => { _ws = null; if(currentProjectId) setTimeout(startWebSocket, 6000); };
+        _ws.onerror  = () => { _ws = null; };
+    } catch(e) {}
+}
+
+function stopWebSocket() { if(_ws) { _ws.close(); _ws = null; } }
+
+// ─── compare.js : module externalisé → js/compare.js ───────────
+
+// ─── LUT PREVIEW : module externalisé → js/lut.js ────────────────────────────
+/* Voir js/lut.js pour : _lut, _lutEnabled, _lutScope, _lutSettings, enableLUT(),
+   toggleLUT(), onLUTFileSelected(), confirmLutScope(), setLutSetting(), etc. */
+// (Bloc historique conservé déplacé vers js/lut.js — chargé via <script src> en bas)
+
+
+// ─── PERMISSIONS (rôles) ─────────────────────────────────────────────────────
+function applyRoleUI(role) {
+    const isViewer = role === 'viewer';
+    const isAdmin  = role === 'admin';
+    // Annotation inputs — cachés pour viewer
+    ['clipNotes','tagInput','popupConfirmBtn'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.style.display = isViewer ? 'none' : '';
+    });
+    document.getElementById('ratingBtns')?.querySelectorAll('button').forEach(b => b.style.pointerEvents = isViewer ? 'none' : '');
+    if(isViewer) document.getElementById('ratingBtns').style.opacity = '0.4';
+    // Boutons réservés admin
+    document.querySelectorAll('[onclick="showUserMgmt()"]').forEach(b => b.style.display = isAdmin ? '' : 'none');
+    document.querySelectorAll('[onclick^="rescanProject"]').forEach(b => b.style.display = isAdmin ? '' : 'none');
+    // Save button
+    const saveBtn = document.querySelector('button[onclick="saveNotes()"]');
+    if(saveBtn) saveBtn.style.display = isViewer ? 'none' : '';
+}
+
+function _updateSyncUI(st) {
+    const btn   = document.getElementById('syncBtn');
+    const dot   = document.getElementById('syncDot');
+    const label = document.getElementById('syncLabel');
+    if (!st.configured) { btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    if (st.online === null) {
+        dot.style.background = '#6b7280'; label.textContent = 'Sync…';
+    } else if (!st.online) {
+        dot.style.background = '#ef4444'; label.textContent = 'Hors ligne';
+        btn.title = st.error || 'Connexion impossible';
+    } else if (st.last_sync) {
+        dot.style.background = '#34d399';
+        const t = new Date(st.last_sync);
+        label.textContent = 'Synced ' + t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        btn.title = 'Dernière sync : ' + t.toLocaleString();
+    } else {
+        dot.style.background = '#fbbf24'; label.textContent = 'Sync…';
+    }
+}
+
+async function pollSyncStatus() {
+    try {
+        const r = await fetch('/api/sync/status');
+        if (r.ok) _updateSyncUI(await r.json());
+    } catch(e) {}
+}
+
+async function triggerSync() {
+    const dot = document.getElementById('syncDot');
+    const lbl = document.getElementById('syncLabel');
+    dot.style.background = '#fbbf24'; lbl.textContent = 'Sync…';
+    try {
+        const r = await fetch('/api/sync/now', {method:'POST'});
+        const d = await r.json();
+        _updateSyncUI({configured: true, online: d.ok, last_sync: d.ok ? new Date().toISOString() : null, error: d.ok ? null : d.message});
+        if (d.ok && currentProjectId) {
+            // Recharger les notes après sync
+            const nRes = await apiFetch(`/api/project/${currentProjectId}/notes`);
+            if (nRes.ok) { const fresh = await nRes.json(); for(const [k,v] of Object.entries(fresh)) allNotes[k]=v; }
+            const dRes = await apiFetch(`/api/project/${currentProjectId}/discussions`);
+            if (dRes.ok) allDiscussions = await dRes.json();
+            renderMarkers(); renderClipList(); renderMultiUser();
+        }
+    } catch(e) { dot.style.background='#ef4444'; lbl.textContent='Erreur'; }
+}
+
+function startSyncPolling() {
+    if (_syncPollInterval) clearInterval(_syncPollInterval);
+    pollSyncStatus();
+    _syncPollInterval = setInterval(pollSyncStatus, 30000);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+function startNotesPolling() {
+    if(pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(async () => {
+        if(!currentProjectId || !currentSession) return;
+        try {
+            const uid = currentSession.user_id;
+            let changed = false;
+            const nRes = await apiFetch(`/api/project/${currentProjectId}/notes`);
+            if(nRes.ok) {
+                const fresh = await nRes.json();
+                for(const [key, val] of Object.entries(fresh)) {
+                    if(key === uid) continue; // préserve les notes locales non sauvegardées
+                    if(JSON.stringify(allNotes[key]) !== JSON.stringify(val)) {
+                        for(const clipNotes of Object.values(val)) {
+                            for(const m of (clipNotes.markers || [])) {
+                                if(!m.id) m.id = Math.random().toString(36).slice(2, 10);
+                            }
+                        }
+                        allNotes[key] = val;
+                        changed = true;
+                    }
+                }
+            }
+            const dRes = await apiFetch(`/api/project/${currentProjectId}/discussions`);
+            if(dRes.ok) {
+                const freshD = await dRes.json();
+                if(JSON.stringify(allDiscussions) !== JSON.stringify(freshD)) {
+                    allDiscussions = freshD;
+                    changed = true;
+                }
+            }
+            // Auto-pull commentaires externes si share actif, puis refresh state local
+            if (_shareState && _shareState.share) {
+                try {
+                    await apiFetch(`/api/project/${currentProjectId}/share/pull_comments`, {method: 'POST'});
+                } catch(e) {}
+                try {
+                    const sRes = await apiFetch(`/api/project/${currentProjectId}/share/info`);
+                    if (sRes.ok) {
+                        const fresh = await sRes.json();
+                        if (JSON.stringify(_shareState.share_comments || {}) !== JSON.stringify(fresh.share_comments || {})) {
+                            _shareState = fresh;
+                            changed = true;
+                        }
+                    }
+                } catch(e) {}
+            }
+            if(changed) {
+                renderClipList();
+                if(activeClip) { renderMultiUser(); renderMarkers(); }
+                showSaveStatus('↻ Sync', '#60a5fa');
+            }
+        } catch(e) {}
+    }, 60000);
+}
+
+async function submitReply(btn, clipId, markerId) {
+    const form = btn.closest('.mu-reply-form');
+    const input = form.querySelector('input');
+    const text = input.value.trim();
+    if(!text) return;
+    btn.disabled = true; input.disabled = true;
+    const res = await apiFetch(`/api/project/${currentProjectId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({clip_id: clipId, marker_id: markerId, text})
+    });
+    if(!res.ok) { btn.disabled = false; input.disabled = false; return; }
+    input.value = '';
+    btn.disabled = false; input.disabled = false;
+    const dRes = await apiFetch(`/api/project/${currentProjectId}/discussions`);
+    if(dRes.ok) allDiscussions = await dRes.json();
+    renderMultiUser();
+    if(activeClip) renderMarkers();
+}
+
+function showSaveStatus(msg, color='#34d399') {
+    const el = document.getElementById('saveStatus');
+    if(!el) return;
+    el.textContent = msg;
+    el.style.color = color;
+    el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+async function saveNotes(silent=false) {
+    if(!currentProjectId || !currentSession) return;
+    saveClipNotes();
+    const uid = currentSession.user_id;
+    const snapshot = JSON.stringify(allNotes[uid] || {});
+    if(silent && snapshot === lastSavedHash) return; // rien de changé
+    lastSavedHash = snapshot;
+    try {
+        await apiFetch(`/api/project/${currentProjectId}/notes`, {
+            method: 'POST',
+            body: JSON.stringify({notes: allNotes[uid]})
+        });
+        showSaveStatus('✓ Sauvegardé');
+    } catch(err) {
+        showSaveStatus('⚠ Erreur sauvegarde', '#ef4444');
+    }
+}
+
+// Auto-save toutes les 30 secondes
+setInterval(() => { if(currentSession && currentProjectId) saveNotes(true); }, 30000);
+
+async function browseFolder() {
+    try {
+        const res = await fetch('/api/browse');
+        const data = await res.json();
+        if(data.path) document.getElementById('newProjPath').value = data.path;
+        else if(data.error) alert('Erreur: ' + data.error);
+    } catch(e) { alert('Impossible d\'ouvrir le sélecteur: ' + e.message); }
+}
+
+// --- PLAYER CONTROLS ---
+setInterval(() => {
+    const tcStr = getCurrentTC();
+    document.getElementById('tcDisplay').textContent = tcStr;
+    const tlTcStart = document.getElementById('tlTcStart');
+    if(tlTcStart) tlTcStart.textContent = tcStr;
+
+    const v = document.getElementById('player');
+    if(v && v.duration) {
+        const pct = (v.currentTime / v.duration) * 100;
+        const prog = document.getElementById('timelineProgress');
+        const head = document.getElementById('timelineHead');
+        if(prog) prog.style.width = pct + '%';
+        if(head) head.style.left = pct + '%';
+    }
+}, 50);
+
+function formatSecondsAsTC(t) {
+    const f = Math.floor((t % 1) * 25);
+    const s = Math.floor(t % 60);
+    const m = Math.floor((t / 60) % 60);
+    const h = Math.floor(t / 3600);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`;
+}
+
+let isScrubbing = false;
+
+function handleTimelineDrag(e) {
+    if(!isScrubbing) return;
+    timelineSeek(e);
+}
+
+function stopTimelineScrub(e) {
+    isScrubbing = false;
+    document.removeEventListener('mousemove', handleTimelineDrag);
+    document.removeEventListener('mouseup', stopTimelineScrub);
+}
+
+function timelineSeek(e) {
+    const v = document.getElementById('player');
+    if(!v || !v.duration || !activeClip) return;
+    const bar = document.getElementById('timelineBar');
+    if(!bar) return;
+    // Deselect marker when clicking bare track
+    if(!e.target.classList.contains('timeline-marker-pin')) {
+        selectedMarkerId = null;
+        document.querySelectorAll('.timeline-marker-pin').forEach(p => p.classList.remove('selected'));
+        document.querySelectorAll('.marker-row').forEach(r => r.classList.remove('selected'));
+    }
+    if(e.type === 'mousedown') {
+        isScrubbing = true;
+        document.addEventListener('mousemove', handleTimelineDrag);
+        document.addEventListener('mouseup', stopTimelineScrub);
+    }
+
+    const rect = bar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    v.currentTime = pct * v.duration;
+}
+
+function skip(s) { const v = document.getElementById('player'); if(v) v.currentTime += s; }
+function togglePlay() { const v = document.getElementById('player'); if(v) v.paused ? v.play() : v.pause(); }
+
+function toggleFullscreen() {
+    const wrapper = document.getElementById('videoWrapper');
+    if (!document.fullscreenElement) {
+        if (wrapper.requestFullscreen) {
+            wrapper.requestFullscreen();
+        } else if (wrapper.webkitRequestFullscreen) {
+            wrapper.webkitRequestFullscreen();
+        } else if (wrapper.msRequestFullscreen) {
+            wrapper.msRequestFullscreen();
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+    }
+}
+
+// --- CANVAS ANNOTATIONS ---
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+let isDrawing = false, isDrawingMode = false;
+let drawMode = 'circle';
+let startX, startY;
+let currentShapes = [];
+
+function resizeCanvas() {
+    const v = document.getElementById('player');
+    if(v && v.videoWidth) {
+        // Set canvas pixel dimensions to exactly match the rendered video element
+        canvas.width = v.offsetWidth;
+        canvas.height = v.offsetHeight;
+    }
+}
+window.addEventListener('resize', resizeCanvas);
+document.getElementById('player').addEventListener('loadedmetadata', () => {
+    setTimeout(resizeCanvas, 100);
+    const v = document.getElementById('player');
+    const endEl = document.getElementById('tlTcEnd');
+    if(v && v.duration && endEl) {
+        endEl.textContent = formatSecondsAsTC(v.duration);
+    }
+    renderMarkers(); // refresh pins now that duration is known
+});
+document.getElementById('player').addEventListener('resize', resizeCanvas);
+
+function startDrawing() {
+    const v = document.getElementById('player');
+    if(!v || v.paused === false) v.pause();
+    resizeCanvas();
+    isDrawingMode = true;
+    canvas.classList.add('drawing');
+    document.getElementById('drawTools').style.display = 'flex';
+    currentShapes = [];
+    clearCanvas();
+}
+
+function cancelDrawing() {
+    isDrawingMode = false;
+    canvas.classList.remove('drawing');
+    document.getElementById('drawTools').style.display = 'none';
+    clearCanvas();
+}
+
+function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    currentShapes = [];
+}
+
+// --- WAVEFORM ---
+async function loadWaveform(clip) {
+    waveformPeaks = [];
+    drawWaveform();
+    if(!clip || !currentProjectId) return;
+    try {
+        const res = await apiFetch(`/api/project/${currentProjectId}/waveform/${clip.id}`);
+        if(!res.ok) return;
+        const data = await res.json();
+        waveformPeaks = data.peaks || [];
+        drawWaveform();
+    } catch(e) { /* no audio = silently skip */ }
+}
+
+function drawWaveform() {
+    const wc = document.getElementById('waveformCanvas');
+    if(!wc) return;
+    const bar = document.getElementById('timelineBar');
+    wc.width = bar.clientWidth - 24;
+    wc.height = bar.clientHeight;
+    const wctx = wc.getContext('2d');
+    wctx.clearRect(0, 0, wc.width, wc.height);
+    if(!waveformPeaks || waveformPeaks.length === 0) return;
+    const W = wc.width, H = wc.height;
+    const mid = H / 2;
+    wctx.beginPath();
+    const n = waveformPeaks.length;
+    for(let i = 0; i < n; i++) {
+        const x = (i / n) * W;
+        const amp = waveformPeaks[i] * mid * 0.92;
+        wctx.moveTo(x, mid - amp);
+        wctx.lineTo(x, mid + amp);
+    }
+    wctx.strokeStyle = '#60a5fa';
+    wctx.lineWidth = Math.max(1, W / n * 0.8);
+    wctx.stroke();
+}
+
+function setDrawMode(mode) {
+    drawMode = mode;
+    document.querySelectorAll('.draw-tools button').forEach(b => b.classList.remove('active'));
+    document.getElementById('tool' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+}
+
+canvas.addEventListener('mousedown', e => {
+    if(!isDrawingMode) return;
+    isDrawing = true;
+    // offsetX/offsetY are relative to the canvas element itself — no rect subtraction needed
+    startX = e.offsetX;
+    startY = e.offsetY;
+    if(drawMode === 'free') {
+        currentShapes.push({
+            type: 'free',
+            color: document.getElementById('drawColor').value,
+            points: [{x: startX/canvas.width, y: startY/canvas.height}]
+        });
+    }
+});
+
+canvas.addEventListener('mousemove', e => {
+    if(!isDrawing || !isDrawingMode) return;
+    const x = e.offsetX;
+    const y = e.offsetY;
+    
+    redrawAll();
+    
+    ctx.strokeStyle = document.getElementById('drawColor').value;
+    ctx.lineWidth = 3;
+    
+    if(drawMode === 'circle') {
+        const r = Math.sqrt(Math.pow(x-startX, 2) + Math.pow(y-startY, 2));
+        ctx.beginPath();
+        ctx.arc(startX, startY, r, 0, 2*Math.PI);
+        ctx.stroke();
+    } else if (drawMode === 'arrow') {
+        ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(x, y); ctx.stroke();
+        const angle = Math.atan2(y-startY, x-startX);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 15 * Math.cos(angle - Math.PI/6), y - 15 * Math.sin(angle - Math.PI/6));
+        ctx.lineTo(x - 15 * Math.cos(angle + Math.PI/6), y - 15 * Math.sin(angle + Math.PI/6));
+        ctx.closePath();
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fill();
+    } else if (drawMode === 'free') {
+        const shape = currentShapes[currentShapes.length-1];
+        shape.points.push({x: x/canvas.width, y: y/canvas.height});
+        redrawAll();
+    }
+});
+
+canvas.addEventListener('mouseup', e => {
+    if(!isDrawing || !isDrawingMode) return;
+    isDrawing = false;
+    const x = e.offsetX;
+    const y = e.offsetY;
+    
+    const color = document.getElementById('drawColor').value;
+    if(drawMode === 'circle') {
+        const r = Math.sqrt(Math.pow(x-startX, 2) + Math.pow(y-startY, 2));
+        if(r > 5) currentShapes.push({ type: 'circle', cx: startX/canvas.width, cy: startY/canvas.height, r: r/canvas.width, color });
+    } else if (drawMode === 'arrow') {
+        const dist = Math.sqrt(Math.pow(x-startX, 2) + Math.pow(y-startY, 2));
+        if(dist > 5) currentShapes.push({ type: 'arrow', x1: startX/canvas.width, y1: startY/canvas.height, x2: x/canvas.width, y2: y/canvas.height, color });
+    }
+    redrawAll();
+});
+
+function redrawAll() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    currentShapes.forEach(s => {
+        ctx.strokeStyle = s.color;
+        ctx.fillStyle = s.color;
+        ctx.lineWidth = 3;
+        if(s.type === 'circle') {
+            ctx.beginPath(); ctx.arc(s.cx*canvas.width, s.cy*canvas.height, s.r*canvas.width, 0, 2*Math.PI); ctx.stroke();
+        } else if (s.type === 'arrow') {
+            ctx.beginPath(); ctx.moveTo(s.x1*canvas.width, s.y1*canvas.height); ctx.lineTo(s.x2*canvas.width, s.y2*canvas.height); ctx.stroke();
+            const angle = Math.atan2(s.y2*canvas.height-s.y1*canvas.height, s.x2*canvas.width-s.x1*canvas.width);
+            ctx.beginPath();
+            ctx.moveTo(s.x2*canvas.width, s.y2*canvas.height);
+            ctx.lineTo(s.x2*canvas.width - 15 * Math.cos(angle - Math.PI/6), s.y2*canvas.height - 15 * Math.sin(angle - Math.PI/6));
+            ctx.lineTo(s.x2*canvas.width - 15 * Math.cos(angle + Math.PI/6), s.y2*canvas.height - 15 * Math.sin(angle + Math.PI/6));
+            ctx.closePath(); ctx.fill();
+        } else if (s.type === 'free') {
+            ctx.beginPath();
+            ctx.moveTo(s.points[0].x*canvas.width, s.points[0].y*canvas.height);
+            for(let i=1; i<s.points.length; i++) ctx.lineTo(s.points[i].x*canvas.width, s.points[i].y*canvas.height);
+            ctx.stroke();
+        }
+    });
+}
+
+function saveDrawing() {
+    if(currentShapes.length === 0) return cancelDrawing();
+    // Stash le dessin et ouvre le popup marker pour saisir la description.
+    // prompt() natif désactivé dans Electron → on réutilise le popup existant
+    // qui marche partout.
+    _pendingDrawing = { shapes: currentShapes };
+    cancelDrawing();
+    promptAddMarker();
+    // Sélectionne la catégorie 'D' (Note) par défaut puisque c'est un dessin
+    selectPopupCat('D');
+}
+
+function showDrawing(drawing) {
+    if(!drawing || !drawing.shapes) return clearCanvas();
+    resizeCanvas();
+    currentShapes = drawing.shapes;
+    redrawAll();
+    setTimeout(() => clearCanvas(), 3000); // Hide after 3s
+}
+
+// --- EXPORT ---
+function exportData(fmt) {
+    if(!currentProjectId) return;
+    saveNotes();
+    window.location.href = `/api/project/${currentProjectId}/export/${fmt}`;
+}
+
+function exportDataWithParams(fmt, params={}) {
+    if(!currentProjectId) return;
+    saveNotes();
+    const qs = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+    window.location.href = `/api/project/${currentProjectId}/export/${fmt}${qs ? '?'+qs : ''}`;
+}
+
+function exportSubclips(extra={}) {
+    if(!currentProjectId) return;
+    saveNotes();
+    const pre = document.getElementById('subPre').value || 3;
+    const post = document.getElementById('subPost').value || 7;
+    const params = {pre, post, ...extra};
+    const qs = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+    window.location.href = `/api/project/${currentProjectId}/export/subclips_fcpxml?${qs}`;
+}
+
+// --- MULTI-USER VIEW ---
+function renderMultiUser() {
+    const panel = document.getElementById('multiUserPanel');
+    const wrap = document.getElementById('multiUserPanelWrap');
+    if(!panel || !activeClip || !currentProject) { if(wrap) wrap.style.display='none'; return; }
+    const uid = currentSession ? (currentSession.user_id || currentSession.username) : null;
+    const RATING_LABELS = {'3':'⭐⭐⭐','2':'⭐⭐','1':'⭐','X':'❌'};
+    const CAT_LABELS = {'3':'⭐⭐⭐','2':'⭐⭐','1':'⭐','T':'👁️','S':'🎵','D':'📝','X':'❌'};
+    const CAT_COLORS = {'3':'#fcd34d','2':'#a78bfa','1':'#9ca3af','T':'#3b82f6','S':'#10b981','D':'#f59e0b','X':'#ef4444'};
+    const otherUsers = (currentProject.users || []).filter(u => { const k = u.id || u.username || u.name; return k !== uid; });
+    if(!otherUsers.length) { wrap.style.display='none'; return; }
+
+    const html = otherUsers.map(u => {
+        const ukey = u.id || u.username || u.name;
+        const uLabel = u.username || u.name || ukey;
+        const un = (allNotes[ukey] || {})[activeClip.id] || {};
+        const hasAnything = un.rating || (un.notes || '').trim() || (un.markers || []).length;
+        if(!hasAnything) return `<div class="mu-block"><div class="mu-user-header"><span class="mu-dot" style="background:${u.color||'#888'};"></span><strong style="color:${u.color||'#888'};">${uLabel}</strong><span style="color:var(--dim);font-size:0.75em;">— pas encore annoté</span></div></div>`;
+
+        const r = RATING_LABELS[un.rating] || '';
+        const note = (un.notes || '').trim();
+        const markers = (un.markers || []).filter(m => m.cat !== 'X');
+
+        const markersHtml = markers.length ? markers.map(m => {
+            const col = CAT_COLORS[m.cat] || '#888';
+            const lbl = CAT_LABELS[m.cat] || m.cat;
+            const clipId = activeClip.id;
+            const replies = m.id ? ((allDiscussions[clipId] || {})[m.id] || []) : [];
+            const repliesHtml = replies.map(r =>
+                `<div class="mu-reply"><strong style="color:${r.color}">${r.user_name}</strong> ${r.text}</div>`
+            ).join('');
+            const replyForm = m.id
+                ? `<div class="mu-reply-form"><input type="text" placeholder="Répondre…" onkeydown="if(event.key==='Enter')submitReply(this.nextElementSibling,'${clipId}','${m.id}')"><button onclick="submitReply(this,'${clipId}','${m.id}')">↩</button></div>`
+                : '';
+            return `<div class="mu-marker"><span style="font-family:monospace;font-size:0.78em;color:var(--dim);">${m.tc||''}</span><span style="color:${col};font-size:0.78em;">${lbl}</span>${m.desc ? `<span style="font-size:0.8em;">${m.desc}</span>` : ''}<div class="mu-replies">${repliesHtml}${replyForm}</div></div>`;
+        }).join('') : '';
+
+        return `<div class="mu-block">
+            <div class="mu-user-header">
+                <span class="mu-dot" style="background:${u.color||'#888'};"></span>
+                <strong style="color:${u.color||'#888'};">${uLabel}</strong>
+                ${r ? `<span style="font-size:0.85em;">${r}</span>` : ''}
+            </div>
+            ${note ? `<div class="mu-note">${note}</div>` : ''}
+            ${markersHtml}
+        </div>`;
+    }).join('');
+
+    // Bloc "Retours externes" (commentaires venus du lien de review partagé)
+    const extComments = (_shareState && _shareState.share_comments && _shareState.share_comments[activeClip.id]) || [];
+    let extHtml = '';
+    if (extComments.length) {
+        const items = extComments.map(c =>
+            `<div class="mu-ext-comment"><div class="mu-ext-head"><strong>${escapeHtml(c.name||'Anonyme')}</strong><span style="color:var(--dim);font-size:0.7em;font-family:monospace;">${escapeHtml((c.ts||'').replace('T',' ').slice(0,16))}</span></div><div class="mu-ext-text">${escapeHtml(c.text||'')}</div></div>`
+        ).join('');
+        extHtml = `<div class="mu-block mu-ext-block">
+            <div class="mu-user-header"><span class="mu-dot" style="background:#34d399;"></span><strong style="color:#34d399;">🔗 Retours externes</strong><span style="color:var(--dim);font-size:0.75em;">${extComments.length} commentaire${extComments.length>1?'s':''}</span></div>
+            ${items}
+        </div>`;
+    }
+
+    panel.innerHTML = html + extHtml;
+    wrap.style.display = 'block';
+}
+
+// --- STATUS ---
+function renderStatusBtn() {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    const n = (allNotes[uid] || {})[activeClip.id] || {};
+    const status = n.status || null;
+    const btn = document.getElementById('statusBtn');
+    const badge = document.getElementById('clipStatusBadge');
+    if(btn) { btn.textContent = status ? STATUS_LABELS[status] : '— statut'; btn.className = status ? `status-badge ${STATUS_CSS[status]}` : ''; btn.style.color = status ? '' : 'var(--dim)'; }
+    if(badge) badge.innerHTML = status ? `<span class="status-badge ${STATUS_CSS[status]}">${STATUS_LABELS[status]}</span>` : '';
+}
+
+function cycleStatus() {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    if(!allNotes[uid]) allNotes[uid] = {};
+    if(!allNotes[uid][activeClip.id]) allNotes[uid][activeClip.id] = {};
+    const n = allNotes[uid][activeClip.id];
+    pushUndo();
+    const cur = CLIP_STATUSES.indexOf(n.status || null);
+    n.status = CLIP_STATUSES[(cur + 1) % CLIP_STATUSES.length];
+    renderStatusBtn();
+    renderClipList();
+}
+
+// --- EXPORT MODAL + VALIDATOR ---
+function openExportModal() {
+    if(!currentProjectId) return;
+    saveClipNotes();
+    // Compute stats
+    const uid = currentSession ? (currentSession.user_id || currentSession.username) : null;
+    const userNotes = uid ? (allNotes[uid] || {}) : {};
+    let annotated=0, totalMarkers=0, noTC=0, noProxy=0, missingFile=0, fpsSet=new Set();
+    clips.forEach(c => {
+        const n = userNotes[c.id] || {};
+        if(n.rating || (n.markers||[]).length || (n.notes||'').trim()) annotated++;
+        totalMarkers += (n.markers||[]).filter(m=>m.cat!=='X').length;
+        if(!c.tc_in) noTC++;
+        if(!c.proxy_url) noProxy++;
+        if(c.fps) fpsSet.add(Math.round(c.fps));
+    });
+    const fpsOk = fpsSet.size <= 1;
+    const fpsStr = [...fpsSet].join(', ') || '?';
+    const lines = [
+        `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+            <span class="val-ok">✓ ${clips.length} clips scannés</span>
+            <span class="${annotated>0?'val-ok':'val-warn'}">✓ ${annotated} clips annotés</span>
+            <span class="${totalMarkers>0?'val-ok':'val-warn'}">✓ ${totalMarkers} markers</span>
+            <span class="${fpsOk?'val-ok':'val-warn'}">${fpsOk?'✓':'⚠'} ${fpsStr} fps</span>
+        </div>`
+    ];
+    if(noTC) lines.push(`<div class="val-warn">⚠ ${noTC} clips sans timecode</div>`);
+    if(noProxy) lines.push(`<div class="val-warn">⚠ ${noProxy} clips sans proxy vidéo</div>`);
+    if(!noTC && !noProxy) lines.push(`<div class="val-ok">✓ Tout est prêt pour l'export</div>`);
+    document.getElementById('validatorSection').innerHTML = lines.join('');
+    // Populate rough-cut user dropdown with all project users
+    const rcUser = document.getElementById('rcUser');
+    if (rcUser) {
+        const cur = rcUser.value;
+        rcUser.innerHTML = '<option value="">— Toute l\'équipe</option>' +
+            (currentProject.users || []).map(u => {
+                const k = u.id || u.username || u.name;
+                const label = u.username || u.name || k;
+                return `<option value="${k}">${label}</option>`;
+            }).join('');
+        rcUser.value = cur;
+    }
+    document.getElementById('exportModal').style.display = 'flex';
+}
+
+function exportRoughCut() {
+    if (!currentProjectId) return;
+    saveNotes();
+    const minR = document.getElementById('rcRating').value || 2;
+    const userId = document.getElementById('rcUser').value || '';
+    const params = {min_rating: minR};
+    if (userId) params.user_id = userId;
+    const qs = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+    window.location.href = `/api/project/${currentProjectId}/export/rough_cut?${qs}`;
+}
+
+// ─── multicam-modal.js : module externalisé → js/multicam-modal.js ───────────
+
+// --- HEALTH CHECK ---
+async function openHealthModal() {
+    if (!currentProjectId) return;
+    const modal = document.getElementById('healthModal');
+    const content = document.getElementById('healthContent');
+    content.innerHTML = '<p style="color:var(--dim);text-align:center;">Chargement…</p>';
+    modal.style.display = 'flex';
+    try {
+        const res = await apiFetch(`/api/project/${currentProjectId}/health`);
+        const h = await res.json();
+        content.innerHTML = renderHealth(h);
+    } catch(e) {
+        content.innerHTML = `<p class="health-err">Erreur : ${e.message}</p>`;
+    }
+}
+
+function renderHealth(h) {
+    const row = (label, val, cls='health-info') =>
+        `<div class="health-row"><span>${label}</span><span class="health-val ${cls}">${val}</span></div>`;
+    const pct = (a, b) => b ? Math.round(a/b*100)+'%' : '—';
+    const ok = 'health-ok', warn = 'health-warn', err = 'health-err';
+    const cnt = v => Array.isArray(v) ? v.length : (v || 0);
+
+    const m = h.media || {};
+    const tc = h.timecode || {};
+    const ann = h.annotations || {};
+    const exp = h.exports || {};
+    const inf = h.infrastructure || {};
+
+    const missingCount = cnt(m.missing_source);
+    const zeroDurCount = cnt(m.zero_duration);
+    const proxyOk = m.with_proxy === m.total;
+
+    let html = `<div class="health-section">
+        <h3>📹 Médias (${m.total || 0} clips)</h3>
+        ${row('Clips avec proxy', `${m.with_proxy||0} / ${m.total||0} (${pct(m.with_proxy,m.total)})`, proxyOk?ok:warn)}
+        ${missingCount > 0 ? row('Fichiers source manquants', missingCount, err) : ''}
+        ${zeroDurCount > 0 ? row('Durée nulle', zeroDurCount, warn) : ''}
+    </div>`;
+
+    const withoutTcCount = cnt(tc.without_tc);
+    const wrongFpsCount = cnt(tc.wrong_fps);
+    const tcOk = tc.with_tc === m.total;
+    const fpsDist = Object.entries(tc.fps_distribution || {}).map(([fps,n]) => `${fps}fps×${n}`).join(', ') || '—';
+    const multiFps = Object.keys(tc.fps_distribution || {}).length > 1;
+    html += `<div class="health-section">
+        <h3>🕐 Timecodes</h3>
+        ${row('Clips avec TC', `${tc.with_tc||0} / ${m.total||0}`, tcOk?ok:warn)}
+        ${withoutTcCount > 0 ? row('Clips sans TC', withoutTcCount, err) : ''}
+        ${row('Distribution FPS', fpsDist, multiFps?warn:ok)}
+        ${wrongFpsCount > 0 ? row('FPS incohérents', wrongFpsCount, err) : ''}
+    </div>`;
+
+    // ann.users is a count (int) from server; user names not available here
+    const usersCount = typeof ann.users === 'number' ? ann.users : cnt(ann.users);
+    const outOfRangeCount = cnt(ann.out_of_range);
+    const annOk = (ann.clips_rated || 0) > 0;
+    html += `<div class="health-section">
+        <h3>✏️ Annotations</h3>
+        ${row('Utilisateurs actifs', usersCount, usersCount>0?ok:warn)}
+        ${row('Clips annotés', `${ann.clips_rated||0} / ${m.total||0} (${pct(ann.clips_rated,m.total)})`, annOk?ok:warn)}
+        ${row('Total markers', ann.total_markers || 0, (ann.total_markers||0)>0?ok:'health-info')}
+        ${outOfRangeCount > 0 ? row('Markers hors plage TC', outOfRangeCount, err) : ''}
+    </div>`;
+
+    const specialCount = cnt(exp.special_char_clips);
+    const outRangeExpCount = cnt(exp.out_of_range_markers);
+    const noTcCount = cnt(exp.clips_no_tc);
+    const exportReady = specialCount === 0 && outRangeExpCount === 0 && noTcCount === 0;
+    html += `<div class="health-section">
+        <h3>📤 Export DaVinci</h3>
+        ${specialCount > 0 ? row('Clips avec caractères spéciaux', specialCount, warn) : row('Noms de clips', 'OK', ok)}
+        ${noTcCount > 0 ? row('Clips sans TC (non exportables)', noTcCount, err) : ''}
+        ${outRangeExpCount > 0 ? row('Markers hors plage clip', outRangeExpCount, err) : ''}
+        ${exportReady ? row('Prêt pour export', '✓ Tout OK', ok) : ''}
+    </div>`;
+
+    const lastSaveMin = inf.last_save_mins_ago;
+    const lastSave = lastSaveMin != null
+        ? (lastSaveMin < 1 ? 'À l\'instant' : `Il y a ${Math.round(lastSaveMin)} min`)
+        : '—';
+    const lastSaveCls = lastSaveMin == null ? warn : lastSaveMin < 60 ? ok : warn;
+    html += `<div class="health-section">
+        <h3>🗄️ Infrastructure</h3>
+        ${row('Dernière sauvegarde', lastSave, lastSaveCls)}
+        ${row('Backups disponibles', inf.backup_count || 0, (inf.backup_count||0)>0?ok:warn)}
+        ${row('FFmpeg', inf.ffmpeg_ok ? 'Opérationnel ✓' : 'Introuvable ✗', inf.ffmpeg_ok?ok:err)}
+        ${row('FFprobe', inf.ffprobe_ok ? 'Opérationnel ✓' : 'Introuvable ✗', inf.ffprobe_ok?ok:err)}
+    </div>`;
+
+    return html;
+}
+
+// --- KEYBOARD SHORTCUTS ---
+function promptAddMarkerWithCat(cat) {
+    promptAddMarker();
+    selectPopupCat(cat);
+}
+
+// --- UNDO ---
+function pushUndo() {
+    if(!activeClip || !currentSession) return;
+    const uid = currentSession.user_id;
+    const n = JSON.parse(JSON.stringify((allNotes[uid] || {})[activeClip.id] || {}));
+    undoStack.push({ clipId: activeClip.id, uid, state: n });
+}
+
+function undo() {
+    if(!undoStack.length) { showSaveStatus('Rien à annuler', '#f59e0b'); return; }
+    const last = undoStack.pop();
+    if(!allNotes[last.uid]) allNotes[last.uid] = {};
+    allNotes[last.uid][last.clipId] = last.state;
+    if(activeClip && activeClip.id === last.clipId) {
+        document.getElementById('clipNotes').value = last.state.notes || '';
+        renderMarkers();
+        renderMultiUser();
+        renderStatusBtn();
+        renderTags();
+    }
+    renderClipList();
+    showSaveStatus('↩ Annulé', '#a78bfa');
+}
+
+// --- KEYBOARD SHORTCUTS ---
+document.addEventListener('keydown', e => {
+    // Ctrl+S / Cmd+S — toujours actif
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveNotes();
+        return;
+    }
+    // Ctrl+Z / Cmd+Z — sauf dans textarea (undo natif du texte)
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        const tag = e.target.tagName;
+        if(tag !== 'TEXTAREA' && tag !== 'INPUT') {
+            e.preventDefault();
+            undo();
+        }
+        return;
+    }
+
+    // Le viewer multi-cam gère ses propres touches — ne pas interférer
+    if (_mcView) return;
+
+    const tag = e.target.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if(document.getElementById('popupOverlay').style.display === 'block') return;
+    const v = document.getElementById('player');
+    const fps = activeClip ? (activeClip.fps || 25) : 25;
+    switch(e.key) {
+        case '1': if(activeClip) setRating(1); break;
+        case '2': if(activeClip) setRating(2); break;
+        case '3': if(activeClip) setRating(3); break;
+        case 'x': case 'X': if(activeClip) setRating('X'); break;
+        case 'm': case 'M': promptAddMarker(); break;
+        case 'i': case 'I': promptAddMarkerWithCat('T'); break;
+        case 's': case 'S': promptAddMarkerWithCat('S'); break;
+        case 'n': case 'N': {
+            const idx = clips.findIndex(c => c.id === (activeClip && activeClip.id));
+            if(idx < clips.length - 1) selectClip(clips[idx + 1]);
+            break;
+        }
+        case 'p': case 'P': {
+            const idx = clips.findIndex(c => c.id === (activeClip && activeClip.id));
+            if(idx > 0) selectClip(clips[idx - 1]);
+            break;
+        }
+        case '?': document.getElementById('kbdModal').style.display='flex'; break;
+        case ' ':
+            e.preventDefault();
+            togglePlay();
+            break;
+        case 'j': case 'J': e.preventDefault(); _jklPress(-1); break;
+        case 'k': case 'K': e.preventDefault(); _jklPress(0);  break;
+        case 'l': case 'L': e.preventDefault(); _jklPress(1);  break;
+        case 'ArrowLeft':
+            if(v) { e.preventDefault(); v.pause(); v.currentTime = Math.max(0, v.currentTime - (e.shiftKey ? 5 : 1/fps)); }
+            break;
+        case 'ArrowRight':
+            if(v) { e.preventDefault(); v.pause(); v.currentTime = Math.min(v.duration||0, v.currentTime + (e.shiftKey ? 5 : 1/fps)); }
+            break;
+        case 'Delete':
+        case 'Backspace':
+            if(selectedMarkerId && activeClip && currentSession) {
+                const uid3 = currentSession.user_id;
+                const n3 = (allNotes[uid3] || {})[activeClip.id] || {};
+                const idx3 = (n3.markers || []).findIndex(mk => mk.id === selectedMarkerId);
+                if(idx3 >= 0) {
+                    e.preventDefault();
+                    selectedMarkerId = null;
+                    pushUndo();
+                    n3.markers.splice(idx3, 1);
+                    renderMarkers();
+                    renderClipList();
+                    showSaveStatus('🗑 Marker supprimé (Ctrl+Z pour annuler)', '#f59e0b');
+                }
+            }
+            break;
+        case 'Escape':
+            if(selectedMarkerId) {
+                selectedMarkerId = null;
+                document.querySelectorAll('.timeline-marker-pin').forEach(p => p.classList.remove('selected'));
+                document.querySelectorAll('.marker-row').forEach(r => r.classList.remove('selected'));
+            }
+            break;
+    }
+});
+
+// Enter key in popup textarea confirms marker
+document.addEventListener('DOMContentLoaded', () => {
+    const ta = document.getElementById('popupDesc');
+    if(ta) ta.addEventListener('keydown', e => {
+        if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmMarker(); }
+    });
+});
+
+// init() est appelé en bas de page après chargement des modules externes
+// (voir la section <script src> en bas du HTML)
+
+// ─── Heartbeat: maintient le serveur actif tant que l'onglet est ouvert ───
+function _sendHeartbeat() { fetch('/api/heartbeat', {method:'POST'}).catch(()=>{}); }
+_sendHeartbeat();
+setInterval(_sendHeartbeat, 5000);
+
+async function quitApp() {
+    showToast('Fermeture du logiciel…', 'warn', 2000);
+    try { await fetch('/api/shutdown', {method:'POST'}); } catch(e) {}
+    document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;background:#0a0a0f;color:#6b6b80;font-family:sans-serif;font-size:1.1em;">Derush Tool fermé. Vous pouvez fermer cet onglet.</div>';
+}
+
+// ─── share.js : module externalisé → js/share.js ───────────
+
+// ─── changelog.js : module externalisé → js/changelog.js ───────────
+
+// ─── crash.js : module externalisé → js/crash.js ───────────
+
+</script>
+
+<!-- Modules JS externalisés (chargés après le script inline pour profiter des globals d'état) -->
+<script src="js/audio-bwf.js"></script>
+<script src="js/multicam-viewer.js"></script>
+<script src="js/compare.js"></script>
+<script src="js/lut.js"></script>
+<script src="js/multicam-modal.js"></script>
+<script src="js/share.js"></script>
+<script src="js/changelog.js"></script>
+<script src="js/crash.js"></script>
+
+<!-- Bootstrap final : init() une fois tous les modules chargés -->
+<script>
+init();
+_loadVersionAndChangelog();
+</script>
+
+<!-- Scrub preview popup (flottant, hors sidebar) -->
+<div id="scrub-preview" style="display:none;">
+    <div class="preview-frame"></div>
+    <div class="preview-tc"></div>
+</div>
+
+<!-- Compare overlay -->
+<div id="compareOverlay">
+    <div class="compare-toolbar">
+        <strong style="font-size:0.9em;">⚡ Comparaison</strong>
+        <button id="cmpSyncBtn" onclick="toggleCmpSync()" style="font-size:0.8em;">🔗 Sync OFF</button>
+        <div style="flex:1;"></div>
+        <button onclick="closeCompare()" style="color:var(--red);border-color:rgba(239,68,68,.3);">✕ Fermer</button>
+    </div>
+    <div class="compare-grid">
+        <div class="compare-slot" id="cmpSlot0">
+            <div class="compare-slot-header">
+                <select id="cmpSel0" onchange="loadCmpClip(0)"><option value="">— Sélectionner un clip —</option></select>
+                <span id="cmpTc0" class="cmp-tc">--:--:--:--</span>
+                <button onclick="document.getElementById('cmpVid0').paused ? document.getElementById('cmpVid0').play() : document.getElementById('cmpVid0').pause()" style="padding:2px 8px;">⏯</button>
+            </div>
+            <div class="compare-video-area"><video id="cmpVid0" ontimeupdate="updateCmpTc(0)"></video></div>
+            <div class="compare-timeline" id="cmpTimeline0" onmousedown="cmpSeek(0,event)">
+                <div class="cmp-tl-track" id="cmpTrack0">
+                    <div class="cmp-tl-progress" id="cmpProg0" style="width:0%"></div>
+                    <div class="cmp-tl-head" id="cmpHead0" style="left:0%"></div>
+                </div>
+            </div>
+            <div class="compare-info" id="cmpInfo0"><span style="color:var(--dim);font-size:0.85em;">Sélectionnez un clip</span></div>
+        </div>
+        <div class="compare-slot" id="cmpSlot1">
+            <div class="compare-slot-header">
+                <select id="cmpSel1" onchange="loadCmpClip(1)"><option value="">— Sélectionner un clip —</option></select>
+                <span id="cmpTc1" class="cmp-tc">--:--:--:--</span>
+                <button onclick="document.getElementById('cmpVid1').paused ? document.getElementById('cmpVid1').play() : document.getElementById('cmpVid1').pause()" style="padding:2px 8px;">⏯</button>
+            </div>
+            <div class="compare-video-area"><video id="cmpVid1" ontimeupdate="updateCmpTc(1)"></video></div>
+            <div class="compare-timeline" id="cmpTimeline1" onmousedown="cmpSeek(1,event)">
+                <div class="cmp-tl-track" id="cmpTrack1">
+                    <div class="cmp-tl-progress" id="cmpProg1" style="width:0%"></div>
+                    <div class="cmp-tl-head" id="cmpHead1" style="left:0%"></div>
+                </div>
+            </div>
+            <div class="compare-info" id="cmpInfo1"><span style="color:var(--dim);font-size:0.85em;">Sélectionnez un clip</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- Multi-cam 4-up viewer -->
+<div id="mcViewerOverlay">
+    <div class="mc-toolbar">
+        <strong>🎥 Multi-cam viewer</strong>
+        <button onclick="mcViewerPlayPause()" id="mcPlayBtn">▶</button>
+        <span id="mcViewerTime" style="font-family:monospace;font-size:0.85em;color:var(--dim);">00:00 / 00:00</span>
+        <span id="mcViewerHint" style="font-size:0.78em;color:var(--dim);margin-left:8px;">1·2·3·4 : angle · Espace : play · ◄/► : caler · Échap : fermer</span>
+        <div style="flex:1;"></div>
+        <button id="mcBwfBtn" onclick="_mcToggleBwf()" style="display:none;" title="">🔊 Son ingé</button>
+        <button onclick="_mcSwapPrimary()" title="Intervertir : passer à l'angle suivant comme primary">🔄 Swap</button>
+        <button id="mcLayoutBtn" onclick="_mcToggleLayout()" title="Changer la disposition">⊞ Grille</button>
+        <span style="width:1px;background:var(--border);align-self:stretch;margin:0 4px;"></span>
+        <span style="font-size:0.78em;color:var(--dim);">Pas :</span>
+        <select id="mcNudgeStep" style="font-size:0.78em;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+            <option value="frame">1 frame</option>
+            <option value="0.1">100 ms</option>
+            <option value="0.5">500 ms</option>
+            <option value="1">1 s</option>
+        </select>
+        <button onclick="_mcNudgeStep(-1)" title="Recule les autres angles">◄</button>
+        <span id="mcNudgeDisplay" style="font-family:monospace;font-size:0.8em;color:var(--dim);min-width:72px;text-align:center;">Δ 0.000s</span>
+        <button onclick="_mcNudgeStep(+1)" title="Avance les autres angles">►</button>
+        <button id="mcNudgeSaveBtn" onclick="_mcSaveNudge()" title="Sauvegarder l'offset corrigé" style="display:none;color:#10b981;border-color:rgba(16,185,129,.4);">💾</button>
+        <button onclick="closeMcViewer()" style="color:var(--red);border-color:rgba(239,68,68,.3);">✕ Fermer</button>
+    </div>
+    <div class="mc-stage" id="mcStage">
+        <div class="mc-primary" id="mcPrimary"></div>
+        <div class="mc-thumbs" id="mcThumbs"></div>
+    </div>
+    <div class="mc-bottom">
+        <div class="mc-tl-header">
+            <span class="mc-tl-label">🎬 Timeline du groupe</span>
+            <span class="mc-tl-dur" id="mcTlDurLabel"></span>
+        </div>
+        <div class="mc-tl" id="mcTl" onmousedown="mcTlSeek(event)">
+            <div class="mc-tl-prog" id="mcTlProg"></div>
+            <div class="mc-tl-head" id="mcTlHead"></div>
+        </div>
+        <div class="mc-tl-ticks">
+            <span>00:00</span>
+            <span id="mcTlEndTc">00:00</span>
+        </div>
+    </div>
+</div>
+
+<!-- Modal chemin local des rushs -->
+<div id="rootPathModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:400;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:380px;max-width:520px;width:90%;">
+        <h2 id="rootPathModalTitle" style="margin-bottom:6px;">📁 Dossier des rushs</h2>
+        <p id="rootPathModalDesc" style="color:var(--dim);font-size:0.88em;margin-bottom:16px;">Indiquez où se trouvent les fichiers vidéo sur <strong>cet ordinateur</strong>.</p>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+            <input type="text" id="rootPathInput" placeholder="ex: D:\Tournages\DRIFT_CLUB" style="flex:1;font-family:monospace;">
+            <button onclick="browseRootPath()" title="Parcourir">📂</button>
+        </div>
+        <p style="font-size:0.78em;color:var(--dim);margin-bottom:4px;">Ce chemin est local à votre machine — chaque collaborateur configure le sien.</p>
+        <div id="rootPathError" style="color:var(--red);font-size:0.85em;display:none;margin-top:6px;"></div>
+        <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;" id="rootPathActions">
+            <button id="rootPathCancelBtn" onclick="closeRootPathModal()" style="display:none;">Annuler</button>
+            <button class="btn-primary" onclick="saveRootPath()">Valider →</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal rejoindre un projet cloud -->
+<div id="joinCloudModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:300;align-items:center;justify-content:center;">
+    <div class="card" style="min-width:360px;max-width:480px;width:90%;">
+        <h2 style="margin-bottom:4px;">☁️ Rejoindre un projet</h2>
+        <p style="color:var(--dim);font-size:0.85em;margin-bottom:16px;">Entrez l'ID du projet et la clé d'invitation transmise par l'administrateur :</p>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:12px;">
+            <input type="text" id="joinProjectId" placeholder="ID du projet (ex: drift_club)" style="font-family:monospace;">
+            <input type="text" id="joinInviteKey" placeholder="Clé d'invitation (ex: AB3X9KP2)" style="font-family:monospace;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
+        </div>
+        <div id="joinCloudList" style="min-height:0;"></div>
+        <div id="joinCloudError" style="color:var(--red);font-size:0.85em;display:none;margin-top:8px;"></div>
+        <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
+            <button onclick="closeJoinCloud()">Annuler</button>
+            <button class="btn-primary" onclick="joinCloudProject()">Rejoindre →</button>
+        </div>
+    </div>
+</div>
+</body>
+</html>

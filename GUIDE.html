@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Derush Tool — Guide d'utilisation</title>
+<style>
+:root {
+  --bg: #0f0f13; --surface: #18181f; --border: #2a2a35;
+  --accent: #6366f1; --green: #10b981; --text: #e4e4f0; --muted: #6b6b80;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.7; }
+.layout { display: flex; min-height: 100vh; }
+nav { width: 240px; background: var(--surface); border-right: 1px solid var(--border); padding: 28px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+nav .logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+nav .logo h1 { font-size: 1.1em; font-weight: 700; letter-spacing: -0.3px; }
+nav .logo span { color: var(--accent); }
+nav .logo p { color: var(--muted); font-size: 0.78em; margin-top: 3px; }
+nav a { display: block; padding: 6px 20px; color: var(--muted); text-decoration: none; font-size: 0.85em; border-left: 2px solid transparent; }
+nav a:hover { color: var(--text); border-left-color: var(--border); }
+.nav-section { padding: 12px 20px 4px; font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.08em; color: #444; font-weight: 600; }
+main { flex: 1; max-width: 820px; padding: 48px 56px; }
+h2 { font-size: 1.5em; font-weight: 700; margin: 48px 0 16px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text); }
+h2:first-child { margin-top: 0; border-top: none; }
+h3 { font-size: 1.05em; font-weight: 600; margin: 24px 0 10px; color: var(--accent); }
+p { margin-bottom: 12px; }
+ul, ol { margin: 0 0 12px 20px; }
+li { margin-bottom: 6px; }
+code { background: rgba(255,255,255,.07); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.85em; color: #c4b5fd; }
+pre { background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 12px 0 16px; overflow-x: auto; }
+pre code { background: none; border: none; padding: 0; font-size: 0.87em; color: #e4e4f0; }
+.step { display: flex; gap: 14px; margin-bottom: 14px; align-items: flex-start; }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: white; font-weight: 700; font-size: 0.85em; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.step-body { flex: 1; }
+.tip { background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.3); border-radius: 8px; padding: 12px 16px; margin: 14px 0; font-size: 0.9em; }
+.tip strong { color: var(--accent); }
+.warn { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25); border-radius: 8px; padding: 12px 16px; margin: 14px 0; font-size: 0.9em; }
+.warn strong { color: #fca5a5; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 0.88em; }
+th { text-align: left; padding: 8px 12px; background: rgba(255,255,255,.04); border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; font-size: 0.8em; text-transform: uppercase; letter-spacing: .05em; }
+td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical-align: top; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav>
+  <div class="logo">
+    <h1>DERUSH <span>TOOL</span></h1>
+    <p>Guide d'utilisation</p>
+  </div>
+  <div class="nav-section">Démarrage</div>
+  <a href="#installation">Installation</a>
+  <a href="#first-launch">Première ouverture</a>
+  <a href="#login">Connexion</a>
+  <div class="nav-section">Projets</div>
+  <a href="#create-project">Créer un projet</a>
+  <a href="#open-project">Ouvrir un projet</a>
+  <a href="#collaborators">Inviter un collaborateur</a>
+  <a href="#join-project">Rejoindre un projet</a>
+  <a href="#rush-path">Chemin des rushs</a>
+  <div class="nav-section">Dérushage</div>
+  <a href="#interface">L'interface</a>
+  <a href="#rating">Rating &amp; statut</a>
+  <a href="#markers">Marqueurs</a>
+  <a href="#tags">Tags</a>
+  <a href="#team">Avis de l'équipe</a>
+  <a href="#permissions">Rôles &amp; permissions</a>
+  <div class="nav-section">Outils avancés</div>
+  <a href="#shuttle">Lecture J/K/L</a>
+  <a href="#compare">Comparaison clips</a>
+  <a href="#multicam">Multi-cam &amp; son ingé</a>
+  <a href="#lut">Preview LUT</a>
+  <a href="#collaboration">Collaboration temps réel</a>
+  <div class="nav-section">Export</div>
+  <a href="#export">Exporter vers DaVinci</a>
+  <a href="#sync">Synchronisation cloud</a>
+  <div class="nav-section">Référence</div>
+  <a href="#shortcuts">Raccourcis clavier</a>
+  <a href="#troubleshooting">Dépannage</a>
+</nav>
+
+<main>
+
+<h2 id="installation">Installation</h2>
+<p>Derush Tool se présente sous forme d'un fichier exécutable unique (<code>DerushTool.exe</code> sur Windows). Aucune installation requise — il suffit de le lancer.</p>
+<div class="tip"><strong>Prérequis :</strong> ffmpeg doit être installé et accessible dans le PATH système, ou copié à côté de l'exécutable.</div>
+
+<h2 id="first-launch">Première ouverture</h2>
+<p>Au premier lancement, l'assistant de configuration s'ouvre automatiquement dans le navigateur.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Dossier de travail</strong> — choisissez où stocker vos projets (fichiers JSON, waveforms, miniatures). Si vous avez déjà un dossier existant, pointez directement dessus. Le <strong>port réseau</strong> (défaut : 8765) permet l'accès depuis un autre appareil sur le réseau local.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><strong>Votre profil</strong> — créez votre identifiant et mot de passe. Ce profil est propre à cette machine et sera reconnu sur tous les projets que vous créez ou rejoignez.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><strong>Terminé</strong> — cliquez sur "Accéder à l'application".</div></div>
+<div class="tip"><strong>Config stockée dans :</strong> <code>%APPDATA%\DerushTool\</code> (Windows). Elle persiste entre les mises à jour du logiciel.</div>
+
+<h2 id="login">Connexion</h2>
+<p>À chaque lancement, l'application s'ouvre sur l'écran de connexion. Saisissez l'identifiant et le mot de passe définis lors du premier lancement.</p>
+<div class="tip"><strong>Auto-login :</strong> Si vous étiez connecté lors de la dernière session, vous êtes automatiquement reconnecté et redirigé vers votre projet.</div>
+
+<h2 id="create-project">Créer un projet</h2>
+<p>Depuis l'écran "Mes projets", cliquez sur <strong>+ Nouveau projet</strong>.</p>
+<ul>
+  <li><strong>Nom du projet</strong> — ex. <code>DRIFT_CLUB</code></li>
+  <li><strong>Dossier des rushs</strong> — chemin vers le dossier contenant vos fichiers vidéo (MXF, MP4, MOV…). Derush Tool scanne ce dossier récursivement.</li>
+</ul>
+<p>Un scan initial est lancé automatiquement. Le projet apparaît dans la liste une fois terminé.</p>
+<h3>Formats supportés</h3>
+<p>Par défaut : <code>.mxf</code>, <code>.mp4</code>, <code>.mov</code>. Modifiable dans les réglages du projet.</p>
+
+<h2 id="open-project">Ouvrir un projet existant</h2>
+<p>Cliquez sur un projet dans la liste pour l'ouvrir. Si le projet est synchronisé en cloud, les annotations des collaborateurs sont téléchargées automatiquement à l'ouverture.</p>
+
+<h2 id="collaborators">Inviter un collaborateur (admin)</h2>
+<p>Depuis le workspace, cliquez sur <strong>⚙️</strong> (gestion utilisateurs) dans la barre latérale.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">Dans "Autoriser un utilisateur", saisissez l'<strong>identifiant</strong> du collaborateur (celui qu'il a choisi lors de son premier lancement).</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Choisissez une couleur et le niveau d'accès (admin ou non).</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Cliquez sur <strong>Autoriser</strong>. Une <strong>clé d'invitation</strong> à 8 caractères s'affiche — transmettez-la avec l'<strong>ID du projet</strong> au collaborateur.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Cliquez sur <strong>☁️ Sync</strong> pour pousser le projet mis à jour vers le cloud avant que le collaborateur tente de le rejoindre.</div></div>
+<div class="warn"><strong>Important :</strong> La clé d'invitation est à usage unique. Si le collaborateur la perd, vous devrez en générer une nouvelle depuis ⚙️.</div>
+
+<h2 id="join-project">Rejoindre un projet (collaborateur)</h2>
+<p>Sur votre propre PC, après avoir installé Derush Tool et créé votre profil :</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">Connectez-vous avec votre identifiant.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Cliquez sur <strong>🔑 Rejoindre un projet (clé d'invitation)</strong>.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Entrez l'<strong>ID du projet</strong> (ex. <code>drift_club</code>) et la <strong>clé d'invitation</strong> fournie par l'admin.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Le projet est téléchargé depuis le cloud et apparaît dans votre liste.</div></div>
+
+<h2 id="rush-path">Chemin local des rushs</h2>
+<p>Chaque collaborateur peut avoir ses rushs dans un dossier différent sur son propre disque. Lors de la <strong>première ouverture du projet</strong>, une fenêtre vous demande de définir votre chemin local vers les fichiers vidéo.</p>
+<ul>
+  <li>Saisissez le chemin complet du dossier contenant les rushs sur votre machine.</li>
+  <li>Cliquez sur <strong>Valider</strong>.</li>
+</ul>
+<p>Pour modifier ce chemin ultérieurement, cliquez sur le bouton <strong>📁</strong> dans la barre latérale du workspace.</p>
+<div class="tip"><strong>Exemple :</strong> L'admin a ses rushs dans <code>D:\Tournages\DRIFT_CLUB\</code>, Paola les a dans <code>E:\RUSHS\Drift\</code>. Chacun configure son propre chemin, indépendamment.</div>
+
+<h2 id="interface">L'interface du workspace</h2>
+<h3>Barre latérale gauche</h3>
+<ul>
+  <li><strong>Liste des clips</strong> — triés par jour de tournage, avec miniature et tech-méta (caméra, durée, ISO, ouverture…)</li>
+  <li><strong>Filtres</strong> — par rating, marqueurs, statut, caméra, jour</li>
+  <li><strong>Recherche</strong> — texte libre sur nom de fichier, tags, notes</li>
+</ul>
+<h3>Zone principale</h3>
+<ul>
+  <li><strong>Lecteur vidéo</strong> — lecture du fichier source ou proxy</li>
+  <li><strong>Timeline</strong> — barre de progression avec marqueurs colorés et forme d'onde audio</li>
+  <li><strong>Panneau d'annotation</strong> (droite) — rating, statut, note globale, tags, marqueurs, avis équipe</li>
+</ul>
+
+<h2 id="rating">Rating &amp; Statut</h2>
+<h3>Rating</h3>
+<table>
+  <tr><th>Touche</th><th>Signification</th></tr>
+  <tr><td><code>1</code></td><td>⭐ — Peut servir</td></tr>
+  <tr><td><code>2</code></td><td>⭐⭐ — Bon plan</td></tr>
+  <tr><td><code>3</code></td><td>⭐⭐⭐ — Excellent</td></tr>
+</table>
+<p>Appuyez à nouveau sur la même touche pour retirer le rating (toggle).</p>
+<h3>Statut</h3>
+<table>
+  <tr><th>Statut</th><th>Signification</th></tr>
+  <tr><td>—</td><td>Non vu</td></tr>
+  <tr><td>À revoir</td><td>Intéressant, à reconsulter</td></tr>
+  <tr><td>✅ Valide</td><td>Confirmé, sélectionné</td></tr>
+  <tr><td>❌ Rejeté</td><td>À ne pas utiliser</td></tr>
+</table>
+
+<h2 id="markers">Marqueurs</h2>
+<p>Les marqueurs identifient des moments précis dans un clip. Ils apparaissent sur la timeline et sont exportés dans DaVinci Resolve.</p>
+<h3>Créer un marqueur</h3>
+<p>Pendant la lecture, appuyez sur une touche de catégorie :</p>
+<table>
+  <tr><th>Touche</th><th>Catégorie</th><th>Couleur dans DaVinci</th></tr>
+  <tr><td><code>M</code></td><td>📌 Note générale</td><td>Sand (ambre)</td></tr>
+  <tr><td><code>S</code></td><td>🎵 Problème son</td><td>Vert</td></tr>
+  <tr><td><code>T</code></td><td>👁️ Problème image</td><td>Bleu ciel</td></tr>
+  <tr><td><code>X</code></td><td>❌ Zone à couper</td><td>Rouge</td></tr>
+</table>
+<p>Les marqueurs peuvent être déplacés par glisser-déposer sur la timeline.</p>
+<h3>Dessin sur image</h3>
+<p>Après avoir créé un marqueur image (<code>T</code>), activez le mode dessin (✏️) pour annoter directement sur la vidéo.</p>
+
+<h2 id="tags">Tags</h2>
+<p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de filtres.</p>
+
+<h2 id="team">Avis de l'équipe</h2>
+<p>Le panneau "Avis des autres" affiche les annotations de tous les collaborateurs pour le clip actif : rating, note, marqueurs, et discussions. Vous pouvez répondre à un marqueur en cliquant sur <strong>💬 Répondre</strong>.</p>
+
+<h2 id="permissions">Rôles &amp; permissions</h2>
+<p>Chaque collaborateur se voit attribuer un rôle à l'invitation. Le rôle détermine ce qu'il peut faire dans le projet.</p>
+<table>
+  <tr><th>Rôle</th><th>Ce qu'il peut faire</th></tr>
+  <tr><td><strong>Admin</strong></td><td>Tout : gérer les utilisateurs, rescanner, annoter, voir</td></tr>
+  <tr><td><strong>Annotateur</strong></td><td>Annoter (rating, marqueurs, notes, tags) et voir les avis des autres</td></tr>
+  <tr><td><strong>Lecteur</strong></td><td>Voir les clips et les annotations uniquement — aucune modification possible</td></tr>
+</table>
+<p>L'admin choisit le rôle dans le formulaire d'invitation (menu déroulant "Rôle").</p>
+
+<h2 id="shuttle">Lecture J/K/L</h2>
+<p>Les touches J, K, L permettent un contrôle rapide de la vitesse de lecture, à la façon des consoles de montage professionnelles.</p>
+<table>
+  <tr><th>Touche</th><th>Action</th></tr>
+  <tr><td><code>L</code></td><td>Lecture en avant — appuyer plusieurs fois pour accélérer : 1× → 2× → 4×</td></tr>
+  <tr><td><code>K</code></td><td>Pause immédiate (remet la vitesse à 1×)</td></tr>
+  <tr><td><code>J</code></td><td>Lecture en arrière — appuyer plusieurs fois pour accélérer : 1× → 2× → 4×</td></tr>
+</table>
+<div class="tip"><strong>Astuce :</strong> <code>K</code> + <code>L</code> maintenu ensemble = avance image par image. Pareil avec <code>K</code> + <code>J</code> pour reculer image par image.</div>
+
+<h2 id="compare">Comparaison de clips</h2>
+<p>Le bouton <strong>⚡ Comparer</strong> ouvre une vue côte à côte de deux clips pour comparer des prises, des angles de caméra ou des performances.</p>
+<h3>Utilisation</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>⚡ Comparer</strong>. Le clip actif est automatiquement chargé dans le slot gauche.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un second clip dans le menu déroulant du slot droit.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Utilisez les boutons ⏯ de chaque slot pour contrôler la lecture indépendamment.</div></div>
+<h3>Timeline &amp; Marqueurs</h3>
+<p>Chaque slot dispose d'une timeline scrubable avec les marqueurs de tous les annotateurs. Cliquez sur un marqueur (point coloré) pour sauter directement à ce moment. Les marqueurs de l'info panel sont également cliquables.</p>
+<h3>Mode Sync</h3>
+<p>Activez <strong>🔗 Sync</strong> pour synchroniser la position de lecture des deux vidéos — utile pour comparer deux prises identiques plan par plan.</p>
+<div class="tip"><strong>Fermer la comparaison :</strong> cliquez sur ✕ Fermer ou appuyez sur Échap.</div>
+
+<h2 id="multicam">Multi-cam &amp; son ingé</h2>
+<p>Quand plusieurs caméras filment la même scène en simultané, Derush Tool regroupe les clips dont les <strong>timecodes source se chevauchent</strong>. Le calage est frame-accurate quand les caméras sont jam-syncées avec une multiprise LTC commune, et le son ingé son peut être joué en référence dans le viewer multi-cam.</p>
+
+<div class="tip"><strong>Deux sources de TC utilisées :</strong>
+<ul>
+  <li><strong>LTC audio</strong> (à décoder une fois) — le BZZZZ caractéristique enregistré sur une piste audio quand la caméra était connectée à une multiprise LTC. Frame-accurate, c'est le standard pro. La FS5 par exemple écrit le LTC sur la piste audio 2 (ou 1 selon config).</li>
+  <li><strong>Tag <code>format.timecode</code></strong> — TC inscrit dans les métadonnées du fichier par la caméra. Fiable pour les FX6 jam-syncées via SDI. <strong>Peu fiable</strong> pour les FS5 dont l'horloge interne dérive — pour elles, c'est le LTC audio qui compte.</li>
+</ul>
+Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder via le bouton ci-dessous), sinon il retombe sur le tag <code>format.timecode</code>.</div>
+
+<h3>Étape 1 — 🎶 Décoder LTC (à faire une fois par projet)</h3>
+<p>Dans la modale <strong>🎥 Multi-cam</strong>, cadre <em>🎶 LTC</em>, cliquez sur <strong>🎶 Décoder LTC</strong>. Le serveur scanne tous les clips, extrait l'audio canal L de leur proxy, détecte les signaux LTC, et stocke le vrai TC dans le projet.</p>
+
+<div class="step"><div class="step-num">1</div><div class="step-body">Le bouton lance un job en background. Progress bar avec le nom du clip en cours.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Quand fini, message du type <em>"45 avec LTC · 12 sans LTC"</em>. Les clips sans LTC sont ceux dont l'audio ne contient pas de signal LTC (caméra non connectée à la multiprise, GoPro, FX6 dont le TC est dans les métadonnées, etc.).</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Décodage persistant : stocké dans le JSON projet, à faire une seule fois. Le bouton <strong>↻ Re-décoder tout</strong> force un re-décodage si vous avez refait vos proxys.</div></div>
+
+<div class="tip"><strong>Durée :</strong> quelques minutes pour 100-500 clips selon la machine (parallélisé, throttlé pour ne pas saturer le CPU).</div>
+
+<h3>Étape 2 — 🔍 Lancer la détection</h3>
+<p>Cliquez sur <strong>🔍 Lancer la détection</strong>. Le serveur compare les TC (LTC prioritaire, sinon <code>format.timecode</code>) de tous les clips deux à deux dans chaque journée (en excluant les paires de même caméra) et crée un groupe pour chaque chevauchement. C'est <strong>instantané</strong>, même sur plusieurs centaines de clips.</p>
+
+<p>Les groupes apparaissent comme <strong>propositions</strong>. Clic / Shift+clic pour sélectionner plusieurs, puis ✓ pour valider ou ✕ pour rejeter en masse. Chaque groupe porte le badge <strong>📼 TC</strong>.</p>
+
+<div class="tip"><strong>Détection incrémentale :</strong> vous pouvez relancer 🔍 Détecter à volonté. Chaque passage préserve les groupes validés et les propositions existantes (vos calages manuels ne sont jamais écrasés), et ne traite que les clips encore orphelins.</div>
+
+<div class="warn"><strong>Clips sans matching possible :</strong> si une caméra a un TC cassé ET pas de LTC audio sur une journée, ses clips ne formeront aucune paire — c'est volontaire (mieux vaut un trou explicite qu'un faux match silencieux). Vous les calerez à la main dans DaVinci. Sur DRIFT par exemple : J02 Clip0001, J04 Clip0016/0029, tout J06 sont dans ce cas.</div>
+
+<h3>Indexer le son ingé son (optionnel)</h3>
+<p>Dans la même modale, section <em>📼 Son ingé</em> : indiquez le chemin du dossier contenant les BWF/WAV de l'ingénieur son et cliquez <strong>Scanner</strong>. Ces fichiers servent <strong>uniquement</strong> à jouer une piste de référence dans le viewer multi-cam — ils n'influencent pas la détection.</p>
+<div class="tip"><strong>Sources reconnues :</strong> les enregistreurs Sound Devices, Zaxcom, Zoom, Tascam, et tout fichier WAV/BWF avec champ <code>TimeReference</code> dans le BEXT. Le champ <code>OriginationDate</code> est aussi lu pour éviter de mélanger les jours de tournage.</div>
+
+<h3>Viewer multi-cam (⛶ Voir le groupe)</h3>
+<p>Le bouton <strong>⛶ Voir le groupe</strong> dans le panneau "Autres angles" ouvre le viewer plein écran avec tous les angles du groupe synchronisés.</p>
+
+<h4>Contrôles principaux</h4>
+<table>
+  <tr><th>Élément</th><th>Action</th></tr>
+  <tr><td><strong>Touches 1·2·3·4</strong></td><td>Switch d'angle primary</td></tr>
+  <tr><td><strong>Espace</strong></td><td>Lecture / pause</td></tr>
+  <tr><td><strong>← / →</strong></td><td>Caler les angles secondaires (selon le <em>Pas</em> sélectionné)</td></tr>
+  <tr><td><strong>Échap</strong></td><td>Fermer le viewer</td></tr>
+  <tr><td><strong>⊞ Grille / ⊡ Primaire</strong></td><td>Disposition tous-en-grille vs primaire + thumbs</td></tr>
+</table>
+
+<h4>🔊 Son ingé</h4>
+<p>Si un BWF couvre temporellement le groupe (date + TC), un bouton <strong>🔊 Son ingé</strong> apparaît dans la toolbar. Activez-le pour entendre la piste de référence pendant que vous switchez entre les angles — toutes les pistes caméra sont alors muted. Le BWF est aligné automatiquement sur le clip le plus ancien du groupe via son TC. Aucun calage manuel possible : si le son n'est pas aligné, c'est que le BWF n'est pas le bon, ou que le TC d'une des sources est faux.</p>
+
+<h4>Caler les vidéos entre elles (◄ / ►)</h4>
+<p>Si malgré un calage TC réussi vous voyez que les angles secondaires sont décalés (très rare), nudgez-les avec les boutons <strong>◄ / ►</strong> à droite du sélecteur de <em>Pas</em> (1 frame, 100 ms, 500 ms, 1 s). Cliquez <strong>💾</strong> pour sauvegarder les nouveaux offsets du groupe — ils seront restaurés à la prochaine ouverture.</p>
+
+<h2 id="lut">Preview LUT</h2>
+<p>Derush Tool peut appliquer une LUT 3D (Look-Up Table) sur la preview vidéo pour visualiser l'étalonnage prévu sans quitter l'interface.</p>
+<h3>Charger une LUT</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>📂 LUT</strong> dans la barre de contrôle du lecteur.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un fichier <code>.cube</code> (format ASCII standard).</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">La LUT s'applique immédiatement sur la vidéo en cours. Un badge <strong>LUT</strong> apparaît sur l'image.</div></div>
+<h3>Activer / désactiver</h3>
+<p>Le bouton <strong>🎨 LUT</strong> (qui apparaît après le chargement) permet de basculer la LUT on/off pour comparer avec et sans étalonnage. La LUT reste mémorisée dans la session même quand elle est désactivée.</p>
+<div class="tip"><strong>Fichiers Sony :</strong> Les LUTs Sony FX6 (format <code>.cube</code> ASCII) situées dans <code>XDROOT/General/LUT/</code> sont directement compatibles.</div>
+<div class="warn"><strong>Qualité de preview :</strong> La preview LUT est calculée en résolution réduite (≈ 480px) pour la fluidité. Elle est destinée à l'appréciation colorimétrique, pas à la validation finale.</div>
+
+<h2 id="collaboration">Collaboration temps réel</h2>
+<p>Quand plusieurs utilisateurs travaillent en même temps sur le même projet (en réseau local ou avec sync cloud actif), les annotations se mettent à jour automatiquement sans avoir à rafraîchir la page.</p>
+<ul>
+  <li>Les <strong>notes et marqueurs</strong> d'un collaborateur apparaissent dans votre panneau "Avis des autres" dès qu'il les sauvegarde.</li>
+  <li>Les <strong>discussions</strong> (replies sur les marqueurs) se synchronisent en temps réel.</li>
+  <li>La connexion WebSocket est automatique — pas d'action requise. En cas de déconnexion réseau, elle se rétablit automatiquement.</li>
+</ul>
+<div class="tip"><strong>Mode réseau local :</strong> pour de meilleures performances, désignez un PC comme serveur (celui qui fait tourner DerushTool.exe) et connectez les autres via le navigateur sur <code>http://&lt;ip-lan&gt;:8765</code>.</div>
+
+<h2 id="export">Exporter vers DaVinci Resolve</h2>
+<p>Cliquez sur <strong>📤 Exporter</strong> en haut de la zone principale.</p>
+<h3>Workflow complet (recommandé)</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">Téléchargez le <strong>FCPXML complet</strong> et importez-le dans DaVinci : <em>File › Import › Timeline…</em></div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Téléchargez le <strong>Markers EDL</strong> et importez-le : clic droit timeline › <em>Timelines › Import › Timeline Markers from EDL</em></div></div>
+<h3>Timelines de selects</h3>
+<ul>
+  <li>⭐⭐⭐ uniquement, ⭐⭐ et plus, problèmes son, problèmes image, à couper</li>
+  <li>Subclips autour des marqueurs avec pré-roll/post-roll configurables</li>
+</ul>
+
+<h2 id="sync">Synchronisation cloud</h2>
+<p>Le dot ☁️ en haut du workspace indique l'état : 🟢 synchronisé, 🔴 erreur, ⚫ non configuré.</p>
+<p>La sync est automatique au démarrage et toutes les 10 minutes. Cliquez sur le bouton Sync pour la déclencher manuellement.</p>
+<div class="tip"><strong>Merge sans conflit :</strong> chaque utilisateur n'écrit que ses propres annotations. Il n'y a pas de risque d'écraser le travail d'un collègue.</div>
+
+<h2 id="shortcuts">Raccourcis clavier</h2>
+<h3>Lecture</h3>
+<table>
+  <tr><th>Touche</th><th>Action</th></tr>
+  <tr><td><code>Espace</code></td><td>Lecture / Pause</td></tr>
+  <tr><td><code>L</code></td><td>Lecture en avant (1× → 2× → 4× à chaque appui)</td></tr>
+  <tr><td><code>K</code></td><td>Pause (remet la vitesse à 1×)</td></tr>
+  <tr><td><code>J</code></td><td>Lecture en arrière (1× → 2× → 4× à chaque appui)</td></tr>
+  <tr><td><code>← →</code></td><td>Reculer / Avancer d'1 frame (+ Maj = 5s)</td></tr>
+  <tr><td><code>F</code></td><td>Plein écran</td></tr>
+</table>
+<h3>Annotation</h3>
+<table>
+  <tr><th>Touche</th><th>Action</th></tr>
+  <tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>Rating ⭐ / ⭐⭐ / ⭐⭐⭐ (appuyer à nouveau pour annuler)</td></tr>
+  <tr><td><code>M</code></td><td>Marqueur note générale</td></tr>
+  <tr><td><code>S</code></td><td>Marqueur problème son</td></tr>
+  <tr><td><code>T</code></td><td>Marqueur problème image</td></tr>
+  <tr><td><code>X</code></td><td>Marqueur zone à couper</td></tr>
+  <tr><td><code>Delete</code></td><td>Supprimer le marqueur sélectionné</td></tr>
+  <tr><td><code>Escape</code></td><td>Désélectionner</td></tr>
+  <tr><td><code>Ctrl+Z</code></td><td>Annuler la dernière action</td></tr>
+</table>
+<h3>Interface</h3>
+<table>
+  <tr><th>Touche</th><th>Action</th></tr>
+  <tr><td><code>?</code></td><td>Afficher / masquer ce panneau raccourcis</td></tr>
+</table>
+
+<h2 id="troubleshooting">Dépannage</h2>
+
+<h3>Le projet ne trouve pas les fichiers vidéo</h3>
+<p>Vérifiez le chemin des rushs (bouton 📁 dans la barre latérale), puis cliquez sur <strong>🔄 Rescanner</strong>.</p>
+
+<h3>Erreur 403 lors de la synchronisation</h3>
+<p>La clé de synchronisation dans <code>derush_config.json</code> (<code>sync_key</code>) ne correspond pas à la valeur <code>$SECRET_KEY</code> dans le fichier PHP sur le serveur web.</p>
+
+<h3>Impossible de rejoindre un projet (clé invalide)</h3>
+<p>La clé est à usage unique — si elle a déjà été utilisée, l'admin doit en générer une nouvelle. Vérifiez aussi que l'identifiant correspond exactement à celui autorisé.</p>
+
+<h3>La vidéo ne se lit pas (MXF)</h3>
+<p>Les fichiers MXF ne se lisent pas dans le navigateur. Deux solutions :</p>
+<ul>
+  <li>Proxy MP4 H.264 détecté automatiquement dans un sous-dossier <code>Sub/Proxy/</code>.</li>
+  <li>Mode réseau local avec streaming ffmpeg.</li>
+</ul>
+
+<h3>Le serveur persiste après fermeture de l'onglet</h3>
+<p>Derush Tool s'arrête automatiquement ~12s après la fermeture (heartbeat). Sinon, utilisez le bouton <strong>⏻</strong> dans l'interface avant de fermer, ou terminez le processus dans le Gestionnaire des tâches.</p>
+
+<h3>La preview LUT reste noire</h3>
+<p>Vérifiez que le fichier <code>.cube</code> est bien au format ASCII standard (ouvrir dans un éditeur de texte — la première ligne doit contenir <code>LUT_3D_SIZE</code> ou un commentaire <code>#</code>). Les LUTs Sony FX6 au format <code>.cube</code> sont compatibles. Les LUTs en format propriétaire binaire ne le sont pas.</p>
+
+<h3>Les clips dans la vue Comparer ne sont pas à la même hauteur</h3>
+<p>Cela peut arriver si les deux clips ont des formats d'image très différents (ex. 16:9 vs 4:3). C'est normal — les deux videos sont centrées dans leurs zones respectives. Les timelines restent toujours alignées.</p>
+
+<h3>Les marqueurs n'apparaissent pas dans la timeline de comparaison</h3>
+<p>Les marqueurs s'affichent après le chargement complet des métadonnées vidéo. Attendez que la vidéo soit entièrement chargée (barre de chargement terminée), puis changez de clip et revenez si nécessaire pour forcer le rechargement.</p>
+
+<h3>La collaboration temps réel ne se met pas à jour</h3>
+<p>La connexion WebSocket peut se déconnecter si le réseau est instable. Elle se reconnecte automatiquement toutes les 6 secondes. Si le problème persiste, rechargez la page (F5) — vos annotations locales non sauvegardées seront perdues, pensez à sauvegarder d'abord avec <strong>💾 Sauvegarder</strong>.</p>
+
+<h3>Aucun groupe multi-cam détecté alors que deux caméras ont filmé la même scène</h3>
+<p>La détection se fait <strong>uniquement par TC source</strong>. Si la détection ne trouve rien, c'est presque toujours qu'une des deux caméras a un TC incohérent ce jour-là (jam-sync raté, TC reseté en cours de journée, dérive de plusieurs heures). Dans ce cas, pas de méthode de secours automatique : il faut caler les plans à la main dans DaVinci pour les jours concernés.</p>
+<p>Vérifications utiles :</p>
+<ul>
+  <li>Ouvrez les deux clips concernés et regardez leur TC source dans le panneau d'infos. S'ils sont à plus de quelques secondes l'un de l'autre alors que les plans ont été filmés au même moment, le TC d'au moins une caméra est faux.</li>
+  <li>Sur les autres jours (où le TC est cohérent), la détection trouve les paires instantanément — un projet où ça ne marche jamais signale plutôt un souci de scan ou de métadonnées que de la méthode.</li>
+</ul>
+
+<h3>Le son ingé son est décalé dans le viewer multi-cam</h3>
+<p>Le BWF est aligné automatiquement sur le clip le plus ancien du groupe via son TC. S'il sonne décalé, deux possibilités :</p>
+<ul>
+  <li><strong>Pas le bon BWF :</strong> le serveur choisit le BWF qui couvre temporellement le groupe (TC + date) et démarre juste avant le premier clip. Si plusieurs BWF du même horaire existent (tech checks, essais mic), un mauvais peut être pris. Aucun calage manuel disponible — il faut renommer ou déplacer les BWF de tech check hors du dossier scanné, puis re-scanner.</li>
+  <li><strong>TC source faux :</strong> si le TC de la caméra est incohérent, le BWF est calé sur une mauvaise référence. C'est le même problème que pour la détection des groupes : à caler à la main dans DaVinci pour cette journée.</li>
+</ul>
+
+<h3>Les deux vidéos d'un groupe multi-cam sont décalées entre elles</h3>
+<p>Si une paire détectée par TC montre malgré tout un décalage à l'écran (très rare), nudgez les angles secondaires dans le viewer :</p>
+<ol>
+  <li>Choisissez le <strong>Pas</strong> dans la toolbar (1 frame / 100 ms / 500 ms / 1 s).</li>
+  <li>Utilisez <strong>◄ / ►</strong> à droite du sélecteur jusqu'à alignement visuel.</li>
+  <li>💾 pour sauvegarder les nouveaux offsets du groupe.</li>
+</ol>
+
+</main>
+</div>
+</body>
+</html>

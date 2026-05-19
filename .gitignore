@@ -1,0 +1,59 @@
+# Build outputs
+dist/
+dist2/
+build/
+electron/dist/
+
+# Dependencies
+node_modules/
+electron/node_modules/
+tests/node_modules/
+
+# Test artifacts
+tests/test-results/
+tests/playwright-report/
+tests/playwright/.cache/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# User data & local config (NEVER push these — contiennent profil, mots de passe, sync keys)
+projects/
+waveforms/
+thumbnails/
+sync_fingerprints/
+derush_config.json
+derush_profile.json
+# derush_sync.php contient SECRET_KEY hardcodée → utiliser derush_sync.example.php comme template
+derush_sync.php
+index.db
+
+# Bundled large binaries (téléchargés séparément, voir build_windows.bat ou requirements)
+ffmpeg.exe
+ffprobe.exe
+
+# Test exports & legacy artifacts
+test_export*.fcpxml
+test_export*.edl
+test_fcpxml_*.fcpxml
+validation_results.json
+
+# Logs & one-shot files
+*.log
+recover_proposals.json
+xcorr_*.json
+xcorr_*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets / env
+.env
+*.env

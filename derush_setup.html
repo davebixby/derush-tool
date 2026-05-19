@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Derush Tool — Configuration</title>
+<style>
+:root {
+  --bg: #0f0f13; --surface: #18181f; --border: #2a2a35;
+  --accent: #6366f1; --accent-hover: #818cf8;
+  --green: #10b981; --red: #ef4444;
+  --text: #e4e4f0; --muted: #6b6b80; --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px; min-height: 100vh;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; width: 100%; max-width: 520px; padding: 36px;
+}
+.logo { text-align: center; margin-bottom: 28px; }
+.logo h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+.logo span { color: var(--accent); }
+.logo p { color: var(--muted); margin-top: 6px; font-size: 13px; }
+.steps { display: flex; gap: 8px; margin-bottom: 28px; justify-content: center; }
+.step-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background .2s; }
+.step-dot.active { background: var(--accent); }
+.step-dot.done { background: var(--green); }
+.section { display: none; }
+.section.active { display: block; }
+h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+.field { margin-bottom: 14px; }
+label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+input[type=text], input[type=password], input[type=number] {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); border-radius: var(--radius); padding: 9px 12px;
+  font-size: 14px; outline: none; transition: border-color .15s;
+}
+input:focus { border-color: var(--accent); }
+.hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.actions { display: flex; gap: 10px; margin-top: 24px; justify-content: flex-end; }
+button { padding: 9px 20px; border-radius: var(--radius); border: none; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--border); color: var(--text); }
+.alert { border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 13px; display: none; }
+.alert.error { background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.4); color: #fca5a5; }
+.summary-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.summary-row:last-child { border-bottom: none; }
+.summary-val { color: var(--muted); text-align: right; max-width: 60%; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <h1>DERUSH <span>TOOL</span></h1>
+    <p>Configuration initiale</p>
+  </div>
+
+  <div class="steps" id="stepsBar">
+    <div class="step-dot active" id="dot0"></div>
+    <div class="step-dot" id="dot1"></div>
+    <div class="step-dot" id="dot2"></div>
+  </div>
+
+  <!-- Step 0: Dossier projets -->
+  <div class="section active" id="step0">
+    <h2>📁 Dossier de travail</h2>
+    <div class="field">
+      <label>Dossier Projets</label>
+      <input type="text" id="projectsDir" placeholder="ex: C:\MesRushes\DerushProjects">
+      <p class="hint">Choisissez où stocker vos projets. Si vous avez déjà un dossier existant, pointez-y directement.</p>
+    </div>
+    <div class="field">
+      <label>Port réseau</label>
+      <input type="number" id="portInput" value="8765" min="1024" max="65535" style="width:120px;">
+      <p class="hint">Pour accéder depuis un autre appareil sur le réseau local</p>
+    </div>
+    <div class="alert error" id="alert0"></div>
+    <div class="actions">
+      <button class="btn-primary" onclick="saveFolder()">Suivant →</button>
+    </div>
+  </div>
+
+  <!-- Step 1: Créer un profil -->
+  <div class="section" id="step1">
+    <h2>👤 Votre profil</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">Créez votre identifiant personnel. Il sera reconnu sur tous les projets.</p>
+    <div class="field">
+      <label>Identifiant</label>
+      <input type="text" id="profileUsername" placeholder="ex: Sébastien" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>Mot de passe</label>
+      <input type="password" id="profilePw1" placeholder="Choisissez un mot de passe" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label>Confirmer le mot de passe</label>
+      <input type="password" id="profilePw2" placeholder="Confirmez" autocomplete="new-password">
+    </div>
+    <div class="alert error" id="alert1"></div>
+    <div class="actions">
+      <button class="btn-secondary" onclick="goStep(0)">← Retour</button>
+      <button class="btn-primary" onclick="createProfile()">Créer mon profil →</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Terminé -->
+  <div class="section" id="step2">
+    <h2>✅ Prêt à l'emploi</h2>
+    <div class="summary-row"><span>Dossier projets</span><span class="summary-val" id="sum-projects">-</span></div>
+    <div class="summary-row"><span>Profil</span><span class="summary-val" id="sum-profile">-</span></div>
+    <div class="actions" style="justify-content:center;margin-top:24px;">
+      <button class="btn-primary" onclick="openApp()">Accéder à l'application →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let step = 0;
+let folderSaved = false;
+
+async function init() {
+  try {
+    const res = await fetch('/api/setup/status');
+    const data = await res.json();
+    // Only pre-fill if it looks like a user-chosen path (not the AppData default)
+    if (data.projects_dir && !data.projects_dir.includes('AppData') && data.configured) {
+      document.getElementById('projectsDir').value = data.projects_dir;
+    }
+    if (data.port) document.getElementById('portInput').value = data.port;
+  } catch(e) {}
+
+  // Check if profile already exists — skip step 1 if so
+  try {
+    const r = await fetch('/api/profile');
+    const p = await r.json();
+    if (p.exists) {
+      document.getElementById('dot1').style.display = 'none';
+      document.getElementById('stepsBar').querySelectorAll('.step-dot').forEach((d, i) => {
+        if (i === 1) d.style.display = 'none';
+      });
+    }
+  } catch(e) {}
+}
+
+function goStep(n) {
+  document.getElementById('step' + step).classList.remove('active');
+  document.getElementById('dot' + step).className = 'step-dot done';
+  step = n;
+  document.getElementById('step' + step).classList.add('active');
+  if (document.getElementById('dot' + step))
+    document.getElementById('dot' + step).className = 'step-dot active';
+}
+
+async function saveFolder() {
+  const alertEl = document.getElementById('alert0');
+  alertEl.style.display = 'none';
+  const projectsDir = document.getElementById('projectsDir').value.trim();
+  const port = parseInt(document.getElementById('portInput').value) || 8765;
+  if (!projectsDir) { alertEl.textContent = 'Dossier requis.'; alertEl.style.display = 'block'; return; }
+  try {
+    const res = await fetch('/api/setup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        projects_dir: projectsDir,
+        thumbnails_dir: projectsDir + '/thumbnails',
+        waveforms_dir: projectsDir + '/waveforms',
+        port
+      })
+    });
+    const data = await res.json();
+    if (data.error) { alertEl.textContent = data.error; alertEl.style.display = 'block'; return; }
+    folderSaved = true;
+
+    // Check if profile already exists
+    const pr = await fetch('/api/profile');
+    const pd = await pr.json();
+    if (pd.exists) {
+      document.getElementById('sum-projects').textContent = projectsDir;
+      document.getElementById('sum-profile').textContent = pd.username;
+      goStep(2);
+    } else {
+      goStep(1);
+    }
+  } catch(e) {
+    alertEl.textContent = 'Erreur réseau : ' + e.message;
+    alertEl.style.display = 'block';
+  }
+}
+
+async function createProfile() {
+  const alertEl = document.getElementById('alert1');
+  alertEl.style.display = 'none';
+  const username = document.getElementById('profileUsername').value.trim();
+  const pw1 = document.getElementById('profilePw1').value;
+  const pw2 = document.getElementById('profilePw2').value;
+  if (!username) { alertEl.textContent = 'Identifiant requis.'; alertEl.style.display = 'block'; return; }
+  if (pw1.length < 4) { alertEl.textContent = 'Mot de passe trop court (4 caractères min).'; alertEl.style.display = 'block'; return; }
+  if (pw1 !== pw2) { alertEl.textContent = 'Les mots de passe ne correspondent pas.'; alertEl.style.display = 'block'; return; }
+  try {
+    const res = await fetch('/api/profile/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password: pw1})
+    });
+    const data = await res.json();
+    if (data.error) { alertEl.textContent = data.error; alertEl.style.display = 'block'; return; }
+    document.getElementById('sum-projects').textContent = document.getElementById('projectsDir').value.trim();
+    document.getElementById('sum-profile').textContent = username;
+    goStep(2);
+  } catch(e) {
+    alertEl.textContent = 'Erreur réseau : ' + e.message;
+    alertEl.style.display = 'block';
+  }
+}
+
+function openApp() {
+  window.location.href = '/';
+}
+
+init();
+
+// Heartbeat — maintient le serveur actif
+function _sendHeartbeat() { fetch('/api/heartbeat', {method:'POST'}).catch(()=>{}); }
+_sendHeartbeat();
+setInterval(_sendHeartbeat, 5000);
+</script>
+</body>
+</html>

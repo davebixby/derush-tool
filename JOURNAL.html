@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Derush Tool — Carnet de bord</title>
+<style>
+:root {
+  --bg: #0f0f13; --surface: #18181f; --surface2: #1e1e28;
+  --border: #2a2a35; --accent: #6366f1; --green: #10b981;
+  --orange: #f59e0b; --red: #ef4444; --blue: #60a5fa;
+  --text: #e4e4f0; --muted: #6b6b80; --dim: #444;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.75; }
+.layout { display: flex; min-height: 100vh; }
+
+/* Navigation */
+nav { width: 260px; background: var(--surface); border-right: 1px solid var(--border); padding: 28px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+nav .logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+nav .logo h1 { font-size: 1em; font-weight: 700; letter-spacing: -0.3px; }
+nav .logo span { color: var(--accent); }
+nav .logo p { color: var(--muted); font-size: 0.75em; margin-top: 3px; }
+nav a { display: block; padding: 5px 20px; color: var(--muted); text-decoration: none; font-size: 0.82em; border-left: 2px solid transparent; }
+nav a:hover { color: var(--text); border-left-color: var(--border); }
+.nav-section { padding: 14px 20px 4px; font-size: 0.68em; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); font-weight: 700; }
+
+/* Main */
+main { flex: 1; max-width: 860px; padding: 48px 60px; }
+
+/* Entry = une entrée de journal */
+.entry { margin-bottom: 60px; }
+.entry-header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.entry-date { font-size: 0.72em; font-family: 'SF Mono', Consolas, monospace; color: var(--muted); white-space: nowrap; }
+.entry-title { font-size: 1.4em; font-weight: 700; color: var(--text); }
+.entry-tag { font-size: 0.65em; padding: 2px 8px; border-radius: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 8px; }
+.tag-feature { background: rgba(99,102,241,.15); color: #a5b4fc; border: 1px solid rgba(99,102,241,.3); }
+.tag-bug { background: rgba(239,68,68,.12); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
+.tag-fix { background: rgba(16,185,129,.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,.25); }
+.tag-arch { background: rgba(245,158,11,.12); color: #fcd34d; border: 1px solid rgba(245,158,11,.25); }
+.tag-doc { background: rgba(96,165,250,.12); color: #93c5fd; border: 1px solid rgba(96,165,250,.25); }
+
+h3 { font-size: 1em; font-weight: 600; color: var(--accent); margin: 20px 0 8px; }
+h4 { font-size: 0.9em; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
+p { margin-bottom: 12px; }
+ul, ol { margin: 0 0 12px 20px; }
+li { margin-bottom: 5px; }
+
+.box { border-radius: 8px; padding: 14px 18px; margin: 14px 0; font-size: 0.9em; }
+.box-why  { background: rgba(99,102,241,.07); border: 1px solid rgba(99,102,241,.2); }
+.box-fail { background: rgba(239,68,68,.07); border: 1px solid rgba(239,68,68,.2); }
+.box-ok   { background: rgba(16,185,129,.07); border: 1px solid rgba(16,185,129,.2); }
+.box-note { background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.2); }
+.box-why  strong { color: #a5b4fc; }
+.box-fail strong { color: #fca5a5; }
+.box-ok   strong { color: #6ee7b7; }
+.box-note strong { color: #fcd34d; }
+
+.timeline { border-left: 2px solid var(--border); padding-left: 24px; margin: 16px 0; }
+.timeline-item { position: relative; margin-bottom: 18px; }
+.timeline-item::before { content: ''; position: absolute; left: -29px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--surface2); border: 2px solid var(--border); }
+.timeline-item.ok::before { background: rgba(16,185,129,.5); border-color: var(--green); }
+.timeline-item.fail::before { background: rgba(239,68,68,.5); border-color: var(--red); }
+.timeline-item.info::before { background: rgba(99,102,241,.5); border-color: var(--accent); }
+
+code { background: rgba(255,255,255,.07); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 0.82em; color: #c4b5fd; }
+
+.verdict { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.88em; }
+.verdict-ok   { color: var(--green); }
+.verdict-fail { color: var(--red); }
+.verdict-warn { color: var(--orange); }
+
+hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav>
+  <div class="logo">
+    <h1>DERUSH <span>TOOL</span></h1>
+    <p>Carnet de bord · Dev journal</p>
+  </div>
+
+  <div class="nav-section">Fondations</div>
+  <a href="#genese">Genèse du projet</a>
+  <a href="#architecture">Architecture choisie</a>
+  <a href="#scanner">Scanner les rushs</a>
+  <a href="#multiuser">Multi-utilisateurs</a>
+  <a href="#sync">Sync cloud</a>
+  <a href="#pyinstaller">Build PyInstaller</a>
+
+  <div class="nav-section">Session mai 2026 (1)</div>
+  <a href="#heartbeat">Auto-extinction (heartbeat)</a>
+  <a href="#403">Bug 403 sync (Paola)</a>
+  <a href="#rootpath">Chemin des rushs collaborateur</a>
+  <a href="#browse">Bug bouton Parcourir</a>
+  <a href="#scan-generic">Scan générique caméras</a>
+
+  <div class="nav-section">Session 14–15 mai 2026</div>
+  <a href="#jkl">Navette J/K/L</a>
+  <a href="#websocket">WebSocket collaboration</a>
+  <a href="#compare">Vue multiclips</a>
+  <a href="#permissions">Permissions granulaires</a>
+  <a href="#lut">Preview LUT</a>
+
+  <div class="nav-section">Corrections UI</div>
+  <a href="#compare-fixes">Corrections compare</a>
+  <a href="#lut-debug">Debug LUT (3 tentatives)</a>
+
+  <div class="nav-section">Session 15–16 mai 2026 (multicam)</div>
+  <a href="#mc-genese">Genèse — multicam BWF</a>
+  <a href="#mc-tcson">TC-son via BWF</a>
+  <a href="#mc-groupes-11">Groupes de 11 clips</a>
+  <a href="#mc-greedy">Grouping camera-constrained</a>
+  <a href="#mc-affiner">Bouton Affiner</a>
+  <a href="#mc-bwfviewer">Audio BWF dans viewer</a>
+  <a href="#mc-gccphat">GCC-PHAT &amp; multi-chunk</a>
+  <a href="#mc-bug-tclag">Bug double-application delta</a>
+  <a href="#mc-bug-date">Bug BWF d'un autre jour</a>
+  <a href="#mc-manual">Calage manuel + sélecteur</a>
+
+  <div class="nav-section">Session 16–17 mai 2026 (auto-sync waveform)</div>
+  <a href="#ws-davinci">L'épreuve DaVinci</a>
+  <a href="#ws-method">Méthode auto-sync 180 s</a>
+  <a href="#ws-sign">Le bug de signe xcorr</a>
+  <a href="#ws-miniloop">Mini-loop fin de primary</a>
+  <a href="#ws-detection">Détection plafonnée à 11</a>
+
+  <div class="nav-section">Session 17 mai 2026 (pivot)</div>
+  <a href="#mc-tc-only">Abandon de l'audio — pipeline TC pur</a>
+
+  <div class="nav-section">Session 17-18 mai 2026 (LTC + perf + Electron)</div>
+  <a href="#ltc-decoder">Décodeur LTC pure Python</a>
+  <a href="#ltc-bug-fix">Bug du décodeur : 3 frames consécutives</a>
+  <a href="#audio-mono-r">Audio FS5 mono R (LTC silencing)</a>
+  <a href="#perf-leaks">Fuites mémoire AudioContext + video</a>
+  <a href="#perf-ffmpeg">Sémaphore + dédup ffmpeg</a>
+  <a href="#perf-gopro">GoPro HEVC 5K — LRV en sauveur</a>
+  <a href="#electron-poc">POC Electron Phase A</a>
+
+  <div class="nav-section">Documentation</div>
+  <a href="#docs">CLAUDE.md &amp; GUIDE.html</a>
+</nav>
+
+<main>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="genese">
+  <div class="entry-header">
+    <span class="entry-date">DÉBUT DU PROJET · avant mai 2026</span>
+    <span class="entry-title">Genèse — Pourquoi Derush Tool ?</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Le point de départ est un problème concret : lors des tournages du projet DRIFT_CLUB, plusieurs personnes (Sébastien, Paola, et d'autres) doivent visualiser les rushs, les noter, poser des marqueurs et synchroniser leur travail. Les outils existants sont soit trop lourds (DaVinci Resolve au complet juste pour annoter), soit pas adaptés au travail collaboratif sur des fichiers locaux.</p>
+
+  <div class="box box-why">
+    <strong>Le besoin :</strong> un outil léger qui tourne en local sur n'importe quel PC, qui ne nécessite pas d'abonnement cloud, et qui permet à plusieurs personnes de travailler sur les mêmes rushs — certains au même endroit sur un réseau local, d'autres depuis chez eux via une sync internet.
+  </div>
+
+  <h3>Contraintes du terrain</h3>
+  <ul>
+    <li>Les rushs sont sur des disques durs physiques — pas dans le cloud. Chaque collaborateur a potentiellement les fichiers dans un dossier différent sur sa machine.</li>
+    <li>Les fichiers Sony FX6 sont en MXF — format non lisible directement dans un navigateur web.</li>
+    <li>Il faut pouvoir exporter vers DaVinci Resolve avec les marqueurs et les selects.</li>
+    <li>L'outil doit être distribuable sans installation complexe (pas de Python requis sur les machines des collaborateurs).</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="architecture">
+  <div class="entry-header">
+    <span class="entry-date">FONDATIONS</span>
+    <span class="entry-title">Architecture — Un serveur Python, une interface HTML</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>La décision architecturale fondamentale : <strong>un serveur HTTP local en Python</strong> qui expose une API REST, avec une <strong>interface web HTML/JS monofichier</strong> qui s'ouvre dans le navigateur. C'est ce couple qui permet à la fois la richesse d'une vraie interface et la simplicité du déploiement.</p>
+
+  <h3>Pourquoi ce choix ?</h3>
+  <ul>
+    <li><strong>Python :</strong> accès facile à ffmpeg (subprocess), manipulation de fichiers, génération de formats comme FCPXML et EDL. Aucune dépendance réseau externe à gérer.</li>
+    <li><strong>Navigateur comme rendu :</strong> HTML/CSS/JS donnent une interface riche sans framework lourd. Le navigateur gère déjà la lecture vidéo, le canvas pour les dessins, les timelines CSS.</li>
+    <li><strong>Monofichier HTML :</strong> un seul fichier <code>derush_app.html</code> bundlé dans l'exe. Pas de serveur de fichiers complexe, pas de build frontend.</li>
+    <li><strong>PyInstaller :</strong> transforme le tout en un <code>DerushTool.exe</code> autonome — double-cliquer suffit.</li>
+  </ul>
+
+  <h3>La subtilité PyInstaller : APP_DIR vs BUNDLE_DIR</h3>
+  <p>Quand PyInstaller crée l'exe, les fichiers embarqués (HTML, images) sont extraits dans un dossier temporaire <code>_MEIPASS</code> à chaque lancement. Les données utilisateur (projets, config, profil) doivent être ailleurs — dans <code>%APPDATA%\DerushTool\</code> — pour persister entre les mises à jour.</p>
+  <div class="box box-note">
+    <strong>Piège :</strong> servir <code>derush_app.html</code> depuis <code>APP_DIR</code> (à côté de l'exe) au lieu de <code>BUNDLE_DIR</code> (<code>_MEIPASS</code>) faisait que le HTML était introuvable dans l'exe packagé. Ce bug a été découvert lors du premier vrai test sur une autre machine.
+  </div>
+
+  <h3>Le streaming vidéo MXF</h3>
+  <p>Les fichiers MXF ne se lisent pas dans un navigateur natif. La solution : l'endpoint <code>/proxy/&lt;rel_path&gt;</code> qui streame le fichier en chunks avec support du Range HTTP (pour que le navigateur puisse seeker dans la vidéo sans tout télécharger). Quand un proxy MP4 existe dans <code>Sub/Proxy/</code>, il est préféré pour la fluidité.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="scanner">
+  <div class="entry-header">
+    <span class="entry-date">FONDATIONS</span>
+    <span class="entry-title">Scanner les rushs — détection caméra et timecode</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Le scan est le cœur du système. Il parcourt récursivement un dossier et construit la liste des clips avec leurs métadonnées. La principale complexité est que chaque caméra stocke ses informations différemment.</p>
+
+  <h3>Source de timecode Sony FX6</h3>
+  <p>La FX6 enregistre en MXF avec un timecode embarqué, mais ffprobe retourne parfois les bytes dans le mauvais ordre (endianness inversé). Un fix spécifique a été appliqué pour les fichiers FX6 : lecture des 4 bytes de TC et réorganisation. Ce fix est conditionnel — il ne s'applique qu'aux fichiers où <code>FX6</code> est détecté dans le nom de caméra, pour ne pas casser d'autres formats.</p>
+
+  <div class="box box-fail">
+    <strong>Bug initial :</strong> Le fix byte-reversal s'appliquait à tous les fichiers dont le nom commençait par <code>DRIFT_</code> — une convention du projet spécifique. Quand quelqu'un a testé avec des rushs d'une autre caméra dont les fichiers ne s'appelaient pas DRIFT_xxx, les timecodes étaient incorrects ou ignorés.
+  </div>
+  <div class="box box-ok">
+    <strong>Fix :</strong> Condition basée sur le modèle de caméra détecté (<code>'FX6' in camera.upper()</code>), pas sur le nom de fichier.
+  </div>
+
+  <h3>Sidecar XML Sony</h3>
+  <p>La FX6 génère un fichier XML à côté de chaque MXF avec les métadonnées techniques complètes (ISO, ouverture, angle d'obturation, focale). La fonction <code>parse_sony_xml()</code> les extrait et les associe au clip. Pour les autres caméras, on tente d'extraire ces mêmes infos depuis les tags ffprobe — chaque marque utilise des noms de tags différents, donc on essaie une liste de candidats dans l'ordre.</p>
+
+  <h3>La détection du "jour de tournage"</h3>
+  <p>L'arborescence DRIFT_CLUB était structurée comme <code>J02_2026_xx_xx/IMAGE/FX6/...</code>. Le scan extrayait le premier élément du chemin relatif pour identifier le jour. Mais si les rushs étaient directement à la racine du dossier (structure plate), la logique retournait le nom de fichier lui-même comme "jour" — ce qui créait des en-têtes absurdes dans l'interface.</p>
+  <div class="box box-ok">
+    <strong>Fix :</strong> <code>day = parts[0] if len(parts) &gt; 1 else ''</code> — si le fichier est directement à la racine, il n'a pas de "jour".
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="multiuser">
+  <div class="entry-header">
+    <span class="entry-date">FONDATIONS</span>
+    <span class="entry-title">Système multi-utilisateurs — profils, sessions, invitations</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Le modèle multi-utilisateurs a évolué plusieurs fois. À l'origine, les utilisateurs étaient définis uniquement dans le projet (avec un nom + un mot de passe hashé). Le problème : si deux projets coexistaient, chaque projet avait ses propres comptes — incohérent pour des gens qui travaillent sur plusieurs projets.</p>
+
+  <h3>Système de profil global (un par machine)</h3>
+  <p>La solution adoptée : chaque machine a <strong>un profil unique</strong> stocké dans <code>%APPDATA%\DerushTool\derush_profile.json</code>. Ce profil contient juste un identifiant et un mot de passe hashé. Quand on rejoint un projet, ce profil est vérifié contre la liste des utilisateurs autorisés dans le projet.</p>
+
+  <h3>Système de clé d'invitation</h3>
+  <p>Le flux pour ajouter un collaborateur est intentionnellement simple et sécurisé. L'admin génère une clé à 8 caractères (usage unique) associée à l'identifiant du collaborateur. Le collaborateur entre cette clé + l'ID du projet, et le système télécharge automatiquement le projet depuis le cloud. La clé est supprimée du projet après utilisation.</p>
+
+  <div class="box box-note">
+    <strong>Subtilité :</strong> Le champ <code>user_id</code> dans les sessions est un alias de <code>username</code> — ajouté pour la compatibilité avec du code plus ancien qui utilisait <code>id</code> ou <code>name</code> comme clé. La fonction <code>user_note_key()</code> centralise cette résolution pour ne pas avoir à y penser partout.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="sync">
+  <div class="entry-header">
+    <span class="entry-date">FONDATIONS</span>
+    <span class="entry-title">Sync cloud — le PHP sur sebastiendelahaye.be</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Pour permettre à des collaborateurs distants de partager leurs annotations, on a choisi une solution minimaliste : un script PHP hébergé sur le propre serveur de Sébastien (<code>sebastiendelahaye.be/derush_sync.php</code>). Chaque projet est stocké comme un fichier JSON sur ce serveur. Pas de base de données, pas de service tiers, pas d'abonnement.</p>
+
+  <h3>Stratégie de merge sans conflit</h3>
+  <p>Le point critique : quand deux personnes ont travaillé en parallèle et que l'une sync, elle ne doit pas écraser le travail de l'autre. La solution repose sur le fait que chaque utilisateur n'écrit <strong>que ses propres notes</strong> dans l'objet <code>notes[user_id]</code>. Le merge consiste simplement à faire l'union des notes par user_id (local gagne pour ses propres notes), l'union des discussions par timestamp, et l'union des users par id.</p>
+
+  <h3>Auto-sync en arrière-plan</h3>
+  <p>Un thread daemon surveille la connexion réseau toutes les 90 secondes. Si la connexion est revenue après une coupure, il déclenche une sync automatique. Une sync toutes les 10 minutes est aussi assurée en permanence. L'interface affiche un dot coloré (vert/rouge/gris) pour l'état de sync.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="pyinstaller">
+  <div class="entry-header">
+    <span class="entry-date">FONDATIONS</span>
+    <span class="entry-title">Build PyInstaller — les pièges du packaging</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Transformer un script Python en exe autonome avec PyInstaller semble simple mais cache plusieurs pièges découverts un par un.</p>
+
+  <div class="timeline">
+    <div class="timeline-item fail">
+      <h4>Piège 1 — UnboundLocalError sur threading</h4>
+      <p>Python a une règle surprenante : si vous écrivez <code>import threading</code> n'importe où dans une fonction, Python traite <code>threading</code> comme une variable <em>locale</em> dans toute la fonction — même avant l'import. Si du code avant l'import essaie d'utiliser <code>threading</code>, on obtient un <code>UnboundLocalError</code>. Visible seulement dans l'exe (pas en dev) car PyInstaller modifie l'ordre d'initialisation des modules.</p>
+    </div>
+    <div class="timeline-item fail">
+      <h4>Piège 2 — Les fenêtres CMD qui flashent</h4>
+      <p>Chaque appel <code>subprocess.run()</code> pour lancer ffmpeg ouvrait une fenêtre de terminal visible brièvement. Fix : <code>creationflags=subprocess.CREATE_NO_WINDOW</code> sur Windows.</p>
+    </div>
+    <div class="timeline-item fail">
+      <h4>Piège 3 — Le bouton Parcourir qui relançait l'exe entier</h4>
+      <p>Pour ouvrir une fenêtre native de sélection de dossier, le premier réflexe était de lancer un sous-process Python avec <code>sys.executable</code>. Dans l'exe, <code>sys.executable</code> pointe sur <code>DerushTool.exe</code> lui-même — le lancer démarrait une deuxième instance complète du logiciel, avec ouverture du navigateur, etc. La solution correcte est d'utiliser tkinter directement dans le serveur via un thread, en retournant le résultat par une queue.</p>
+    </div>
+    <div class="timeline-item ok">
+      <h4>Solution finale pour tkinter</h4>
+      <p>Thread séparé → <code>tkinter.filedialog.askdirectory()</code> → résultat dans une <code>queue.Queue</code> → réponse JSON au frontend. Le tout dans le même process, sans subprocess.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="section">
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="heartbeat">
+  <div class="entry-header">
+    <span class="entry-date">SESSION MAI 2026 (1)</span>
+    <span class="entry-title">Auto-extinction — le serveur qui ne mourrait pas</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Problème rapporté : après avoir fermé l'onglet du navigateur, le processus <code>DerushTool.exe</code> restait actif dans le gestionnaire des tâches — indéfiniment. Gênant pour les utilisateurs qui ne pensent pas à le tuer manuellement.</p>
+
+  <div class="box box-why">
+    <strong>Pourquoi c'est difficile à détecter côté serveur :</strong> HTTP est un protocole sans état. Quand l'onglet se ferme, il n'envoie aucune notification au serveur. Le serveur ne sait tout simplement pas que personne ne l'écoute plus.
+  </div>
+
+  <h3>Solution : système de heartbeat</h3>
+  <p>Le frontend envoie un <code>POST /api/heartbeat</code> toutes les 5 secondes tant que la page est ouverte. Un thread daemon côté serveur surveille la date du dernier heartbeat reçu. Si 12 secondes s'écoulent sans heartbeat, le serveur s'arrête. Un bouton ⏻ dans l'interface permet aussi un arrêt propre immédiat.</p>
+  <p>Le délai de 12 secondes (plutôt que 5) est intentionnel pour absorber les variations réseau et les courts moments où le navigateur est occupé.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="403">
+  <div class="entry-header">
+    <span class="entry-date">SESSION MAI 2026 (1)</span>
+    <span class="entry-title">Bug 403 — Paola ne pouvait pas rejoindre le projet</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Lors du premier vrai test multi-utilisateurs avec Paola, elle obtient une erreur 403 (Forbidden) quand elle essaie de rejoindre le projet avec sa clé d'invitation. Les logs confirment que la requête arrive bien au serveur PHP.</p>
+
+  <div class="timeline">
+    <div class="timeline-item info">
+      <h4>Investigation</h4>
+      <p>Le PHP retourne 403 quand la clé de synchronisation dans la requête ne correspond pas à <code>$SECRET_KEY</code> dans le script PHP.</p>
+    </div>
+    <div class="timeline-item fail">
+      <h4>Cause trouvée</h4>
+      <p>Le fichier PHP déployé sur <code>sebastiendelahaye.be</code> avait encore la valeur d'exemple <code>$SECRET_KEY = 'CHANGE_MOI_ICI'</code>. La config locale avait bien la vraie clé <code>drift2026</code>, mais le PHP n'avait jamais été mis à jour après le déploiement initial.</p>
+    </div>
+    <div class="timeline-item ok">
+      <h4>Fix</h4>
+      <p>Mise à jour du fichier <code>derush_sync.php</code> avec <code>$SECRET_KEY = 'drift2026'</code> et redéploiement sur le serveur. Confirmé fonctionnel via un test curl de Sébastien.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="rootpath">
+  <div class="entry-header">
+    <span class="entry-date">SESSION MAI 2026 (1)</span>
+    <span class="entry-title">Chemin des rushs — chaque collaborateur a son propre disque</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Une fois l'accès de Paola réglé, nouveau problème : elle pouvait voir la liste des clips mais pas les lire — aucun moyen de lui indiquer que ses rushs se trouvent dans <code>E:\DRIFT_CLUB\</code> sur son propre PC, pas dans le chemin de l'admin.</p>
+
+  <h3>Le design du chemin par utilisateur</h3>
+  <p>Le chemin des rushs est stocké <strong>par utilisateur</strong> dans le projet (<code>proj['users'][i]['root_path']</code>), pas comme chemin global du projet. Chaque collaborateur configure le sien de façon indépendante. Quand le serveur doit streamer un fichier, il utilise le <code>root_path</code> de la session de l'utilisateur connecté.</p>
+
+  <h3>UX : prompt au premier accès</h3>
+  <p>Si un utilisateur entre dans un projet sans <code>root_path</code> configuré, une modale s'affiche automatiquement lui demandant de choisir le dossier. Il ne peut pas fermer cette modale sans valider un chemin (ou annuler explicitement). Ensuite, un bouton 📁 dans la barre latérale permet de modifier ce chemin à tout moment.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="browse">
+  <div class="entry-header">
+    <span class="entry-date">SESSION MAI 2026 (1)</span>
+    <span class="entry-title">Bug — le bouton Parcourir ouvrait un nouvel onglet</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Quand Paola cliquait sur le bouton 📁 pour choisir son dossier, cela ouvrait un nouvel onglet dans le navigateur. Et quand elle recliquait, rien ne se passait. Le sélecteur de dossier natif Windows n'apparaissait jamais.</p>
+
+  <div class="box box-why">
+    <strong>La cause, pas évidente :</strong> Pour ouvrir une fenêtre de sélection de fichier native, le serveur Python lançait un sous-process <code>python -c "code tkinter..."</code>. En mode développement, <code>sys.executable</code> pointe sur l'interpréteur Python — c'est logique. Mais dans l'exe packagé par PyInstaller, <code>sys.executable</code> pointe sur <code>DerushTool.exe</code> lui-même. Donc le "sous-process" relançait une instance complète du logiciel, qui ouvrait automatiquement le navigateur sur <code>localhost:8765</code> — d'où le nouvel onglet.
+  </div>
+
+  <h3>Fix : tkinter dans un thread, pas un subprocess</h3>
+  <p>La solution est de garder tkinter dans le même process. Un thread séparé est lancé depuis le serveur (obligatoire car tkinter doit tourner sur le thread qui fait l'appel, et le handler HTTP tourne dans son propre thread). Le résultat du dialogue est passé au handler via une <code>queue.Queue</code> avec un timeout de 120 secondes.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="scan-generic">
+  <div class="entry-header">
+    <span class="entry-date">SESSION MAI 2026 (1)</span>
+    <span class="entry-title">Scan générique — "et si j'ai une autre caméra ?"</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>La question a été posée directement : est-ce que le logiciel fonctionne si j'apporte un dossier de rushs filmé avec une caméra différente, dans une arborescence différente ? La réponse honnête était : "probablement pas très bien".</p>
+
+  <h3>Ce qui était codé en dur</h3>
+  <ul>
+    <li>La détection du TC byte-reversal FX6 s'appliquait aux fichiers nommés <code>DRIFT_*</code></li>
+    <li>Les métadonnées techniques (ISO, ouverture, etc.) n'étaient extraites que depuis le sidecar XML Sony</li>
+    <li>La structure de dossier <code>J02.../IMAGE/FX6/...</code> était implicitement attendue</li>
+  </ul>
+
+  <h3>Ce qui a été généralisé</h3>
+  <p>La fonction <code>_extract_tech_metadata()</code> essaie maintenant une liste exhaustive de noms de tags ffprobe pour chaque champ (ISO, ouverture, focale, obturateur) — couvrant les conventions Sony, Canon, Nikon, Apple (QuickTime), et les tags EXIF génériques. Le premier tag non-vide trouvé gagne. Pour les caméras sans sidecar XML, les métadonnées techniques viennent de là.</p>
+  <p>La détection de caméra suit une priorité : sidecar XML Sony en premier, puis tags ffprobe, puis nom du dossier parent. Les structures de dossiers sont maintenant toutes acceptées — la profondeur est adaptative.</p>
+</div>
+
+<hr class="section">
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="jkl">
+  <div class="entry-header">
+    <span class="entry-date">14 MAI 2026 · SOIR</span>
+    <span class="entry-title">Navette J/K/L — lecture arrière sans support navigateur</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Les touches J/K/L sont la norme dans les logiciels de montage professionnels (Avid, Premiere, DaVinci). L accélère en avant (1×→2×→4×), K met en pause, J joue en arrière à vitesse croissante.</p>
+
+  <h3>Le problème de la lecture arrière</h3>
+  <p>L'API HTML5 <code>video.playbackRate</code> accepte des valeurs positives allant de 0.1 à 16 environ. Elle n'accepte <strong>pas</strong> de valeurs négatives. La lecture arrière n'est tout simplement pas supportée nativement dans les navigateurs.</p>
+
+  <div class="box box-why">
+    <strong>La solution :</strong> simuler la lecture arrière avec <code>requestAnimationFrame</code>. À chaque frame animée, on calcule le temps écoulé depuis la frame précédente et on recule manuellement le <code>currentTime</code> de la vidéo du même montant (× la vitesse désirée). Le navigateur affiche chaque frame "en arrière" — c'est pas parfait en termes de fluidité, mais pour du dérushage c'est largement suffisant.
+  </div>
+
+  <p>Deux états sont maintenus : <code>_jklSpeed</code> pour la vitesse courante et <code>_jklRevRaf</code> pour l'ID de la RAF en cours. Le nettoyage se fait dans <code>doLogout()</code> pour éviter des RAFs orphelines après déconnexion.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="websocket">
+  <div class="entry-header">
+    <span class="entry-date">14 MAI 2026 · SOIR</span>
+    <span class="entry-title">WebSocket — collaboration en temps réel sans bibliothèque</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>L'objectif : quand Sébastien pose un marqueur, Paola le voit apparaître dans son panneau "Avis des autres" sans avoir à rafraîchir la page. Le polling toutes les 60 secondes existait déjà mais était trop lent pour une vraie collaboration synchronisée.</p>
+
+  <h3>Pourquoi implémenter WebSocket manuellement ?</h3>
+  <p>Le serveur est basé sur <code>http.server.HTTPServer</code> de la bibliothèque standard Python. WebSocket est un protocole distinct (RFC 6455) qui commence par un handshake HTTP puis "upgradeˮ la connexion. Aucune bibliothèque externe (type <code>websockets</code>) n'a été ajoutée pour ne pas alourdir le build.</p>
+
+  <p>Le handshake WebSocket est implémenté directement dans <code>DerushHandler.do_GET</code> : si le header <code>Upgrade: websocket</code> est présent, on bascule en mode WS. L'acceptation nécessite de calculer un hash SHA-1 de la clé client + une magic string RFC, encodé en base64.</p>
+
+  <h3>Authentification du WebSocket</h3>
+  <div class="box box-note">
+    <strong>Contrainte browser :</strong> L'API JavaScript <code>new WebSocket(url)</code> ne permet pas d'ajouter des headers personnalisés (contrairement à <code>fetch</code>). Impossible d'envoyer un <code>Authorization: Bearer token</code>. La solution adoptée : passer le token comme paramètre URL (<code>/ws?token=xxx</code>).
+  </div>
+
+  <h3>Gestion des clients connectés</h3>
+  <p>Un dictionnaire global <code>_ws_clients</code> associe chaque <code>project_id</code> à une liste de <code>(socket, token)</code>. Quand une annotation est sauvegardée, <code>_ws_broadcast()</code> envoie un message JSON à tous les clients du même projet, en excluant l'expéditeur. Les clients déconnectés sont détectés (exception lors de l'envoi) et retirés de la liste.</p>
+
+  <p>Côté frontend, la reconnexion est automatique toutes les 6 secondes en cas de déconnexion.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="compare">
+  <div class="entry-header">
+    <span class="entry-date">14 MAI 2026 · SOIR</span>
+    <span class="entry-title">Vue multiclips — comparer deux prises côte à côte</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Pour comparer deux prises d'un même plan ou deux angles de caméra, il faut pouvoir voir les deux vidéos simultanément avec leurs annotations. L'overlay "Comparer" occupe tout l'écran pour maximiser l'espace vidéo.</p>
+
+  <h3>Design de la timeline dans chaque slot</h3>
+  <p>Chaque slot a sa propre mini-timeline scrubable avec les marqueurs de tous les annotateurs du projet. Cela implique une subtilité : dans la vue compare, on n'affiche pas les notes de l'utilisateur courant seulement, mais bien l'agrégat de toutes les annotations pour avoir une vision complète.</p>
+
+  <h3>Le problème d'alignement seek/markers</h3>
+  <p>Un problème subtil : la timeline container a 10px de padding de chaque côté pour que la piste ne touche pas les bords. Les markers sont positionnés en pourcentage de la <em>piste</em> (sans les 10px de padding). Mais la fonction de seek calculait le pourcentage par rapport au <em>container</em> entier. Résultat : cliquer à l'endroit exact d'un marker seekait un peu à côté.</p>
+  <div class="box box-ok">
+    <strong>Fix :</strong> <code>cmpSeek</code> utilise le <code>getBoundingClientRect()</code> de la piste (l'élément intérieur), pas du container timeline.
+  </div>
+
+  <h3>Le mode Sync</h3>
+  <p>Quand le mode Sync est actif, scrubber un slot déplace également l'autre. Pratique pour comparer deux prises du même plan frame par frame. L'implémentation est simple : dans <code>updateCmpTc(slot)</code>, si sync est actif et que le slot est le maître (slot 0), on force <code>currentTime</code> de l'autre vidéo.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="permissions">
+  <div class="entry-header">
+    <span class="entry-date">14 MAI 2026 · SOIR</span>
+    <span class="entry-title">Permissions granulaires — admin, annotateur, lecteur</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Avant cette feature, il n'y avait que deux états : admin (gère les utilisateurs, peut tout faire) et non-admin (peut annoter). Le besoin d'un rôle "lecteur" est venu du fait que certains intervenants (directeur, client) doivent pouvoir <em>voir</em> les annotations sans pouvoir les modifier accidentellement.</p>
+
+  <h3>Compatibilité avec l'existant</h3>
+  <p>Le champ <code>is_admin</code> existait déjà dans les données utilisateurs. Plutôt que de tout casser, le nouveau champ <code>role</code> est additionnel. Si <code>role</code> est absent (anciens projets), il est déduit de <code>is_admin</code> : <code>True</code> → admin, <code>False</code> → annotateur. Les anciens projets continuent de fonctionner sans modification.</p>
+
+  <h3>Ce que masque l'UI selon le rôle</h3>
+  <ul>
+    <li><strong>Lecteur :</strong> le champ notes, l'input tags, le bouton de confirmation de marqueur, les boutons de rating (visuellement grisés), le bouton Sauvegarder — tout est masqué ou désactivé.</li>
+    <li><strong>Non-admin (annotateur et lecteur) :</strong> le bouton de gestion des utilisateurs, le bouton rescanner — cachés.</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="lut">
+  <div class="entry-header">
+    <span class="entry-date">14 MAI 2026 · NUIT</span>
+    <span class="entry-title">Preview LUT — première tentative (WebGL)</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>La preview LUT permet d'appliquer un fichier <code>.cube</code> (table de correspondance couleur 3D) sur la vidéo en temps réel, pour visualiser l'étalonnage prévu sans ouvrir DaVinci Resolve.</p>
+
+  <h3>Pourquoi WebGL semblait la bonne approche</h3>
+  <p>Une LUT 3D de taille 33×33×33 a 35 937 points de correspondance. L'appliquer pixel par pixel en JavaScript sur une vidéo 1920×1080 à 30fps représenterait environ 2 milliards d'opérations par seconde — trop lent. WebGL (le GPU) semblait la solution évidente : une texture 3D samplée par un fragment shader, c'est exactement ce pour quoi les GPUs sont conçus.</p>
+
+  <h3>L'implémentation WebGL</h3>
+  <p>Un canvas superposé à la vidéo. Un vertex shader qui dessine un quadrilatère plein écran. Un fragment shader qui lit chaque pixel de la vidéo (texture 2D), cherche la couleur correspondante dans la LUT (texture 3D), et l'écrit en sortie. Le tout tourne en boucle via <code>requestAnimationFrame</code>.</p>
+
+  <div class="box box-fail">
+    <strong>Résultat : image entièrement noire.</strong> Avec le son. La vidéo tourne, le canvas est visible, mais tout est noir.
+  </div>
+
+  <p>Ce bug allait nous occuper pendant toute la session du 15 mai — trois tentatives pour comprendre la cause réelle.</p>
+</div>
+
+<hr class="section">
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="compare-fixes">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026 · DÉBUT DE SESSION</span>
+    <span class="entry-title">Corrections de la vue Compare</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <h3>Problème 1 — Les clips n'étaient pas à la même hauteur</h3>
+  <p>Les deux slots de la vue compare sont côte à côte dans une grille CSS. Chaque slot est un conteneur flex vertical : en-tête fixe → zone vidéo flexible → timeline fixe → panneau d'info. Le panneau d'info avait une hauteur variable selon la quantité d'annotations (jusqu'à 130px max).</p>
+
+  <div class="box box-why">
+    <strong>La mécanique :</strong> les deux slots ont la même hauteur totale (grille CSS). Mais si le panneau d'info d'un slot fait 50px (peu d'annotations) et l'autre 100px (beaucoup), la zone vidéo "flexible" absorbe la différence — les deux zones vidéo n'ont pas la même hauteur. Les vidéos sont centrées dans leurs zones respectives, mais comme les zones sont de tailles différentes, elles semblent décalées verticalement.
+  </div>
+  <div class="box box-ok">
+    <strong>Fix :</strong> Hauteur fixe de 90px sur le panneau d'info (avec scroll interne si le contenu dépasse). Les deux zones vidéo sont maintenant toujours identiques.
+  </div>
+
+  <h3>Problème 2 — La tête de lecture décalée par rapport aux markers</h3>
+  <p>Après avoir cliqué sur un marker (qui seekait correctement), la tête de lecture apparaissait légèrement à droite de la position du marker. Ce décalage visuel disparaissait en 50ms.</p>
+  <div class="box box-ok">
+    <strong>Cause et fix :</strong> Une transition CSS <code>left .05s linear</code> avait été ajoutée sur la tête pour la rendre "fluide". Mais cela signifiait que la tête arrivait à sa nouvelle position avec 50ms de retard. Quand on seekait vers un marker situé à gauche de la position courante, la tête partait de la droite et se déplaçait vers la gauche — pendant 50ms elle était bien à droite du marker. Fix : supprimer la transition, la tête se place instantanément.
+  </div>
+
+  <h3>Demande UX — Markers plus gros et mieux espacés</h3>
+  <p>Les markers dans la timeline compare (7px, à mi-hauteur de la barre de 32px) étaient trop petits et collés à la piste. La barre a été portée à 52px, la piste descendue à 40px du haut, les dots agrandis à 13px. Cela laisse 26px au-dessus de la piste pour les markers — un écart visuel clair entre les points de couleur et la barre de progression.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="lut-debug">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026</span>
+    <span class="entry-title">Debug LUT — trois tentatives, une leçon WebGL</span>
+    <span class="entry-tag tag-bug">Bug · 3 tentatives</span>
+  </div>
+
+  <p>La LUT restait noire sur l'exe malgré plusieurs corrections. Voici le chemin de pensée complet.</p>
+
+  <h3>Tentative 1 — La boucle RAF qui mourait</h3>
+  <div class="box box-fail">
+    <strong>Hypothèse :</strong> La boucle <code>requestAnimationFrame</code> s'arrêtait quand la vidéo était en pause (le code ne reschedulait que si la vidéo jouait). Le canvas restait visible mais noir (son état initial), couvrant la vidéo.
+  </div>
+  <p>Fix appliqué : la boucle RAF tourne en permanence tant que la LUT est activée. Quand la vidéo n'est pas prête, on efface le canvas en transparent (pour laisser voir la vidéo en dessous). Build, test.</p>
+  <div class="verdict verdict-fail">✗ Toujours noir après relancement du nouvel exe.</div>
+
+  <h3>Tentative 2 — Format de texture incompatible</h3>
+  <div class="box box-fail">
+    <strong>Hypothèse :</strong> La texture 3D était stockée en <code>RGB32F</code> (virgule flottante 32 bits). Le filtrage <code>LINEAR</code> sur ce format en WebGL2 nécessite l'extension optionnelle <code>OES_texture_float_linear</code>. Sans cette extension, le sampler retourne des zéros — c'est-à-dire du noir.
+  </div>
+  <p>Fix appliqué : conversion de la LUT en <code>Uint8Array</code> + format <code>RGB8</code>, universellement supporté. La perte de précision (float → uint8) est négligeable pour de la preview. Build, test.</p>
+  <div class="verdict verdict-fail">✗ Toujours noir. L'extension n'était peut-être pas le problème, ou il y en a un autre en plus.</div>
+
+  <h3>Tentative 3 — Le vrai coupable : les drivers ANGLE sur Windows</h3>
+  <div class="box box-why">
+    <strong>Analyse finale :</strong> Chrome sur Windows utilise ANGLE (Almost Native Graphics Layer Engine) comme couche d'abstraction entre WebGL et DirectX. Certaines fonctionnalités WebGL2 — notamment les vertex shaders qui utilisent <code>gl_VertexID</code> sans vertex buffer associé, ou les tableaux constants dans le shader (<code>const vec2[4] P = vec2[](...);</code>) — peuvent échouer silencieusement dans certaines configurations ANGLE. Le shader "compile" sans erreur reportée mais produit des pixels noirs. Pas d'exception, pas de message d'erreur visible sans debug explicite.
+  </div>
+
+  <div class="box box-fail">
+    <strong>La difficulté du diagnostic :</strong> WebGL ne lève pas d'exception quand un shader échoue à la compilation (à moins d'appeler explicitement <code>gl.getShaderInfoLog()</code>). Le code semblait correct, les textures semblaient uploadées, la boucle tournait — mais le draw call produisait silencieusement du noir.
+  </div>
+
+  <h3>Solution finale : abandonner WebGL pour Canvas 2D</h3>
+  <p>Plutôt que de continuer à investiguer les spécificités ANGLE/driver, on a changé d'approche fondamentalement. Canvas 2D est 100% compatible sur tous les navigateurs, sans aucune dépendance aux drivers GPU :</p>
+  <ol>
+    <li><code>drawImage(video, 0, 0, w, h)</code> — frame vidéo → canvas à résolution réduite (≈480px)</li>
+    <li><code>getImageData()</code> — lecture des pixels du canvas (GPU → CPU)</li>
+    <li>Boucle par pixel : calcul de l'index dans la LUT (nearest-neighbour), lookup dans le tableau Float32, écriture de la couleur LUT</li>
+    <li><code>putImageData()</code> — pixels traités → canvas (CPU → GPU)</li>
+  </ol>
+
+  <div class="box box-note">
+    <strong>Performance :</strong> Pour une vidéo 1920×1080 scalée à 480px de large (soit 480×270 = ~130K pixels), la boucle CPU traite environ 130 000 pixels par frame. À 30fps, c'est ~4 millions d'opérations/seconde — très confortable pour V8. Le readback GPU→CPU (<code>getImageData</code>) est la vraie limite, estimée à 2-5ms par frame. Le résultat est fluide en pratique.
+  </div>
+
+  <div class="verdict verdict-ok">✓ Canvas 2D fonctionne immédiatement, preview LUT opérationnelle.</div>
+
+  <h3>La leçon retenue</h3>
+  <p>WebGL est puissant mais son comportement sur Windows via ANGLE est imprévisible pour des shaders non-standard. Pour un outil de preview (pas de rendu critique), Canvas 2D est préférable : plus lent mais 100% fiable. Le WebGL aurait été justifié pour de la LUT en pleine résolution temps réel — ce n'est pas le cas ici.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-genese">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026 · DÉBUT SESSION MULTICAM</span>
+    <span class="entry-title">Multicam — pourquoi synchroniser les caméras automatiquement</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Le projet DRIFT_CLUB tourne avec plusieurs caméras (FS5, FX6) en simultané. Pour le dérushage multi-angle, il faut pouvoir voir les deux angles d'une même prise alignés frame-à-frame — sinon on perd un temps fou à les caler manuellement à chaque fois.</p>
+
+  <p>Une première version utilisait du cross-correlation audio clip-à-clip (FFT sur l'enveloppe RMS du son caméra). Elle marchait mais avec des résultats parfois étranges : décalages de plusieurs secondes sur des plans avec audio peu transient (ambiance, moteur, scène calme).</p>
+
+  <div class="box box-why">
+    <strong>L'idée :</strong> sur les tournages pros, l'ingénieur son enregistre en parallèle un BWF (Broadcast Wave File) avec timecode embarqué dans le chunk BEXT. Les caméras et le BWF sont jam-syncés au début de la journée → leurs TC partagent la même horloge wall-clock. Si on a accès aux BWF, on peut aligner les clips simplement par soustraction TC, sans aucune analyse audio.
+  </div>
+
+  <h3>L'approche choisie : double pipeline</h3>
+  <ul>
+    <li><strong>Préféré : BWF TC-sync</strong> — si un BWF couvre deux clips de caméras différentes, leur offset = <code>tc_b - tc_a</code> (instantané, frame-accurate)</li>
+    <li><strong>Fallback : audio xcorr</strong> — pour les clips sans BWF, cross-correlation directe sur l'enveloppe RMS 100Hz</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-tcson">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026</span>
+    <span class="entry-title">Lire le TC d'un BWF — BEXT direct, sans ffprobe</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Le chunk BEXT d'un fichier BWF contient un champ <code>TimeReference</code> (64 bits, little-endian) qui donne le nombre de samples depuis minuit. Combiné au sample rate, ça donne le TC en secondes : <code>tc_in_sec = time_ref / sample_rate</code>.</p>
+
+  <p>On a deux implémentations en cascade dans <code>read_bwf_tc()</code> :</p>
+  <ol>
+    <li><code>_read_bwf_bext_direct()</code> — parse le RIFF/WAVE en Python pur, lit les chunks <code>fmt</code>, <code>bext</code>, <code>data</code>. Très rapide (~5ms par fichier).</li>
+    <li><code>_read_bwf_tc_ffprobe()</code> — fallback via ffprobe pour les fichiers W64 ou exotiques.</li>
+  </ol>
+
+  <p>Au scan d'un dossier son, on indexe tous les WAV/BWF avec leur <code>tc_in_sec</code>, <code>duration_sec</code>, <code>sample_rate</code>. 211 fichiers BWF dans le tournage DRIFT_CLUB indexés en quelques secondes.</p>
+
+  <div class="box box-note">
+    <strong>Pour matcher un clip à un BWF :</strong> on calcule <code>tc_clip</code> (HH:MM:SS:FF → secondes) et on cherche un BWF dont <code>tc_bwf ≤ tc_clip ≤ tc_bwf + duration</code> (avec une grace de quelques secondes pour la précision jam-sync).
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-groupes-11">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026</span>
+    <span class="entry-title">Première détection : des groupes de 11 clips</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>À la première utilisation, la détection sort des groupes de <strong>11 clips</strong> alors qu'il n'y a que 2 caméras en simultané. Diagnostic : un BWF continu de 3 heures couvrait tous les clips d'un même jour. Du coup l'algo TC-son disait que chaque paire (clipA, clipB) du jour était "synchro" — même si physiquement les clips ne se chevauchaient pas dans le temps.</p>
+
+  <div class="box box-fail">
+    <strong>Cause :</strong> on vérifiait juste "le BWF couvre les deux TC clips", pas "les deux clips se chevauchent réellement dans le temps".
+  </div>
+
+  <div class="box box-ok">
+    <strong>Fix :</strong> ajout d'une vérification de chevauchement temporel réel des clips dans <code>_tc_son_offset()</code> avec une grace de 5s, en plus du test de couverture BWF.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-greedy">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026</span>
+    <span class="entry-title">Encore des groupes de 6 — union-find chaînait tout</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Après le fix temporel, on a encore des groupes à 6 clips. Cause : l'algorithme de grouping initial faisait du <strong>union-find</strong> classique sur les paires synchronisées. Conséquence : si clipA1 (FS5) et clipB1 (FX6) sont d'accord, puis clipA2 (FS5) et clipB1 sont d'accord, l'union-find fusionne {A1, B1, A2} dans le même groupe. Et de proche en proche, on obtient une chaîne ridicule de toute la journée.</p>
+
+  <div class="box box-fail">
+    <strong>Le problème conceptuel :</strong> dans un vrai groupe multicam, chaque caméra doit apparaître au plus une fois. Mais l'union-find ne savait pas distinguer "caméras différentes" de "même caméra, autre prise".
+  </div>
+
+  <h3>Solution : greedy grouping camera-constrained</h3>
+  <ol>
+    <li>Tri des edges (paires sync) par score DESC puis |lag| ASC — les sync les plus solides en premier</li>
+    <li>Pour chaque edge, on tente de fusionner les groupes :
+      <ul>
+        <li>Refus si la fusion ferait apparaître <strong>la même caméra deux fois</strong> dans un groupe</li>
+        <li>Sinon, fusion ou ajout au groupe existant</li>
+      </ul>
+    </li>
+  </ol>
+
+  <div class="box box-ok">
+    <strong>Résultat :</strong> chaque groupe a au max 1 clip par caméra. Pour DRIFT_CLUB (2 caméras), des groupes propres de 2 clips. Pour un tournage 4 caméras, des groupes jusqu'à 4 clips. Plus de chaînes monstrueuses.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-affiner">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026</span>
+    <span class="entry-title">Bouton "🎵 Affiner" — corriger les dérives résiduelles</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Même avec un jam-sync correct, les caméras dérivent légèrement au cours d'une journée (quelques secondes en 3-4 heures). Le TC-son donne un point de départ, mais reste un décalage visuel "de quelques frames" qu'on veut corriger.</p>
+
+  <p>Idée : faire une <strong>cross-correlation audio</strong> entre chaque clip caméra et le BWF de l'ingé son. Si on aligne chaque clip indépendamment au BWF, leur offset relatif devient frame-accurate.</p>
+
+  <h3>BWF-anchored xcorr</h3>
+  <ol>
+    <li>Pour clip A : xcorr <code>clip_A_audio</code> contre <code>BWF[tc_a : tc_a+60s]</code> → drift <code>lag_a</code></li>
+    <li>Pour clip B : pareil → drift <code>lag_b</code></li>
+    <li>Offset corrigé : <code>corrected_lag = (tc_b - tc_a) + (lag_b - lag_a)</code></li>
+  </ol>
+
+  <p>Au début, l'algo utilisait <code>_xcorr_offset</code> sur enveloppe RMS 100Hz. Marchait bien quand l'audio caméra était transient, mais sur scène lisse → pic mou, dérive de plusieurs secondes possible.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-bwfviewer">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026</span>
+    <span class="entry-title">Audio BWF dans le viewer multicam</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Le viewer multicam joue les vidéos avec leur audio caméra. Mais quand on veut vérifier la sync entre deux angles, c'est mieux d'avoir une <strong>référence audio commune</strong> — le BWF de l'ingé son.</p>
+
+  <h3>Implémentation</h3>
+  <ul>
+    <li>Endpoint <code>/api/project/&lt;pid&gt;/bwf_audio/&lt;ac_id&gt;</code> qui streame le BWF avec support Range HTTP (comme les vidéos)</li>
+    <li>Endpoint <code>/api/project/&lt;pid&gt;/multicam/group_bwf?group_id=...</code> qui trouve le BWF qui couvre le groupe et calcule la position de départ <code>bwf_offset_sec = tc_earliest_clip - tc_bwf</code></li>
+    <li>Dans le viewer : un élément <code>&lt;audio&gt;</code> joue le BWF, séquencé par <code>bwfTime = bwf_offset + groupTime</code>. Quand on switch d'angle primary, le BWF reste à sa position absolue (les vidéos étant alignées entre elles, le calcul de <code>T</code> reste cohérent).</li>
+    <li>Bouton <strong>🔊 Son ingé</strong> dans la toolbar : toggle BWF vs audio caméra primary. Quand BWF actif, toutes les caméras sont muted.</li>
+  </ul>
+
+  <div class="box box-why">
+    <strong>L'idée derrière :</strong> avec le BWF comme référence audio commune, l'utilisateur peut entendre le même son pendant qu'il switch entre les angles vidéo, et vérifier visuellement que les transients (claps, gestes) correspondent au son. C'est l'outil de vérité terrain qu'aucun algorithme ne peut remplacer.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-gccphat">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026 · APRÈS-MIDI</span>
+    <span class="entry-title">GCC-PHAT et multi-chunk — quand l'enveloppe RMS ne suffit pas</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Le user signale que "Affiner" donne des corrections fausses sur certains groupes : la correction proposée empire la sync au lieu de l'améliorer. L'enveloppe RMS 100Hz a une résolution de 10ms et un pic mou quand le signal est lisse → l'algo prend n'importe quel offset dans la zone "à peu près correcte".</p>
+
+  <h3>GCC-PHAT (Generalized Cross-Correlation with Phase Transform)</h3>
+  <p>Technique standard utilisée en localisation acoustique pour aligner deux micros captant la même scène avec des qualités/positions différentes.</p>
+  <ul>
+    <li>Travaille sur <strong>audio brut PCM 8kHz</strong> (résolution 0.125ms — bien sous la frame)</li>
+    <li><strong>Normalise la phase</strong> dans le domaine fréquentiel : ignore les différences de niveau et d'EQ entre micros</li>
+    <li>Pic beaucoup plus net que xcorr classique même en SNR mauvais</li>
+  </ul>
+
+  <pre><code>R = SIG * conj(REF)
+R = R / (|R| + ε)          # PHAT weighting
+cc = ifft(R, n=interp*n)   # interpolation par zero-padding fréquentiel
+tau = argmax(|cc|) / (interp * fs)</code></pre>
+
+  <div class="box box-fail">
+    <strong>Premier essai catastrophique :</strong> GCC-PHAT direct avec fenêtre ±30s sortait des pics au bord exact (-29.96s ou +29.96s) avec z-score énorme (~500). Faux pics : artefacts FFT quand le signal commun est faible. L'algo trouve un alignement très net... avec un offset complètement inventé.
+  </div>
+
+  <h3>Approche coarse-to-fine</h3>
+  <ol>
+    <li><strong>Passe 1 :</strong> xcorr d'enveloppe RMS pour estimation grossière à 10ms près (±30s)</li>
+    <li><strong>Passe 2 :</strong> GCC-PHAT dans <strong>±1s</strong> autour de l'estimation grossière (résolution 0.03ms avec interp=8)</li>
+    <li><strong>Garde-fou anti-bord :</strong> si le tau colle à &lt;50ms du bord ±1s, on rejette la passe fine et on garde l'estimation grossière</li>
+  </ol>
+
+  <h3>Multi-chunk avec vote majoritaire</h3>
+  <p>Pour les cas où même le coarse était mou (audio lisse, ambiance), passage au <strong>multi-chunk</strong> :</p>
+  <ol>
+    <li>Découpage du clip et du segment BWF en chunks de 20s (ou 10s)</li>
+    <li>GCC-PHAT indépendant sur chaque chunk → on obtient N taus</li>
+    <li><strong>Médiane</strong> des chunks dont le z-score est ≥ 4</li>
+    <li>Fiabilité jugée sur le <strong>MAD</strong> (Median Absolute Deviation) — si les chunks divergent &gt; 200ms, c'est unreliable</li>
+  </ol>
+
+  <div class="box box-ok">
+    <strong>Avantage :</strong> insensible aux passages silencieux ou divergents — il suffit que 3 chunks captent les mêmes événements pour valider. L'affichage <code>8/9 chunks ±0ms</code> est très lisible pour comprendre la fiabilité.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-bug-tclag">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026 · SOIR</span>
+    <span class="entry-title">Bug subtil : double-application du delta</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Le user applique "Appliquer" sur un Affiner qui propose <code>+3.997s</code>. Réaffinage immédiat après : encore <code>+3.997s</code>. Au lieu de converger vers 0, l'algo répète éternellement la même correction.</p>
+
+  <div class="box box-fail">
+    <strong>Cause :</strong> dans le code serveur, la variable nommée <code>tc_lag</code> contenait en fait <strong>l'offset actuel du groupe</strong>, pas le vrai écart TC des clips. À la première application ça matche par coïncidence (offset initial = TC). Mais après nudge ou correction, ce n'est plus le cas.
+  </div>
+
+  <p>Le calcul était :</p>
+  <pre><code>corrected_lag = tc_lag + (lag_b - lag_a)    # tc_lag = offset_actuel (faux)
+delta = corrected_lag - tc_lag = (lag_b - lag_a)   # delta constant</code></pre>
+
+  <p>À chaque application, on ajoutait <code>(lag_b - lag_a)</code> à l'offset, et l'algo recalculait <code>delta = (lag_b - lag_a)</code> au lieu de tomber à 0.</p>
+
+  <div class="box box-ok">
+    <strong>Fix :</strong> dissocier <code>true_tc_lag = tc_b - tc_a</code> (constant) de <code>offset_lag</code> (variable). Le calcul devient :
+    <pre><code>true_tc_lag = tc_b - tc_a                       # constant
+corrected_lag = true_tc_lag + (lag_b - lag_a)   # cible fixe
+delta = corrected_lag - offset_lag              # converge vers 0</code></pre>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-bug-date">
+  <div class="entry-header">
+    <span class="entry-date">16 MAI 2026</span>
+    <span class="entry-title">Bug critique : un BWF de piscine du jour 5 sélectionné pour un clip du jour 4</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>L'analyse multi-BWF (bouton "🔍 Auto") sortait <strong>un fichier de piscine du jour 5</strong> comme meilleur candidat pour aligner un clip du jour 4. Totalement aberrant.</p>
+
+  <div class="box box-fail">
+    <strong>Cause racine :</strong> le champ <code>TimeReference</code> d'un BWF est exprimé en <strong>secondes depuis minuit</strong>, sans information de date. Un BWF de piscine du jour 5 à 14h00 a le même <code>tc_in_sec</code> qu'un vrai BWF du tournage du jour 4 à 14h00. Le filtre temporel ne pouvait pas distinguer.
+  </div>
+
+  <h3>Fix : lecture de OriginationDate</h3>
+  <p>Le chunk BEXT contient aussi un champ <code>OriginationDate</code> (offset 320–329, format "YYYY-MM-DD" ou "YYYY:MM:DD"). Ajout de :</p>
+  <ul>
+    <li><code>_read_bwf_bext_direct()</code> retourne maintenant <code>origination_date</code></li>
+    <li><code>scan_son_dir()</code> stocke ce champ dans <code>audio_clips</code></li>
+    <li><code>_clip_origination_date(clip)</code> extrait la date du clip vidéo (depuis <code>creation_date</code> ffprobe ou fallback regex sur l'<code>id</code>/<code>path</code>)</li>
+    <li><code>_bwf_candidates_for_clips()</code> filtre strictement : BWF date ≠ clip date → rejeté</li>
+  </ul>
+
+  <div class="box box-note">
+    <strong>Limite :</strong> nécessite re-scan des BWF si l'index a été créé avant ce fix (pour peupler <code>origination_date</code>). Fallback en lecture à la volée sinon.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-manual">
+  <div class="entry-header">
+    <span class="entry-date">16 MAI 2026 · FIN SESSION</span>
+    <span class="entry-title">Acceptation : le manuel reste indispensable</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Même avec multi-chunk PHAT + filtre date + sélection auto du meilleur BWF par |drift|, l'algo se trompe encore sur certains cas (audio trop différent, BWF avec bruit constant qui matche par hasard). Le user a comparé avec Davinci Resolve : <em>"là-bas la sync auto marche, pourquoi pas ici ?"</em></p>
+
+  <div class="box box-why">
+    <strong>Réflexion :</strong> Davinci aligne par <strong>TC pur</strong> quand les TC sont fiables. Notre algo essayait d'être plus malin en raffinant via xcorr audio — c'est ça qui foirait sur les cas pathologiques.
+  </div>
+
+  <h3>Changement de philosophie : TC pur + filtre Davinci-like</h3>
+  <ul>
+    <li>Grace de couverture réduite de <strong>±30s à ±2s</strong> — un BWF n'est candidat que s'il contient strictement les clips</li>
+    <li>Tri des candidats par "compacité" (le BWF qui démarre juste avant le 1er clip et finit juste après le dernier passe en tête — probablement la bonne prise)</li>
+    <li>Le bouton "🔍 Auto" (analyse fine) reste disponible mais en option, plus en défaut</li>
+  </ul>
+
+  <h3>Calage manuel BWF complet</h3>
+  <p>Dans la toolbar du viewer multicam :</p>
+  <ul>
+    <li><strong>Sélecteur déroulant</strong> de BWF candidats — quand plusieurs BWF couvrent le groupe, l'utilisateur peut essayer chacun</li>
+    <li><strong>Boutons ◄ son / son ►</strong> avec sélecteur de pas (1 frame / 100 ms / 500 ms / 1 s — mutualisé avec le nudge clip)</li>
+    <li><strong>Bouton 💾</strong> qui sauvegarde le bwf_offset et le bwf_id choisi dans le groupe</li>
+    <li>À la prochaine ouverture du viewer, l'override sauvegardé est restauré</li>
+  </ul>
+
+  <p>Endpoints serveur ajoutés :</p>
+  <ul>
+    <li><code>POST /api/project/&lt;pid&gt;/multicam/group_bwf_offset</code> — sauvegarde <code>bwf_offset_override</code> et <code>bwf_id_override</code> dans le groupe</li>
+    <li><code>GET /api/project/&lt;pid&gt;/multicam/group_bwf_analyze</code> — analyse fine multi-BWF (déplacée de l'ouverture du viewer, pour éviter les timeouts)</li>
+  </ul>
+
+  <div class="box box-ok">
+    <strong>Leçon retenue :</strong> pour un outil de calage audio, le mieux est parfois de fournir des assistants automatiques <em>combinables avec</em> du contrôle manuel rapide. L'utilisateur connaît la vérité terrain (ses yeux et ses oreilles), pas l'algorithme.
+  </div>
+</div>
+
+<hr class="section">
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ws-davinci">
+  <div class="entry-header">
+    <span class="entry-date">16 MAI 2026 · APRÈS-MIDI</span>
+    <span class="entry-title">L'épreuve DaVinci — quand le TC ment</span>
+    <span class="entry-tag tag-bug">Bug · diagnostic</span>
+  </div>
+
+  <p>Le user revient sur le groupe Clip0002 + DRIFT_avril0035 : "le son ingé est toujours décalé alors qu'il y a un TC et que sur DaVinci ça se cale tout seul". La sync TC stockée valait <code>7.077</code> (= 3.08 du TC + 3.997 d'une vieille "Affiner" surcorrigée par le bug double-application).</p>
+
+  <div class="timeline">
+    <div class="timeline-item fail">
+      <h4>Tentative 1 — restaurer le TC pur (3.08 s)</h4>
+      <p>Hypothèse : la valeur 7.077 est polluée par l'ancien bug, le bon offset est le TC delta brut. Patché à 3.08. <strong>Résultat : décalage encore pire.</strong></p>
+    </div>
+    <div class="timeline-item fail">
+      <h4>Tentative 2 — remettre 7.077</h4>
+      <p>Hypothèse : l'Affiner avait raison (drift réel détecté par xcorr audio), c'est la ré-application qui était buggée. Patché à 7.077. <strong>Toujours mauvais.</strong></p>
+    </div>
+    <div class="timeline-item ok">
+      <h4>Méthode de vérité : test DaVinci waveform sync</h4>
+      <p>Le user pose les deux clips sur une timeline DaVinci, fait <em>auto align clips → synchronize with waveform</em>. DaVinci cale parfaitement : DRIFT_avril0035 démarre <strong>en premier</strong>, Clip0002 entre 22 frames (0.88 s) plus tard. Donc le vrai offset est <code>+0.88</code> (Clip0002 retardé de 0.88 s vs avril0035) — totalement différent du TC qui disait l'inverse (Clip0002 en premier par 3.08 s).</p>
+    </div>
+  </div>
+
+  <div class="box box-why">
+    <strong>Diagnostic final :</strong> la FS5 n'était pas jam-syncée avec la FX6. Son TC interne avance d'environ 4 s par rapport au temps réel. Le TC est "cohérent" entre prises d'une même caméra mais ment sur le moment réel d'enregistrement. DaVinci waveform sync passe outre le TC et aligne directement par contenu audio — c'est la seule vérité quand le jam-sync foire.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ws-method">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026 · NUIT</span>
+    <span class="entry-title">Méthode auto-sync — xcorr 180 s + skip-orphans</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Une fois DaVinci validé comme référence, il fallait reproduire la même robustesse dans l'outil. L'existant utilisait des fingerprints de 60 s — trop court pour discriminer un vrai pic sur des audios ambiants (engine room, voix de fond) où les sons se répètent.</p>
+
+  <h3>Trois leviers ajustés</h3>
+  <ul>
+    <li><strong><code>_MC_MAX_DUR</code> : 60 → 180 s</strong> — 3× plus de matière, peaks 5-10× plus prononcés. Le pic dominant émerge sans ambiguïté même sur audio plat.</li>
+    <li><strong><code>_MC_MAX_LAG</code> : 30 → 90 s</strong> — couvre les drifts TC énormes des cameras non jam-syncées (j'ai vu des paires à 26 s d'écart réel).</li>
+    <li><strong><code>_MC_MIN_SCORE</code> : 0.62 → 0.55</strong> — un peu plus permissif. Empiriquement les vrais matches scorent ≥ 0.9, les faux scorent ≤ 0.3, le seuil intermédiaire est sans risque.</li>
+  </ul>
+
+  <h3>Cache fingerprint invalidation</h3>
+  <p>Les fingerprints cachés à 60 s du run précédent étaient automatiquement réutilisés — neutralisant l'effet du changement de constante. Ajout dans <code>compute_sync_fingerprint</code> : si la longueur cachée est &lt; 90 % de la nouvelle <code>_MC_MAX_DUR</code>, on régénère depuis le fichier source.</p>
+
+  <h3>Skip-already-grouped</h3>
+  <p>Le user avait passé 2 h à caler 10 groupes manuellement. Une nouvelle détection allait tout écraser. Ajout dans <code>detect_multicam_groups</code> : exclusion de tout clip présent dans <code>multicam_groups</code> OU <code>multicam_proposals</code>. La détection ne traite plus que les orphelins.</p>
+
+  <h3>Validation empirique</h3>
+  <p>Batch script qui re-calcule l'offset par xcorr 180 s pour chaque groupe : 10 sur 11 reviennent avec score ≥ 0.95, magnitudes cohérentes avec le test DaVinci. Le 11ème (<code>mc_7ab4ed33</code>) avait un avril0041 de 12.76 s seulement — pas un vrai groupe multi-cam, supprimé.</p>
+  <div class="verdict verdict-ok">✓ Tous les groupes calés en un seul passage de l'algo, sans intervention manuelle.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ws-sign">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026</span>
+    <span class="entry-title">La docstring qui mentait — convention de signe xcorr</span>
+    <span class="entry-tag tag-bug">Bug · diagnostic</span>
+  </div>
+
+  <p>Lors de la première tentative d'auto-sync, le xcorr sortait <code>+0.92 s</code> pour Clip0002/avril0035, avec score 0.996. La docstring de <code>_xcorr_offset</code> dit "delta &gt; 0 means b starts after a". J'en ai déduit : avril0035 démarre 0.92 s après Clip0002 → patché à +0.92. Le user a observé : encore plus décalé.</p>
+
+  <div class="box box-fail">
+    <strong>Le piège :</strong> la convention dans la docstring est l'opposé du comportement réel du code. La fonction fait <code>return -L, score</code> où <code>L = (lo + rel) - center</code>, et la dérivation à la main montre que ce <code>-L</code> représente en fait le retard de <strong>a</strong>, pas de b.
+  </div>
+
+  <p>Pour Clip0002 (a) et avril0035 (b) avec delta=+0.92 : ça veut dire que <strong>a (Clip0002) est retardé de 0.92 s vs b (avril0035)</strong> — donc avril0035 démarre en premier, Clip0002 0.92 s plus tard. Ce qui matche pile la vérité DaVinci (0.88 s, à 4 frames près qu'on attribue à du jitter dans le pic).</p>
+
+  <p>La leçon : la docstring n'a pas été vérifiée par dérivation au moment de l'écriture. Le code est juste, mais la doc raconte l'opposé. Documenté dans <code>CLAUDE.md</code> pour qu'on ne s'y refasse plus prendre.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ws-miniloop">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026</span>
+    <span class="entry-title">Mini-loop des secondaires quand le primary se termine</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Après calage des groupes, le user remarque sur <code>mc_3528df45</code> : "quand j'avance dans la timeline jusqu'à la fin de Clip0005, avril0040 fait une mini boucle sur quelques frames". Reproductible sur tous les groupes où le primary est plus court que les secondaires.</p>
+
+  <div class="box box-why">
+    <strong>La mécanique :</strong> <code>_mcCurrentGroupTime()</code> dérive le temps du groupe T depuis le primary : <code>T = primary.currentTime + primary.normOff</code>. Quand le primary atteint sa fin, son <code>currentTime</code> plateau à <code>duration - 0.04</code>, donc T plateau. Mais le RAF ne stoppe pas la lecture des secondaires (HTML5 video joue tout seul), donc leur <code>currentTime</code> continue d'avancer. Toutes les secondes, <code>_mcDriftCorrect</code> voit l'écart, et <strong>rebobine la secondaire vers localT = T - normOff</strong> qui ne bouge plus. D'où la mini-boucle d'1 s en rond.
+  </div>
+
+  <h3>Fix : base de temps fallback</h3>
+  <p>Quand le primary est à sa fin pendant la lecture, on prend la base de temps sur l'angle in-range le plus avancé. Le primary garde son rôle d'origine (focus, mute logic) mais ne dicte plus T. Les secondaires continuent tranquillement.</p>
+  <pre><code>function _mcCurrentGroupTime() {
+    const pri = v.angles[v.primaryIdx];
+    const priT = (pri.vidEl.currentTime || 0) + pri.normOff;
+    const priDur = pri.vidEl.duration || pri.duration || 0;
+    if (v.playing && priDur > 0 && pri.vidEl.currentTime >= priDur - 0.1) {
+        // primary fini → suivre l'angle in-range le plus avancé
+        let bestT = priT;
+        v.angles.forEach((a, i) => {
+            if (i === v.primaryIdx || !a._inRange) return;
+            const aT = (a.vidEl.currentTime || 0) + a.normOff;
+            if (aT > bestT) bestT = aT;
+        });
+        return Math.max(0, Math.min(v.groupDur, bestT));
+    }
+    return Math.max(0, Math.min(v.groupDur, priT));
+}</code></pre>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ws-detection">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026 · FIN SESSION</span>
+    <span class="entry-title">"Pourquoi ça ne détecte que 11 groupes ?"</span>
+    <span class="entry-tag tag-bug">Bug · deux couches</span>
+  </div>
+
+  <p>Le user lance la détection sur son projet — il y a des centaines de clips, mais ça plafonne autour de 11 propositions. Re-run, toujours 11. Frustrant.</p>
+
+  <h3>Couche 1 — le filtre temporel trop strict</h3>
+  <p><code>_temporal_candidate</code> vérifiait que les TC se chevauchent (grace de 5 min). Sur J04-J11, la FS5 et la FX6 n'étaient pas jam-syncées : leurs TC respectifs vivent dans des plages horaires complètement différentes (00:00-07:00 vs 10:00-18:00). 95 % des paires légitimes étaient rejetées avant même que l'audio soit testé.</p>
+  <div class="box box-ok">
+    <strong>Fix :</strong> fallback "même dossier-jour". Si <code>a.day == b.day</code> (issus du même <code>J0X_YYYY_MM_DD/</code>), on accepte comme candidat. L'audio xcorr (scoring + max-lag) filtrera les vrais des faux pairs.
+  </div>
+
+  <h3>Couche 2 — l'écrasement des propositions</h3>
+  <p>Première itération du fix donnait quand même seulement ~11 groupes par run. Re-grep le code de <code>_detect_multicam_job</code> :</p>
+  <pre><code>groups = detect_multicam_groups(proj, pid, _cb)
+proj['multicam_proposals'] = groups       # ← écrase la liste entière !</code></pre>
+  <p>Combiné au skip-already-grouped, chaque run effaçait les propositions du run précédent et ne gardait que les nouvelles. Le user voyait le résultat du dernier run uniquement, jamais le cumul.</p>
+  <div class="box box-ok">
+    <strong>Fix :</strong> append-au-lieu-d'écraser :
+    <pre><code>existing = proj.get('multicam_proposals', [])
+existing_ids = {g['id'] for g in existing}
+new_groups = [g for g in groups if g['id'] not in existing_ids]
+proj['multicam_proposals'] = existing + new_groups</code></pre>
+  </div>
+
+  <p>Avec les deux couches fixées, l'utilisateur peut relancer la détection autant qu'il veut — chaque passage ajoute incrémentalement, sans toucher aux groupes déjà calés à la main.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mc-tc-only">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026 · PIVOT</span>
+    <span class="entry-title">Multicam — abandon de l'audio, pipeline TC pur</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Après deux journées entières à explorer l'audio pour synchroniser les caméras (xcorr d'enveloppe, GCC-PHAT, multi-chunk PHAT, BWF anchoring, sélecteur de candidats, multi-BWF analyze…), constat empirique de Sébastien sur le terrain : <strong>l'audio ne tient pas la promesse</strong>. Certains groupes se calent à la frame, d'autres divergent de plusieurs secondes, d'autres ne se détectent même pas. Trop de variables (foule, engine noise, musique répétitive, drift sans jam-sync, MAD imprévisible) pour qu'on puisse faire confiance au résultat sans repasser manuellement vérifier.</p>
+
+  <div class="box box-why">
+    <strong>Décision :</strong> on garde uniquement ce qui marche de façon prévisible — le matching par TC source. Quand les deux caméras sont jam-syncées, c'est frame-accurate. Quand une caméra a un TC cassé (cf. la FS5 sur certains jours de DRIFT — J04, J07, J10, J11), aucune paire ne se forme, et c'est très bien comme ça : mieux vaut un trou explicite qu'un faux match silencieux qui pourrit le montage en aval.
+  </div>
+
+  <h3>Ce qui a été supprimé</h3>
+  <ul>
+    <li><strong>Serveur</strong> : <code>compute_sync_fingerprint</code>, <code>_fingerprint_segment</code>, <code>_extract_pcm_segment</code>, <code>_multi_chunk_align</code>, <code>_gcc_phat</code>, <code>_xcorr_offset</code>, <code>_xcorr_offset_with_stats</code>, le cache <code>SYNC_FINGERPRINTS_DIR</code>, et les constantes <code>_MC_RATE/AUDIO_RATE/MAX_DUR/MAX_LAG/MIN_SCORE/MIN_SAMPLES</code>.</li>
+    <li><strong>Endpoints</strong> : <code>/multicam/refine</code>, <code>/multicam/manual_pair</code>, <code>/multicam/group_bwf_analyze</code>, <code>/multicam/group_bwf_offset</code>. Le champ <code>bwf_offset_override</code> / <code>bwf_id_override</code> dans les groupes disparaît.</li>
+    <li><strong>UI</strong> : le bouton 🎵 <em>Affiner</em>, le sélecteur de BWF candidats, les boutons de nudge BWF (◄ son / son ►), le 💾 BWF, le 🔍 <em>Auto</em>, le modal de couplage manuel, la phase « Extraction audio » de la barre de progression.</li>
+  </ul>
+
+  <h3>Ce qui reste</h3>
+  <ul>
+    <li><code>_tc_pair_lag(clip_a, clip_b)</code> — une seule fonction : si les TCs se chevauchent (grace <code>_MC_TC_GRACE = 5s</code>), retourne <code>tc_b - tc_a</code>. Sinon None. Pas de BWF, pas d'analyse.</li>
+    <li><code>detect_multicam_groups</code> réduit à : pairs → lag → greedy camera-constrained grouping → BFS. Sans phase fingerprint.</li>
+    <li><code>_bwf_candidates_for_clips</code> + <code>/multicam/group_bwf</code> + <code>/bwf_audio/&lt;id&gt;</code> : conservés <em>uniquement</em> pour jouer le son ingé de référence dans le viewer multicam. Pas de calage automatique, pas d'override.</li>
+    <li>Le bouton 🔊 <em>Son ingé</em> dans la toolbar du viewer : toggle simple, mute les caméras et joue le BWF au <code>tc_earliest - bwf.tc_in_sec</code>.</li>
+    <li>Le nudge des clips secondaires reste, pour corriger à la main si jamais une paire TC-validée se révèle décalée (rare en pratique).</li>
+  </ul>
+
+  <h3>Pourquoi pas garder l'audio comme fallback ?</h3>
+  <p>Tentation forte de garder une « méthode B » au cas où. Refusé pour deux raisons :</p>
+  <div class="timeline">
+    <div class="timeline-item fail">
+      <strong>Faux positifs invisibles.</strong> L'audio est confortable quand ça marche, dangereux quand ça échoue silencieusement. Un faux match avec un score à 0.9 et un MAD à 80ms est indistinguable d'un vrai à l'œil — il faut écouter chaque paire pour vérifier. À 100+ paires par projet, ce n'est pas tenable.
+    </div>
+    <div class="timeline-item ok">
+      <strong>Le TC est binaire et lisible.</strong> Soit deux clips se chevauchent en TC, soit ils ne se chevauchent pas. Pas d'ambiguïté, pas de zone grise. Les jours « cassés » sont identifiables (FS5 J04/J07/J10/J11) et tu peux assumer que rien ne sera détecté pour ces caméras-là sur ces jours — pas de surprise.
+    </div>
+  </div>
+
+  <div class="box box-note">
+    <strong>Pour DRIFT :</strong> sur les jours où le TC FS5 est OK, le pipeline retrouve les paires FS5↔FX6 instantanément et frame-accurate. Sur J04/J07/J10/J11, il faudra de toute façon caler à la main dans DaVinci — l'outil n'essaie même plus de proposer un calage hasardeux qu'on aurait à re-vérifier.
+  </div>
+
+  <h3>Bilan</h3>
+  <p>Le code serveur perd ~500 lignes (toutes les fonctions audio + 4 endpoints), l'UI perd 5 boutons et 3 fonctions JS auxiliaires, la détection passe de plusieurs minutes à instantané. Le périmètre fonctionnel rétrécit, mais la confiance dans le résultat augmente — ce qui est exactement le bon arbitrage quand l'outil sert à préparer un montage qu'on devra livrer.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ltc-decoder">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026 · TARD</span>
+    <span class="entry-title">Décodeur LTC pure Python — le pivot inverse</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Le matin même on a pivoté vers "TC-only pas d'audio" parce que les méthodes audio (xcorr d'enveloppe, GCC-PHAT, multi-chunk) étaient peu fiables. Le soir, Sébastien identifie le vrai problème : sur la FS5, le timecode <em>n'est pas dans les métadonnées</em> mais <strong>encodé en LTC sur une piste audio</strong>. Le BZZZZ caractéristique audible dans les proxys J07-J11 (faits par la caméra) est en fait du timecode lisible.</p>
+
+  <div class="box box-why">
+    <strong>Le LTC, c'est quoi :</strong> Linear Timecode — signal audio biphase mark à 80×fps bits/s qui encode HH:MM:SS:FF en BCD avec un sync word. La multiprise du tournage l'émet en continu, toutes les caméras qui le reçoivent enregistrent le même TC à chaque instant. C'est le standard pro pour synchroniser plusieurs sources.
+  </div>
+
+  <h3>Implémentation</h3>
+  <p>Le décodeur tient en ~100 lignes Python+numpy. Étapes :</p>
+  <ol>
+    <li><code>_ltc_extract_pcm</code> : ffmpeg sort 8s d'audio canal L en int16 PCM</li>
+    <li>Détection des zero crossings → intervalles entre transitions</li>
+    <li>Long intervalle (~bit_period) = bit 0 ; deux courts (~bit_period/2) = bit 1</li>
+    <li>Recherche du sync word <code>0011111111111101</code> dans le flux de bits</li>
+    <li>Décodage BCD des champs HH:MM:SS:FF</li>
+  </ol>
+
+  <h3>Stockage et utilisation</h3>
+  <p>Le TC décodé est stocké dans <code>clip['ltc_tc_in_sec']</code> dans le JSON projet. Un helper <code>_clip_tc_seconds(clip)</code> retourne le LTC en priorité, sinon fallback sur <code>format.timecode</code> (qui reste fiable pour les FX6 jam-syncées via SDI).</p>
+
+  <p><code>_tc_pair_lag</code> et <code>_temporal_candidate</code> utilisent <code>_clip_tc_seconds</code> : du coup, sans rien changer à l'algo de matching, on a maintenant un TC frame-accurate pour les FS5. Résultat sur DRIFT : passage de <strong>11 groupes</strong> détectés (juste FX6↔FX6) à des dizaines de paires FS5↔FX6 fiables.</p>
+
+  <h3>UI</h3>
+  <p>Un cadre <strong>🎶 LTC</strong> ajouté dans la modale multicam, avant la détection. Boutons :</p>
+  <ul>
+    <li><strong>🎶 Décoder LTC</strong> : décode tous les clips pas encore décodés</li>
+    <li><strong>↻ Re-décoder tout</strong> : force re-décodage (avec confirm)</li>
+    <li>Progress bar avec nom du clip en cours · compteur live "X avec LTC · Y sans"</li>
+  </ul>
+  <p>Le décodage est persistant (stocké dans le JSON projet), à faire une seule fois par projet.</p>
+
+  <div class="timeline">
+    <div class="timeline-item ok">
+      <strong>Validation sur 6 cas connus</strong> : Clip0002/0003 J02 (LTC), Clip0001 J02 (pas de LTC), J03 Clip0001, J07 caméra, J06 (pas de LTC). 6/6 corrects.
+    </div>
+    <div class="timeline-item info">
+      <strong>Endpoints ajoutés</strong> : POST <code>/decode_ltc/start</code>, GET <code>/decode_ltc/status</code>, GET <code>/decode_ltc/summary</code>. Pattern identique à <code>/multicam/detect</code>.
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ltc-bug-fix">
+  <div class="entry-header">
+    <span class="entry-date">17 MAI 2026 · NUIT</span>
+    <span class="entry-title">Bug du décodeur — 7 minutes d'écart sur Clip0037</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Premier test du matching multicam après décodage LTC : faux positif évident. <code>avril0065</code> (FX6) apparié avec <code>Clip0037</code> (FS5), alors que la bonne paire est <code>Clip0036</code>. Sébastien me dit "Clip0037 n'a rien à voir, c'est une autre prise du même genre".</p>
+
+  <p>Diagnostic : les TC LTC stockés étaient <strong>faux</strong>. Pour valider, on décode <code>Clip0037</code> à plusieurs offsets du PCM :</p>
+
+  <pre><code>offset 0s  : LTC = 16:52:10  ==> début déduit = 16:52:10
+offset 2s  : LTC = 16:59:11  ==> début déduit = 16:59:09
+offset 5s  : LTC = 16:59:14  ==> début déduit = 16:59:09
+offset 30s : LTC = 16:59:39  ==> début déduit = 16:59:09</code></pre>
+
+  <p>À tous les offsets &gt; 0, le décodeur donne le même TC de départ (16:59:09). À offset 0, il donne 16:52:10 — <strong>7 minutes d'écart</strong>. Cause : le décodeur retournait le 1er sync word qu'il trouvait dans le PCM, mais sur les premières secondes du clip il peut y avoir du bruit qui ressemble accidentellement à du LTC (faux sync word avec TC bidon en BCD valide).</p>
+
+  <div class="box box-fail">
+    <strong>Le bug :</strong> 80 bits aléatoires peuvent par hasard contenir le pattern du sync word + des champs BCD valides (hh&lt;24, mm&lt;60, ss&lt;60, ff&lt;25). Sur une chaise qui grince ou du silence avec un peu de bruit, ça arrive de temps en temps.
+  </div>
+
+  <h3>Fix : validation par 3 frames consécutives + offset correction</h3>
+  <ol>
+    <li>Après avoir trouvé un sync word valide, vérifier les <strong>2 frames suivantes</strong> (80 bits chacune). Chaque frame doit avoir un TC = précédent + 1/fps (mod 24h). Si la séquence n'est pas continue → faux positif, on continue à chercher.</li>
+    <li>Une fois un vrai run validé, calculer la <strong>position en samples</strong> du 1er sync valide dans le PCM (via une mapping <code>bit_to_iv</code> + <code>zc[]</code>). Soustraire cet offset au TC décodé → retourne le TC au <em>début</em> du PCM (= début du clip), pas au milieu.</li>
+  </ol>
+
+  <p>Re-test sur les 6 cas connus : 6/6 toujours OK, et Clip0037 donne maintenant 16:59:09 (vrai TC). Plus de chevauchement avec avril0065 (16:52:04 → 16:55:10). Le faux positif disparaît. Sébastien valide : Clip0036 (vrai TC 16:52:46) est maintenant correctement associé avec avril0065, et Clip0037 est associé avec avril0066. Toutes les paires sont justes.</p>
+
+  <div class="box box-ok">
+    <strong>Leçon :</strong> un sync word seul ne suffit pas — toujours valider la cohérence sur N frames. Et toujours corriger l'offset entre la position du 1er sync valide et le début réel du PCM.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="audio-mono-r">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">Audio FS5 mono R — silencer le LTC dans le playback</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Les proxys FS5 sont stéréo avec L=LTC, R=micro (mapping fait par <code>transcode_proxies.sh</code>). Lire le stéréo brut fait entendre le BZZZZ caractéristique dans le canal gauche. Solution : router le canal R sur les deux canaux output en WebAudio.</p>
+
+  <h3>Implémentation</h3>
+  <p>WebAudio API ne permet pas de modifier directement un <code>&lt;video&gt;</code> mais on peut créer un <code>MediaElementSource</code>, le router via <code>ChannelSplitter</code> + <code>ChannelMerger</code>, et envoyer à <code>destination</code> via un <code>GainNode</code> pour le mute.</p>
+
+  <p>Appliqué à 2 endroits :</p>
+  <ul>
+    <li><strong>Viewer multicam</strong> : <code>_mcAttachAudio(a)</code> par angle FS5 (détecté via <code>a.clip.ltc_tc_in_sec != null</code>). Le mute existant (touches 1-2-3-4) passe par le GainNode au lieu de <code>vidEl.muted</code>.</li>
+    <li><strong>Player principal</strong> : <code>_attachPlayerAudio()</code> + <code>_setPlayerMonoR(bool)</code>. Deux routes WebAudio (stereo natif + mono R) avec 2 GainNodes ; on switch entre les deux selon le clip. Appelé dans <code>selectClip</code>.</li>
+  </ul>
+
+  <h3>Pièges</h3>
+  <ul>
+    <li><code>createMediaElementSource</code> ne peut être appelé qu'<strong>une fois</strong> par video element. Flag <code>video._audioAttached</code> pour le marquer.</li>
+    <li>Une fois fait, <code>video.muted</code> n'affecte plus la sortie réelle (bypass via WebAudio). Faut tout passer par le GainNode.</li>
+    <li>AudioContext doit être <code>resume()</code> après interaction utilisateur (politique browser). Le clic sur clip fait office d'interaction.</li>
+  </ul>
+
+  <p>Bonus : <code>openMcViewer()</code> met maintenant <code>mainPlayer.pause()</code> au début — sinon le son du clip principal continue à jouer pendant qu'on est dans le viewer multicam (double piste audio).</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="perf-leaks">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">Fuites mémoire — AudioContext + video elements</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Sébastien rapporte : après 6-7 ouvertures du viewer multicam, lags massifs, "écran noir vidéo figée", parfois Firefox affiche "could'nt load XPCOM" (saturation OS). Diagnostic en regardant <code>closeMcViewer</code> : on libère mal les ressources.</p>
+
+  <h3>Coupables identifiés</h3>
+  <div class="timeline">
+    <div class="timeline-item fail">
+      <strong>AudioContext singleton jamais fermé.</strong> Chaque session viewer 4-up crée 4 <code>MediaElementSource</code> + 4 splitters + 4 mergers + 4 gains = 16 nœuds. <code>closeMcViewer</code> ne les disconnect pas. Sur 10 sessions = 160 nœuds zombies dans le ctx partagé. Chaque <code>MediaElementSource</code> retient son <code>&lt;video&gt;</code> via référence → empêche le GC du video et de son buffer décodé.
+    </div>
+    <div class="timeline-item fail">
+      <strong><code>vidEl.src = ''</code> ne libère pas les tampons de décodage.</strong> La doc HTML5 video dit que pour vraiment décharger, il faut <code>removeAttribute('src') + load()</code>. Sans ça, le browser garde plusieurs frames de référence en mémoire.
+    </div>
+  </div>
+
+  <h3>Fix appliqué</h3>
+  <p>Dans <code>closeMcViewer</code> : pour chaque angle, <code>disconnect()</code> tous les nodes WebAudio (avec refs gardées via <code>a._sourceNode/_splitterNode/_mergerNode/_gainNode</code>), puis <code>vidEl.removeAttribute('src') + vidEl.load()</code>. Et enfin <code>window._mcAudioCtx.close()</code> — on en recrée un nouveau à la prochaine ouverture. Idem dans <code>closeCompare()</code> pour le viewer de comparaison.</p>
+
+  <p>Après fix : la RAM Firefox reste stable autour de 250-290 MB sur plusieurs ouvertures consécutives. Le saut au 6-7e qui faisait tout planter a disparu.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="perf-ffmpeg">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">Sémaphore et déduplication ffmpeg</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Après les fixes WebAudio, Sébastien voit encore des lags et "pléthore de processus ffmpeg dans le task manager". Diagnostic : à chaque hover sur un clip dans la sidebar, <code>compute_strip</code> lance <strong>12 ffmpeg en parallèle</strong> (une par frame de la bande-contact). <code>ThreadedHTTPServer</code> accepte plusieurs requêtes simultanées sans limite. 20 clips hover rapide = 240 ffmpeg en simultané qui saturent CPU + RAM.</p>
+
+  <h3>Fix</h3>
+  <ol>
+    <li><strong>Sémaphore globale</strong> : <code>_ffmpeg_sem = BoundedSemaphore(min(8, CPU/2))</code>. Tous les <code>subprocess.run(ffmpeg...)</code> du serveur passent par <code>_ffmpeg_run()</code> qui acquiert la sémaphore. Plafond global, jamais plus de N ffmpeg simultanés.</li>
+    <li><strong>Déduplication</strong> : <code>_dedupe_compute(key, fn)</code> avec un dict de <code>threading.Event</code>. Si la même requête arrive 2 fois (genre 2 GET <code>/strip/clip0001</code>), la 2e attend la 1ère au lieu de relancer 12 ffmpeg.</li>
+    <li><strong><code>compute_strip</code> throttle interne</strong> : <code>ThreadPoolExecutor(max_workers=3)</code> au lieu de 12 threads. 12 frames mais en 4 batchs de 3.</li>
+    <li><strong><code>-analyzeduration 1M -probesize 5M -an</code></strong> sur toutes les commandes thumbnail : sans ça ffmpeg peut allouer &gt;1 GB pour probe certains fichiers (MXF, GoPro HEVC) avant même de seek.</li>
+    <li><strong><code>compute_waveform_peaks</code> numpy-isé</strong> : le <code>struct.unpack</code> + boucle Python pure créait un tuple de millions d'int (~300 MB à 1 GB pour clip 1h+). Avec <code>np.frombuffer</code> + reshape + mean vectorisé : ~10× moins de RAM, ~100× plus rapide.</li>
+  </ol>
+
+  <div class="box box-ok">
+    <strong>Outil de debug utile :</strong> un script PowerShell <code>watch_ffmpeg.ps1</code> qui liste les processus ffmpeg actifs avec RAM + ligne de commande, alerte quand un dépasse un seuil. Très précieux pour diagnostiquer quel call ffmpeg est responsable d'un pic.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="perf-gopro">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">GoPro HEVC 5K — les LRV au secours</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Même avec la sémaphore, le watcher PowerShell montre un pic à <strong>13 GB de RAM</strong> quand Sébastien scrolle sur les GoPro dans la sidebar. Chaque ffmpeg consomme ~1.5 GB pour extraire une seule frame d'un <code>GX01xxxx.MP4</code>. Cause : ces fichiers sont en <strong>HEVC Main 10, 5K (5312×2988)</strong> à 88 Mbps. Le décodeur HEVC alloue énormément même pour 1 frame.</p>
+
+  <h3>Solution : utiliser les .LRV existants</h3>
+  <p>Découverte : à côté de chaque <code>GX01xxxx.MP4</code>, la GoPro génère automatiquement un <code>GL01xxxx.LRV</code> — son <em>proxy natif</em> en HEVC 432p (5-10 MB). Pattern naming simple : GX → GL, MP4 → LRV.</p>
+
+  <p>Fonction <code>_lighter_decode_source(file_path)</code> : si le fichier est un GX*.MP4 et qu'un GL*.LRV existe à côté, retourne le path du LRV. Utilisé dans <code>compute_thumbnail/strip/scrub</code>. Sur LRV 432p, ffmpeg consomme ~100-200 MB au lieu de 1.5 GB. <strong>10× moins de RAM, 5× plus rapide</strong> (0.08s vs 0.39s pour un thumbnail).</p>
+
+  <p>Pour la <strong>lecture vidéo</strong> dans le viewer principal, <code>find_proxy</code> a aussi été étendu pour détecter les LRV GoPro comme <code>proxy_url</code> quand pas de <code>Sub/</code> trouvé. <code>_serve_video</code> envoie MIME <code>video/mp4</code> pour les .LRV (Chromium peut lire HEVC LRV si l'OS supporte le codec).</p>
+
+  <div class="box box-note">
+    <strong>Note philosophique :</strong> Sébastien a posé un principe — l'outil doit marcher sur des petites configs aussi, sans forcer l'utilisateur à transcoder ses sources. Le <code>-hwaccel auto</code> qui dépendait du GPU a été retiré pour cette raison. La détection LRV est meilleure parce qu'elle marche sur n'importe quelle config (juste un fichier déjà présent par la caméra, aucun transcode imposé).
+  </div>
+
+  <h3>Cas limite : HEVC non supporté par l'OS</h3>
+  <p>Sur Windows 10/11 vanilla, le codec HEVC n'est pas pré-installé. Solution : extension Microsoft "HEVC Video Extensions" (gratuite via lien direct OEM, ou 0.99€ via Store classique). Sur Mac : OK natif. Sur Linux : ffmpeg système.</p>
+  <p>Si l'OS ne supporte pas HEVC, la <strong>Phase 2</strong> (à faire si besoin) consistera à auto-transcoder les LRV en H.264 dans un dossier <code>Sub/</code> en background lors du scan. ~1-2 sec par fichier × 112 = ~4 min total.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="electron-poc">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026 · FIN DE SESSION</span>
+    <span class="entry-title">POC Electron — sortir de la dépendance au browser tiers</span>
+    <span class="entry-tag tag-arch">Architecture</span>
+  </div>
+
+  <p>Question architecturale soulevée par Sébastien : "Imagine si une personne n'a pas Firefox mais Safari ou Edge ou Opera ou Chrome. Y a des risques que ça plante. Ne devrait-on pas se créer son interface ?"</p>
+
+  <p>Discussion : trois options principales (Electron / Tauri / native Qt). Recommandation : <strong>Electron</strong>, qui résout 90% des problèmes (uniformité cross-browser, HEVC natif via OS, API pour vider les caches, fin des "le user ferme Firefox sans fermer le serveur") en gardant 100% de la stack actuelle (HTML/JS + serveur Python).</p>
+
+  <h3>POC Phase A — structure</h3>
+  <pre><code>derush_tool/
+  electron/
+    package.json     # deps: electron ^33, electron-builder ^25
+    main.js          # spawn python backend + ouvre BrowserWindow Chromium
+    preload.js       # bridge (vide pour POC, sécurité tight)</code></pre>
+
+  <p><code>main.js</code> :</p>
+  <ol>
+    <li>Spawn <code>python derush_server.py --no-browser</code> (mode dev) ou le <code>DerushTool.exe</code> bundlé (mode prod)</li>
+    <li>Polling sur <code>http://localhost:8765</code> jusqu'à 200 OK</li>
+    <li>Ouvre <code>BrowserWindow</code> (1600×1000) dessus</li>
+    <li>F12 = DevTools</li>
+    <li>Fermeture window → kill du subprocess Python</li>
+  </ol>
+
+  <p>Le flag <code>--no-browser</code> a été ajouté à <code>derush_server.py</code> pour ne pas ouvrir Firefox quand lancé par Electron.</p>
+
+  <h3>Limites annoncées dès le départ</h3>
+  <ul>
+    <li>Binaire ~280 MB (vs 150 MB actuel)</li>
+    <li>RAM baseline ~300-400 MB</li>
+    <li>HEVC sur Windows nécessite extension MS (gratuite OEM)</li>
+    <li>Build Mac depuis Windows = impossible (faut un Mac ou CI). Mais l'app TOURNE sur Mac.</li>
+    <li>SmartScreen warning au 1er lancement si exe non signé (clic "Plus d'infos" → "Exécuter")</li>
+  </ul>
+
+  <h3>Status fin de session 18 mai</h3>
+  <p>POC validé en mode dev (<code>npm.cmd start</code>). Sébastien teste :</p>
+  <div class="timeline">
+    <div class="timeline-item ok">
+      Tout fonctionne dans Electron (login, projet, multicam)
+    </div>
+    <div class="timeline-item ok">
+      Lecture des GoPro LRV : OK dans Chromium (le HEVC LRV passe, Sébastien a apparemment l'extension HEVC OS)
+    </div>
+    <div class="timeline-item ok">
+      Sélection multi-validés (clic + shift+clic) marche
+    </div>
+    <div class="timeline-item info">
+      <strong>Phase B (à faire demain)</strong> : <code>npm run build</code> pour générer <code>DerushTool-Portable.exe</code> qui bundle Chromium + le PyInstaller actuel. Un seul .exe à distribuer (~280 MB). Configuré via <code>extraResources</code> dans package.json.
+    </div>
+  </div>
+
+  <div class="box box-why">
+    <strong>Pourquoi c'est important :</strong> jusqu'ici l'outil dépendait du browser de l'utilisateur — risques imprévisibles selon Firefox/Chrome/Safari/Edge/Opera. Avec Electron on contrôle complètement le rendu Chromium et on a accès aux APIs natives (clear cache, IPC plus tard, tray icon, etc.). Sébastien garde quand même la possibilité d'utiliser un browser tiers en parallèle (serveur Python écoute toujours sur :8765, accessible en LAN).
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="docs">
+  <div class="entry-header">
+    <span class="entry-date">15 MAI 2026 · FIN DE SESSION</span>
+    <span class="entry-title">Documentation — CLAUDE.md et GUIDE.html</span>
+    <span class="entry-tag tag-doc">Documentation</span>
+  </div>
+
+  <p>Deux documents de référence sont maintenus en parallèle du code.</p>
+
+  <h3>CLAUDE.md — mémoire technique pour les sessions IA</h3>
+  <p>Ce fichier sert de contexte de départ pour les sessions de développement assisté par Claude Code. Il documente l'architecture, les fonctions clés, les pièges techniques déjà rencontrés et les endpoints API. L'objectif est qu'une nouvelle session puisse reprendre sans reposer les mêmes questions ou redécouvrir les mêmes problèmes. Il inclut notamment les subtilités non-évidentes : la différence APP_DIR/BUNDLE_DIR, le format des FCPXML pour DaVinci, la stratégie de merge sync, etc.</p>
+
+  <h3>GUIDE.html — documentation utilisateur</h3>
+  <p>Guide complet en français pour les utilisateurs non-techniques. Structuré en sections (démarrage, projets, dérushage, outils avancés, export, raccourcis, dépannage). Disponible dans l'exe lui-même via un lien dans l'interface.</p>
+
+  <h3>JOURNAL.html — ce fichier</h3>
+  <p>Carnet de bord chronologique expliquant les décisions d'architecture, les bugs rencontrés, les tentatives qui n'ont pas fonctionné et pourquoi, les solutions retenues. Destination : garder une trace lisible humainement de l'évolution du projet — utile pour reprendre après une longue pause ou expliquer les choix à quelqu'un qui arrive sur le projet.</p>
+</div>
+
+<hr class="section">
+
+<div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
+  Derush Tool · Journal de développement · Dernière mise à jour 18 mai 2026 (LTC decoder, optimisations perf, POC Electron)
+</div>
+
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,253 @@
+// Electron wrapper for Derush Tool.
+//
+// Behaviour:
+//   1. Spawn the Python backend (in dev: `python derush_server.py --no-browser`;
+//      packaged: the bundled DerushTool.exe with --no-browser flag).
+//   2. Poll http://localhost:8765 until the server responds.
+//   3. Open a Chromium BrowserWindow on that URL.
+//   4. On window close, terminate the backend subprocess cleanly.
+//
+// The Python server keeps its own HTTP transport — Electron is only acting as a
+// dedicated Chromium frontend. This lets all collaborators on the LAN keep using
+// http://<lan-ip>:8765 from their own browser if they want, while the local user
+// gets a controlled Chromium with HEVC support and no leak quirks.
+
+const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const path = require('path');
+const { spawn } = require('child_process');
+const http = require('http');
+const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
+
+const SERVER_PORT = 8765;
+const SERVER_URL = `http://localhost:${SERVER_PORT}`;
+
+let backendProc = null;
+let mainWindow = null;
+let splashWindow = null;
+
+// ── Resolve which Python backend to launch ───────────────────────────────────
+function backendCommand() {
+  // Packaged: app.isPackaged === true → use the bundled DerushTool.exe sitting
+  // in extraResources (declared in package.json under build.extraResources).
+  // Onedir layout: resources/DerushTool/DerushTool.exe + resources/DerushTool/_internal/
+  if (app.isPackaged) {
+    const exe = path.join(process.resourcesPath, 'DerushTool', 'DerushTool.exe');
+    return { cmd: exe, args: ['--no-browser'] };
+  }
+  // Dev: run the source server.py directly. Assumes `python` is on PATH.
+  const serverPy = path.join(__dirname, '..', 'derush_server.py');
+  return { cmd: 'python', args: [serverPy, '--no-browser'] };
+}
+
+function startBackend() {
+  const { cmd, args } = backendCommand();
+  console.log(`[derush] Spawning backend: ${cmd} ${args.join(' ')}`);
+  backendProc = spawn(cmd, args, {
+    cwd: path.join(__dirname, '..'),
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  backendProc.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
+  backendProc.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`));
+  backendProc.on('exit', (code) => {
+    console.log(`[derush] Backend exited with code ${code}`);
+    backendProc = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // If backend dies while UI is up, the page will start failing — close to
+      // avoid the user staring at a blank screen.
+      mainWindow.close();
+    }
+  });
+}
+
+function stopBackend() {
+  if (backendProc) {
+    console.log('[derush] Stopping backend…');
+    try { backendProc.kill('SIGTERM'); } catch (e) {}
+    // Give it a moment to honor the heartbeat-shutdown, otherwise force.
+    setTimeout(() => { if (backendProc) try { backendProc.kill('SIGKILL'); } catch (e) {} }, 2000);
+    backendProc = null;
+  }
+}
+
+// ── Poll until backend answers HTTP ──────────────────────────────────────────
+function waitForServer(timeoutMs = 15000) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const tryOnce = () => {
+      const req = http.get(SERVER_URL, { timeout: 1500 }, (res) => {
+        // Any response (even 401/redirect to /login) means the server is up.
+        res.resume();
+        resolve();
+      });
+      req.on('error', () => retry());
+      req.on('timeout', () => { req.destroy(); retry(); });
+    };
+    const retry = () => {
+      if (Date.now() - start > timeoutMs) {
+        reject(new Error(`Backend did not respond on ${SERVER_URL} within ${timeoutMs}ms`));
+      } else {
+        setTimeout(tryOnce, 300);
+      }
+    };
+    tryOnce();
+  });
+}
+
+// ── Splash window pendant le démarrage du backend ───────────────────────────
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 380,
+    height: 220,
+    frame: false,
+    transparent: false,
+    alwaysOnTop: true,
+    resizable: false,
+    movable: true,
+    skipTaskbar: false,
+    backgroundColor: '#0f0f13',
+    title: 'Derush Tool',
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+  });
+  const splashHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    html,body{margin:0;height:100%;background:#0f0f13;color:#e0e0e8;font-family:'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none;}
+    .title{font-size:18px;font-weight:600;color:#a78bfa;letter-spacing:.04em;margin-bottom:6px;}
+    .sub{font-size:12px;color:#6b6b80;letter-spacing:.06em;text-transform:uppercase;}
+    .bar{margin-top:18px;width:240px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;position:relative;}
+    .bar::before{content:'';position:absolute;left:-40%;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,#a78bfa,transparent);animation:slide 1.1s ease-in-out infinite;}
+    @keyframes slide{from{left:-40%}to{left:100%}}
+  </style></head><body>
+    <div class="title">🎬 Derush Tool</div>
+    <div class="sub">Démarrage du serveur…</div>
+    <div class="bar"></div>
+  </body></html>`;
+  splashWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(splashHtml));
+  splashWindow.on('closed', () => { splashWindow = null; });
+}
+
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    try { splashWindow.close(); } catch (e) {}
+  }
+  splashWindow = null;
+}
+
+// ── Create the Chromium window ───────────────────────────────────────────────
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1600,
+    height: 1000,
+    minWidth: 1100,
+    minHeight: 700,
+    title: 'Derush Tool',
+    backgroundColor: '#0f0f13',
+    autoHideMenuBar: true,
+    show: false,  // restera caché jusqu'à did-finish-load (évite le flash blanc)
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      backgroundThrottling: false,
+    },
+  });
+
+  // Quand l'UI principale est rendue, on ferme le splash et on affiche.
+  mainWindow.once('ready-to-show', () => {
+    closeSplash();
+    mainWindow.show();
+  });
+
+  // Hide the menu bar entirely (no File/Edit/View clutter).
+  Menu.setApplicationMenu(null);
+
+  // External links open in the system browser, not inside the app.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.loadURL(SERVER_URL);
+
+  // Dev convenience: F12 toggles DevTools.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+// ── Auto-update via GitHub Releases ──────────────────────────────────────────
+// Check au démarrage en background. Si maj dispo → download silencieux puis
+// notification utilisateur quand prête à installer (redémarrage requis).
+// Marche en prod uniquement (app.isPackaged) — désactivé en dev pour ne pas
+// tenter de fetch des releases inexistantes pendant le développement.
+function setupAutoUpdater() {
+  if (!app.isPackaged) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;  // on contrôle quand on installe (via dialog)
+  autoUpdater.on('error', (err) => console.warn('[update] error:', err.message));
+  autoUpdater.on('update-available', (info) => {
+    console.log('[update] available:', info.version, '— download starting');
+  });
+  autoUpdater.on('update-not-available', () => console.log('[update] none'));
+  autoUpdater.on('download-progress', (p) => {
+    console.log(`[update] downloading ${Math.round(p.percent)}% (${(p.bytesPerSecond/1024/1024).toFixed(1)} MB/s)`);
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    const choice = dialog.showMessageBoxSync({
+      type: 'info',
+      title: 'Mise à jour disponible',
+      message: `Derush Tool v${info.version} est prêt à être installé.`,
+      detail: 'Souhaites-tu redémarrer maintenant pour installer la mise à jour ?',
+      buttons: ['Redémarrer et installer', 'Plus tard'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (choice === 0) {
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
+  // Check 5s après le démarrage pour ne pas bloquer le boot
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(err => console.warn('[update] check failed:', err.message));
+  }, 5000);
+}
+
+// ── App lifecycle ────────────────────────────────────────────────────────────
+app.whenReady().then(async () => {
+  createSplash();
+  startBackend();
+  setupAutoUpdater();
+  try {
+    await waitForServer();
+  } catch (err) {
+    closeSplash();
+    dialog.showErrorBox(
+      'Backend introuvable',
+      `Le serveur Python n'a pas démarré:\n\n${err.message}\n\n` +
+      'Vérifie que Python est installé (en dev) ou que DerushTool.exe est ' +
+      'présent dans le dossier resources (en prod).'
+    );
+    app.quit();
+    return;
+  }
+  createWindow();
+});
+
+app.on('window-all-closed', () => {
+  stopBackend();
+  // On macOS apps typically stay alive; on Windows/Linux we quit.
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', stopBackend);
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
