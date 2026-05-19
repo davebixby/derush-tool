@@ -851,3 +851,219 @@ derush_tool/
 | `test_ltc_decoder.py` | test standalone du décodeur LTC sur 6 cas connus (validation) |
 | `_patch_gopro_proxy.py` | one-shot : patche les proxy_url GoPro dans le JSON projet pour pointer sur les LRV (évite un rescan complet) |
 | `validate_multichunk.py`, `refonte.py`, `recover_orphans.py` | scripts d'archive d'expérimentations audio multicam (session précédente, ne plus utiliser, ne pas supprimer) |
+
+---
+
+# État au 19 mai 2026 — Tournée majeure (Phase B Electron → refactor modules → auto-update → bonus features)
+
+## Versions et release
+
+- Version courante : **0.2.0** (fichier `VERSION` à la racine, bundlé dans le PyInstaller)
+- Première release distribuée : `DerushTool-Portable-0.2.0.exe` (183 MB) sur GitHub Releases
+- Repo public : https://github.com/davebixby/derush-tool
+
+## Système changelog visible dans l'app
+
+- `CHANGELOG.md` à la racine (format Keep a Changelog, parsé par regex `## [X.Y.Z] — date`)
+- Backend : `GET /api/version`, `GET /api/changelog` (helpers `_read_version()`, `_read_changelog()` dans derush_server.py)
+- Frontend : `js/changelog.js` — modal auto-affichée au 1er launch après bump de version (compare `localStorage.derush_last_seen_version` à la version courante)
+- Lien manuel « 📜 Nouveautés » dans le footer de l'écran projets
+- Render markdown léger (`##`, `**bold**`, `` `code` ``, listes `-`)
+
+## Auto-update via electron-updater + GitHub Releases
+
+- Provider : GitHub (owner=davebixby, repo=derush-tool, public)
+- `electron-updater` ^6.8 en dependency d'`electron/`
+- `package.json` build config : `portable.unpackDirName: 'DerushTool'` (extract dir stable pour update), `publish: [{provider: 'github', owner, repo}]`
+- `main.js` : `setupAutoUpdater()` appelé dans `app.whenReady()`, seulement si `app.isPackaged`. Check 5s après boot, download silent, dialog au quitAndInstall(false, true) quand prêt
+- Workflow release documenté dans `RELEASE.md` (bump VERSION + electron/package.json, update CHANGELOG.md, pyinstaller, npm run release)
+- **Piège Windows critique** : `GH_TOKEN` au niveau User PAS propagé aux subprocess npm. Toujours injecter explicitement avant `npm run release` :
+  ```powershell
+  $env:GH_TOKEN = [Environment]::GetEnvironmentVariable('GH_TOKEN', 'User')
+  npm run release
+  ```
+- **Piège GitHub** : refuse de publier une release sur un repo sans aucun commit (« Repository is empty »). Push au moins un README avant la 1ère release.
+- **Mode Développeur Windows requis** sur la machine de build : `winCodeSign-2.6.0.7z` contient des symlinks Unix darwin/ qu'electron-builder doit extraire. Activé via `ms-settings:developers`.
+
+## Refactor monolithe HTML → modules JS (19 mai)
+
+`derush_app.html` passe de **5077 → 3109 lignes** (-39%). 10 modules JS dans `js/` :
+
+| Module | Lignes | Contenu |
+|--------|--------|---------|
+| `audio-bwf.js` | 256+ | `_attachPlayerAudio`, `_setPlayerMonoR`, `_routeBwfMultiChannel`, BWF single player, `selectClip` |
+| `multicam-viewer.js` | 643 | 4-up viewer overlay (`openMcViewer`, `_buildMcLayout`, `_mcSeekGroup`, etc.) |
+| `multicam-modal.js` | 450 | Modal détection + groupes (propositions/validés) |
+| `compare.js` | 175 | Compare 2-clips overlay |
+| `lut.js` | 354 | WebGL2 LUT + scope + settings |
+| `share.js` | 132 | Lien de review |
+| `changelog.js` | 77 | Modal nouveautés |
+| `crash.js` | 47 | Viewer journal erreurs |
+| `auto-detect.js` | 200+ | Scene change candidats |
+| `session-live.js` | 180+ | Leader/follower WS |
+
+**Pattern d'extraction** :
+- Pas d'ES modules (casseraient les `onclick=""` inline). Juste `<script src="js/X.js"></script>` classique
+- Toutes les fonctions / `let` top-level partagent le global lexical scope → accessibles via inline `onclick` et entre modules
+- Server route : `/js/*.js` servi depuis `BUNDLE_DIR/js/` (résolution PyInstaller-aware via la route ajoutée dans `do_GET`)
+- PyInstaller spec : bundle tous les `js/*.js` via `glob` (datas)
+- Chargement HTML : `<script src>` AVANT le bootstrap final `<script>init(); _loadVersionAndChangelog();</script>` à la fin du body
+
+## Tests E2E Playwright (`tests/`)
+
+- 14 tests sur 5 fichiers : `smoke`, `auth`, `changelog`, `markers` (regression bug textarea), `drawing`
+- Setup : `cd tests && npm install && npx playwright install chromium` puis `npm test`
+- Credentials via env vars : `DERUSH_TEST_USER` (défaut: 'Sebastien'), `DERUSH_TEST_PASS` (vide = skip auth tests), `DERUSH_TEST_PROJECT` (défaut: 'Drift_Club')
+- Playwright config : `webServer` spawn `python derush_server.py --no-browser`, baseURL `http://localhost:8765`
+- **Couvre le bug textarea** : test `markers.spec.js > BUG REGRESSION : add → delete → re-add → textarea focusable` — vérifie `popupDesc` est `toBeFocused` après le cycle
+- 14/14 passent en ~30 s (incluse extraction modules JS → pattern validé)
+
+## Bug textarea popup — saga + fix définitif
+
+**5 tentatives échouées** : reset défensif, replaceChild, pointer-events:none overlay, blur après delete, double RAF.
+
+**Vrai coupable** : `confirm()` natif. Chromium garde un état « focus stealer prevention » après un dialog natif qui empêche le rendu du caret sur les inputs focusés ensuite. **Comportement non documenté, reproductible**.
+
+**Fix** : suppression de TOUS les `confirm()` natifs (10 occurrences). Remplacés par toast non-bloquant `showToast(msg, kind, duration)` — composant CSS custom avec slide-in animation. `prompt()` aussi désactivé (Electron le retourne `null` silencieusement) → `saveDrawing` utilise désormais le popup marker existant avec stash `_pendingDrawing`.
+
+## LUT preview WebGL2 (rewrite complet)
+
+- Canvas 2D nearest-neighbour 480px → WebGL2 + `sampler3D` + `gl.LINEAR` filtering (trilinéaire HW gratuite)
+- Pleine résolution vidéo (jamais downsamplée), zéro readback CPU, format `RGB16F` upload
+- `_lutInitGL(canvas)` crée le contexte + program + texture 3D
+- Fragment shader : `expo → LUT lookup centre voxels → mix intensité → satu Rec.709 → dithering`
+- Dithering anti-banding : noise sub-pixel ±0.5/255 décorrélé par canal, varie par frame via `u_time`
+- Scope par caméra : `_lutScope = {mode:'cameras'|'clip', cameras:[], clip_id:''}` persisté en `localStorage`
+- 3 sliders panel : intensité (0–1), exposition (-2/+2 EV), saturation (0–2). Uniforms re-pushés à chaque slide.
+- `selectClip` re-évalue le scope → enable/disable canvas automatiquement
+- Bouton 🎨 LUT 3 états visuels : `lut-on` (accent + glow), `lut-off` (barré dim), `lut-not-applicable` (dim + label « hors scope »)
+- Canvas a `object-fit: contain` pour matcher l'aspect ratio du `<video>` (aussi en contain)
+
+## BWF multi-track + Son ingé sur player single
+
+- Endpoint nouveau : `GET /api/project/<pid>/clip_bwf/<clip_id>` — trouve le BWF couvrant le TC du clip (réutilise `_bwf_candidates_for_clips`)
+- Frontend : bouton 🔊 Son ingé apparaît auto quand un BWF est dispo pour le clip actif
+- WebAudio routing : `_routeBwfMultiChannel(audio, ctx)` crée `ChannelSplitter(8)` + 2 `GainNodes` qui mixent toutes les pistes (1/3 atténuation) → mergerStéréo → destination
+- Marche pour les 2 contextes : player single (`_playerAudioCtx`) et multicam viewer (`window._mcAudioCtx`)
+- Cleanup propre via `_unrouteBwf(audio)` au changement de clip / close viewer
+- Bouton son ingé visuel cohérent partout : `bwf-on` (vert éclatant + glow), `bwf-off` (barré dim)
+
+## Markers : shapes différenciées + stacking vertical
+
+CSS par catégorie :
+- `1/2/3` (rating) → cercle
+- `T` (problème image) → carré (`border-radius: 2px`)
+- `S` (problème son) → triangle (`clip-path: polygon(50% 0, 100% 100%, 0 100%)`)
+- `D` (note) → losange (`border-radius: 2px; rotate(45deg)`)
+- `X` (à couper) → croix (2 pseudos rotated 45°/-45°)
+
+**Stacking vertical** : markers proches dans le temps (< 22 px horizontal) s'empilent sur 3 niveaux (`--pin-top` CSS var, offsets 4 / 17 / 30 px). Pre-calcul dans `renderMarkers` via algo greedy par level. Timeline-bar passée de 64 → 88 px pour l'espace.
+
+Labels : « Image » → « Problème image », « Son » → « Problème son » (icône ⚠️ au lieu de 👁️/🎵).
+
+## Export Adobe Premiere XML
+
+- Nouvelle fonction `export_xml_fcp7(project, filter_config)` dans derush_server.py
+- Schéma : Final Cut Pro 7 XML Interchange Format v5 (`<xmeml version="5"><sequence>…`)
+- Endpoint : `/api/project/<pid>/export/xml_fcp7?label=…&min_rating=N&cats=...&rejected=1`
+- Même logique de découpe par markers X (zones à couper) que `export_fcpxml` : 1 `<clipitem>` par segment kept
+- Markers content placés avec `<in>` = offset depuis début SOURCE FILE (pas du clipitem)
+- 5 boutons dans le modal export (complet + 4 filtres rating/son/image)
+- Compatible Premiere Pro CC 2017+
+
+## Lien de review partagé (Frame.io light)
+
+**Architecture** :
+1. `POST /api/project/<pid>/share/create` → backend construit un « share package » (annotations + thumbs + 4 previews HD 640×360 par clip via `compute_share_previews()`, cachés en `_share[0-3].jpg`)
+2. Upload via `derush_sync.php?action=create_share&token=ABC` (token random url-safe 12 chars)
+3. URL publique : `https://host/derush_sync.php?view=share&token=ABC` → PHP rend une page HTML embarquée (CSS+JS inline) qui fetch le package via `?action=get_share`
+4. Viewer : sidebar clips + détails (4 thumbs HD + markers + notes équipe) + formulaire commentaire
+5. `POST ?action=add_comment&token=ABC` (token = auth, pas de clé)
+6. Pull commentaires : `_share_pull_locks` per-pid + dédoublonnage rétroactif par `(ts, text)` (fix bug doublons ×N causé par concurrent polling)
+7. Affichage Derush : section verte « 🔗 Retours externes » sous chaque clip dans le panneau « Avis des autres »
+
+**Bug fix** : `since=None` envoyé à PHP devenait `'None'` string, comparaison `'2026-...' <= 'None'` alphanumérique = True → tous filtrés. Fix : `since = proj['share'].get('comments_last_pulled') or ''`.
+
+**Détails serveur PHP étendus** : voir `derush_sync.example.php` (template avec `SECRET_KEY = 'CHANGEME'` placeholder) — le vrai `derush_sync.php` contient la clé hardcodée et est exclu du repo via `.gitignore`.
+
+## Sync cloud hardening
+
+- **Pull-on-enter** : `POST /api/project/enter` déclenche `sync_project(pid)` en background (non-bloquant)
+- **Push debounced** : après chaque save de notes, schedule un sync 3 s plus tard via `_sync_push_timers[pid]` (`threading.Timer`). Les saves rapprochées reset le timer = 1 seul push par rafale d'éditions.
+
+## Crash reporter
+
+- `%APPDATA%\DerushTool\crashes.jsonl` (1 JSON ligne par crash)
+- Python : `sys.excepthook` + `threading.excepthook` (Python 3.8+) → `_log_crash(entry)`
+- JS : `window.addEventListener('error')` + `unhandledrejection` → POST `/api/crash` (throttle 500ms)
+- Endpoints : `GET /api/crashes?limit=N`, `GET /api/crashes/clear`
+- UI : lien « 🐞 Journal des erreurs » sur écran projets → modal avec liste (badge JS/PY, timestamp, message, URL+line, stacktrace dépliable)
+- Module : `js/crash.js`
+
+## Auto-détection de plans (scene change)
+
+- Backend : `detect_scenes_for_clip(file_path, threshold)` appelle ffmpeg avec `-filter:v "select=gt(scene\,X),showinfo" -loglevel verbose`
+- Dédup à 0.5 s pour bursts d'I-frames
+- Background job `_auto_detect_job(pid, threshold, clip_ids)` — stocke candidats dans `proj['auto_detected'][clip_id] = {candidates, scanned_at, threshold}`
+- Skip candidats proches (< 1 s) de markers existants pour pas dupliquer
+- 4 endpoints :
+  - `POST /api/project/<pid>/auto_detect/start` (body: threshold, clip_ids?)
+  - `GET /api/project/<pid>/auto_detect/status`
+  - `GET /api/project/<pid>/auto_detect`
+  - `POST /api/project/<pid>/auto_detect/decide` (body: clip_id, candidate_id, status='accepted'|'rejected')
+- Accept → crée un vrai marker D côté serveur
+- Module frontend : `js/auto-detect.js`, candidats rendus comme losanges jaunes (`.timeline-autodetect-pin`)
+
+**Bugs fixés** (à retenir) :
+- `-loglevel info` masque les `showinfo` lines → 0 candidats. Faut `verbose`.
+- Regex `r'pts_time:([0-9.]+)'` matche aussi `[graph -1 input...] ... pts_time: 0` → faux positif à t=0. Faut regex stricte : `r'\[Parsed_showinfo[^\]]*\][^\n]*pts_time:([0-9.]+)'`.
+- Default threshold 0.25 (pas 0.4) pour les longs takes FX6.
+
+## Session live (leader/follower)
+
+- Backend : `_session_leaders[pid] = username` dict + lock
+- Endpoints : `GET /api/project/<pid>/session/state`, `POST .../session/start_leading|stop_leading|action`
+- WS broadcast types nouveaux : `session_state` ({leader}), `session_action` ({action, data, from})
+- Frontend : `js/session-live.js`
+  - State : `_sessionIsLeading`, `_sessionFollowing`, `_sessionLeader`
+  - Anti-loop : `_sessionApplyingRemote` flag bloque le re-broadcast d'une action reçue
+  - Hooks : `selectClip` → broadcast `select_clip`, listeners `play/pause/seeked/ratechange` sur le `<video>` (attach one-shot via `attachSessionVideoListeners`)
+- Cleanup au logout : libère leadership (broadcasted)
+- Bouton 🎬 4 états : « Diriger la session », « 👁 Suivre [name] », « ✓ Suit [name] », « 🛑 Arrêter de diriger »
+
+## Endpoints API (état au 19 mai 2026)
+
+### Nouveaux endpoints :
+```
+GET  /api/version
+GET  /api/changelog
+GET  /api/crashes
+GET  /api/crashes/clear
+GET  /api/project/<pid>/share/info
+POST /api/project/<pid>/share/create
+POST /api/project/<pid>/share/revoke
+POST /api/project/<pid>/share/pull_comments
+GET  /api/project/<pid>/clip_bwf/<clip_id>           (BWF couvrant un seul clip)
+GET  /api/project/<pid>/auto_detect
+GET  /api/project/<pid>/auto_detect/status
+POST /api/project/<pid>/auto_detect/start
+POST /api/project/<pid>/auto_detect/decide
+GET  /api/project/<pid>/session/state
+POST /api/project/<pid>/session/start_leading
+POST /api/project/<pid>/session/stop_leading
+POST /api/project/<pid>/session/action
+POST /api/project/<pid>/export/xml_fcp7              (Adobe Premiere)
+POST /api/crash
+GET  /js/*.js                                         (sert les modules JS bundlés)
+```
+
+## Pièges critiques à retenir
+
+1. **`confirm()`, `alert()`, `prompt()` natifs** dans Electron : `prompt` retourne `null`, `confirm` casse le focus state. Toujours utiliser toast custom.
+2. **`GH_TOKEN` au niveau User** : pas propagé aux subprocess npm sur Windows. Injecter en session avant `npm run release`.
+3. **Mode Développeur Windows** : requis pour electron-builder (symlinks darwin/).
+4. **PyInstaller onedir** : 5× plus rapide que onefile au démarrage. `derush.spec` utilise `EXE(exclude_binaries=True) + COLLECT(...)`. `extraResources` pointe sur `../dist/DerushTool` (dossier), pas `.exe`.
+5. **`derush_sync.php` jamais commité** : contient `SECRET_KEY` hardcodée. Utiliser `derush_sync.example.php` template.
+6. **Bundle `js/` dans PyInstaller** : `*([(str(p), 'js') for p in (ROOT / 'js').glob('*.js')])` dans datas du derush.spec.
+7. **ffmpeg `showinfo`** : invisible en `-loglevel info`. Faut `verbose`. Et regex parsing doit être préfixée à `\[Parsed_showinfo` pour éviter faux positifs sur lignes graph debug.
+8. **Tests E2E** : faire tourner avant tout refactor risqué. `cd tests && DERUSH_TEST_PASS=... npm test`.

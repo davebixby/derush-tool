@@ -72,10 +72,16 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <a href="#compare">Comparaison clips</a>
   <a href="#multicam">Multi-cam &amp; son ingé</a>
   <a href="#lut">Preview LUT</a>
+  <a href="#auto-detect">Auto-détection plans</a>
   <a href="#collaboration">Collaboration temps réel</a>
-  <div class="nav-section">Export</div>
+  <a href="#session-live">Session live</a>
+  <div class="nav-section">Export &amp; partage</div>
   <a href="#export">Exporter vers DaVinci</a>
+  <a href="#export-premiere">Exporter vers Premiere</a>
+  <a href="#share-link">Lien de review (client)</a>
   <a href="#sync">Synchronisation cloud</a>
+  <div class="nav-section">Mises à jour</div>
+  <a href="#updates">Auto-update + nouveautés</a>
   <div class="nav-section">Référence</div>
   <a href="#shortcuts">Raccourcis clavier</a>
   <a href="#troubleshooting">Dépannage</a>
@@ -179,8 +185,18 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <tr><td><code>X</code></td><td>❌ Zone à couper</td><td>Rouge</td></tr>
 </table>
 <p>Les marqueurs peuvent être déplacés par glisser-déposer sur la timeline.</p>
+<h3>Formes différenciées sur la timeline</h3>
+<p>Chaque catégorie a sa propre forme pour être identifiable d'un coup d'œil :</p>
+<ul>
+  <li><strong>Cercle</strong> = rating ⭐ / ⭐⭐ / ⭐⭐⭐</li>
+  <li><strong>Carré</strong> = problème image (<code>T</code>)</li>
+  <li><strong>Triangle</strong> = problème son (<code>S</code>)</li>
+  <li><strong>Losange</strong> = note générique (<code>D</code>)</li>
+  <li><strong>Croix</strong> = zone à couper (<code>X</code>)</li>
+</ul>
+<p>Quand plusieurs marqueurs sont proches dans le temps, ils s'empilent verticalement (sur 3 niveaux) pour que tu puisses tous les cliquer sans qu'ils se chevauchent.</p>
 <h3>Dessin sur image</h3>
-<p>Après avoir créé un marqueur image (<code>T</code>), activez le mode dessin (✏️) pour annoter directement sur la vidéo.</p>
+<p>Activez le mode dessin (<strong>🖌 Dessin</strong>), trace tes formes (cercle/flèche/libre), puis clique <strong>✅ Valider</strong>. Un popup s'ouvre pour entrer une description — le dessin sera attaché au marker créé. Le pin sur la timeline aura une icône 🖌 indiquant la présence d'un dessin.</p>
 
 <h2 id="tags">Tags</h2>
 <p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de filtres.</p>
@@ -277,10 +293,31 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
 <div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>📂 LUT</strong> dans la barre de contrôle du lecteur.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un fichier <code>.cube</code> (format ASCII standard).</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">La LUT s'applique immédiatement sur la vidéo en cours. Un badge <strong>LUT</strong> apparaît sur l'image.</div></div>
+<h3>Scope par caméra</h3>
+<p>Une LUT Rec709 ne doit s'appliquer que sur les caméras log (FS5 par exemple), pas sur les caméras Rec709 natif (FX6/GoPro). Au chargement d'une <code>.cube</code>, un popup demande à quelles <strong>caméras</strong> appliquer la LUT (ou « ce rush uniquement »). Les FS5 sont pré-cochées par défaut. La LUT s'active/désactive automatiquement quand tu changes de clip selon sa caméra.</p>
+
+<h3>Réglages temps réel</h3>
+<p>Quand une LUT est active sur le clip, un petit panneau apparaît avec 3 sliders :</p>
+<ul>
+  <li><strong>Intensité</strong> 0–100% (mix entre source et LUT — utile pour atténuer une LUT trop agressive)</li>
+  <li><strong>Exposition</strong> -2 → +2 EV (compense la sous/sur-exposition avant la LUT)</li>
+  <li><strong>Saturation</strong> 0–200%</li>
+</ul>
+<p>Les réglages sont mémorisés entre les sessions.</p>
+
 <h3>Activer / désactiver</h3>
-<p>Le bouton <strong>🎨 LUT</strong> (qui apparaît après le chargement) permet de basculer la LUT on/off pour comparer avec et sans étalonnage. La LUT reste mémorisée dans la session même quand elle est désactivée.</p>
+<p>Le bouton <strong>🎨 LUT</strong> a 3 états : <strong>actif</strong> (fond accent + glow), <strong>désactivé</strong> (barré + dim), <strong>hors scope</strong> (dim avec label « hors scope » — la LUT est chargée mais ce clip n'est pas dans le périmètre choisi).</p>
 <div class="tip"><strong>Fichiers Sony :</strong> Les LUTs Sony FX6 (format <code>.cube</code> ASCII) situées dans <code>XDROOT/General/LUT/</code> sont directement compatibles.</div>
-<div class="warn"><strong>Qualité de preview :</strong> La preview LUT est calculée en résolution réduite (≈ 480px) pour la fluidité. Elle est destinée à l'appréciation colorimétrique, pas à la validation finale.</div>
+<div class="tip"><strong>Qualité pro :</strong> rendu WebGL2 avec interpolation trilinéaire hardware + dithering anti-banding. Pleine résolution vidéo, pas de pixelisation.</div>
+
+<h2 id="auto-detect">Auto-détection des plans</h2>
+<p>Pour les longs takes avec coupes embarquées (multi-prises continues), Derush peut auto-suggérer les moments de changement de plan.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">Bouton <strong>🔍 Auto-plans</strong> dans la toolbar du workspace.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Choisis la cible : <strong>tous les clips du projet</strong> ou <strong>ce clip uniquement</strong>.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Ajuste la <strong>sensibilité</strong> (défaut 0.25). Baisse vers 0.10 si tu veux capter plus de candidats, monte vers 0.40 pour ne garder que les cuts évidents.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Lance — barre de progression. Compte ~1-2 sec par minute de vidéo.</div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body">Les candidats apparaissent comme <strong>losanges jaunes</strong> sur la timeline. <strong>Clic gauche</strong> = accepter (devient un marker D), <strong>clic droit</strong> = rejeter.</div></div>
+<div class="tip">Les candidats rejetés sont mémorisés — au prochain scan, ils ne seront plus re-suggérés.</div>
 
 <h2 id="collaboration">Collaboration temps réel</h2>
 <p>Quand plusieurs utilisateurs travaillent en même temps sur le même projet (en réseau local ou avec sync cloud actif), les annotations se mettent à jour automatiquement sans avoir à rafraîchir la page.</p>
@@ -290,6 +327,17 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
   <li>La connexion WebSocket est automatique — pas d'action requise. En cas de déconnexion réseau, elle se rétablit automatiquement.</li>
 </ul>
 <div class="tip"><strong>Mode réseau local :</strong> pour de meilleures performances, désignez un PC comme serveur (celui qui fait tourner DerushTool.exe) et connectez les autres via le navigateur sur <code>http://&lt;ip-lan&gt;:8765</code>.</div>
+<div class="warn"><strong>Firewall Windows :</strong> Si tu n'arrives pas à te connecter depuis un autre appareil, autorise le port 8765 dans une PowerShell admin :
+<pre><code>New-NetFirewallRule -DisplayName 'DerushTool LAN access' -Direction Inbound -LocalPort 8765 -Protocol TCP -Action Allow -Profile Private,Domain</code></pre>
+Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloquer en parallèle du firewall Windows.</div>
+
+<h2 id="session-live">Session live (review d'équipe)</h2>
+<p>Pendant les revues d'équipe en visio (réal + monteur + dérusheur), un utilisateur peut <strong>diriger la session</strong> — ses actions (changement de clip, scrub, play/pause) sont diffusées aux autres en temps réel. Les autres voient son écran en direct sur leur Derush.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">Bouton <strong>🎬 Diriger la session</strong> dans la toolbar workspace. Toi : tu deviens leader, tes actions sont broadcastées.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Les autres voient un toast « Tel utilisateur dirige » et leur bouton devient <strong>👁 Suivre [name]</strong>. Clic = activer le suivi.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Tant qu'ils suivent, ils voient ton clip, ton seek, ton play/pause en temps réel.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Pour arrêter : leader clique <strong>🛑 Arrêter de diriger</strong>, ou les followers cliquent <strong>✓ Suit [name]</strong> pour quitter le suivi.</div></div>
+<div class="tip">Un seul leader par projet à la fois (le dernier qui clique « Diriger » prend le rôle). Au logout du leader, le leadership est libéré automatiquement.</div>
 
 <h2 id="export">Exporter vers DaVinci Resolve</h2>
 <p>Cliquez sur <strong>📤 Exporter</strong> en haut de la zone principale.</p>
@@ -302,10 +350,35 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
   <li>Subclips autour des marqueurs avec pré-roll/post-roll configurables</li>
 </ul>
 
+<h2 id="export-premiere">Exporter vers Adobe Premiere Pro</h2>
+<p>Depuis le modal export, section <strong>Adobe Premiere Pro</strong>. Format XML Final Cut Pro 7 (xmeml v5) — accepté nativement par Premiere via <em>File › Import…</em>.</p>
+<p>Boutons disponibles : <strong>XML Premiere complet</strong>, ⭐⭐⭐, ⭐⭐ et ⭐⭐⭐, 🎵 Son, 👁️ Image. Markers, ratings et zones X coupées sont préservés.</p>
+<div class="tip"><strong>Différence avec FCPXML DaVinci :</strong> les deux formats expriment les mêmes annotations différemment. Premiere comprend XML FCP7, DaVinci comprend les deux mais préfère FCPXML 1.8.</div>
+
+<h2 id="share-link">Lien de review pour un client / réalisateur</h2>
+<p>Pour faire valider un dérushage à un décideur externe (réalisateur, client, producteur) sans qu'il ait à installer Derush.</p>
+<div class="step"><div class="step-num">1</div><div class="step-body">Bouton <strong>🔗 Partager</strong> dans la toolbar workspace.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Clic <strong>🔗 Créer un lien</strong>. Génération ~30s pour gros projets (prépare les previews HD de chaque clip).</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Une URL publique apparaît — copie-la (bouton 📋) et envoie-la par mail/Slack.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Le destinataire ouvre l'URL dans n'importe quel navigateur : il voit tous les clips avec 4 previews HD, les markers/notes/ratings de l'équipe, et un formulaire pour commenter par clip.</div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body">Ses commentaires arrivent automatiquement dans ton Derush, sous chaque clip dans une section verte <strong>🔗 Retours externes</strong> (refresh toutes les 60s).</div></div>
+<div class="tip"><strong>Que voit le destinataire ?</strong> Une page lisible sans login. Les vidéos elles-mêmes ne sont PAS uploadées (gain de bande passante énorme) — il voit 4 frames HD par clip qui donnent une bonne idée du contenu.</div>
+<div class="warn">Boutons <strong>🔄 Rafraîchir le contenu</strong> (re-push markers/notes actuels), <strong>📥 Récupérer commentaires</strong> (force le pull immédiat), <strong>🗑 Révoquer</strong> (le lien ne marche plus).</div>
+
 <h2 id="sync">Synchronisation cloud</h2>
 <p>Le dot ☁️ en haut du workspace indique l'état : 🟢 synchronisé, 🔴 erreur, ⚫ non configuré.</p>
 <p>La sync est automatique au démarrage et toutes les 10 minutes. Cliquez sur le bouton Sync pour la déclencher manuellement.</p>
 <div class="tip"><strong>Merge sans conflit :</strong> chaque utilisateur n'écrit que ses propres annotations. Il n'y a pas de risque d'écraser le travail d'un collègue.</div>
+
+<h2 id="updates">Mises à jour automatiques + journal des nouveautés</h2>
+<h3>Auto-update</h3>
+<p>Au démarrage, Derush vérifie discrètement (5 sec après le boot) si une nouvelle version est disponible sur <a href="https://github.com/davebixby/derush-tool/releases/latest">GitHub Releases</a>. Si oui, le téléchargement se fait en background. Quand c'est prêt, une popup te propose <strong>Redémarrer et installer</strong> ou <strong>Plus tard</strong>.</p>
+
+<h3>Journal des nouveautés (📜 Nouveautés)</h3>
+<p>Au premier lancement après une mise à jour, un modal s'ouvre automatiquement pour te montrer ce qui a changé depuis ta dernière version. Tu peux toujours rouvrir ce changelog via le lien <strong>📜 Nouveautés</strong> en bas de l'écran « Mes projets ». La version actuellement installée est affichée à côté en petit (ex. <code>v0.2.0</code>).</p>
+
+<h3>Si quelque chose plante</h3>
+<p>Toutes les erreurs (JS et Python) sont automatiquement enregistrées dans un journal local. Pour le consulter : lien <strong>🐞 Journal des erreurs</strong> sur l'écran « Mes projets ». Si tu rencontres un bug, copie-colle l'entrée et signale-le.</p>
 
 <h2 id="shortcuts">Raccourcis clavier</h2>
 <h3>Lecture</h3>

@@ -139,6 +139,35 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#perf-gopro">GoPro HEVC 5K — LRV en sauveur</a>
   <a href="#electron-poc">POC Electron Phase A</a>
 
+  <div class="nav-section">Session 18 mai 2026 (Phase B Electron + polish)</div>
+  <a href="#electron-phaseb">Phase B Electron packaging</a>
+  <a href="#onedir-pyinstaller">PyInstaller onedir vs onefile</a>
+  <a href="#splash-window">Splash window + login pré-rempli</a>
+  <a href="#ui-polish-1">Polish viewer multicam (scrollbar, timeline, sync zone)</a>
+  <a href="#marker-shapes">Shapes markers + son ingé visuels</a>
+  <a href="#textarea-bug-saga">Saga du bug textarea (confirm natif)</a>
+
+  <div class="nav-section">Session 18-19 mai 2026 (features pro)</div>
+  <a href="#lut-webgl2">LUT preview WebGL2 trilinéaire</a>
+  <a href="#lut-scope-settings">LUT scoping caméra + réglages</a>
+  <a href="#bwf-single-player">Son ingé player single + multitrack downmix</a>
+  <a href="#premiere-export">Export Adobe Premiere XML</a>
+  <a href="#crash-reporter">Crash reporter</a>
+  <a href="#share-link">Lien de review partagée (Frame.io light)</a>
+  <a href="#sync-hardening">Sync hardening + pull-on-enter</a>
+
+  <div class="nav-section">Session 19 mai 2026 (infra & stabilité)</div>
+  <a href="#changelog-system">Système changelog</a>
+  <a href="#tests-playwright">Tests E2E Playwright</a>
+  <a href="#refactor-modules">Refactor monolithe → 8 modules JS</a>
+  <a href="#auto-update">Auto-update electron-updater + GitHub Releases</a>
+  <a href="#github-push">Push initial du code sur GitHub public</a>
+
+  <div class="nav-section">Session 19 mai 2026 (bonus features)</div>
+  <a href="#auto-detect">Auto-détection plans (scene change)</a>
+  <a href="#session-live">Session live (leader/follower WS)</a>
+  <a href="#ffmpeg-loglevel-bug">Bug ffmpeg loglevel showinfo</a>
+
   <div class="nav-section">Documentation</div>
   <a href="#docs">CLAUDE.md &amp; GUIDE.html</a>
 </nav>
@@ -1325,6 +1354,422 @@ offset 30s : LTC = 16:59:39  ==> début déduit = 16:59:09</code></pre>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="electron-phaseb">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">Phase B Electron — packaging final portable</span>
+    <span class="entry-tag tag-feature">Build</span>
+  </div>
+  <p>Le POC Phase A (Electron en mode dev) marchait. Phase B = produire un <code>.exe</code> portable distributable, avec Chromium + le backend Python bundlés.</p>
+  <h3>Workflow de build</h3>
+  <ol>
+    <li>PyInstaller produit <code>dist/DerushTool/</code> (mode onedir, voir entrée suivante)</li>
+    <li>electron-builder compile l'Electron portable et copie le dossier PyInstaller via <code>extraResources</code></li>
+    <li>Sortie : <code>electron/dist/DerushTool-Portable-0.2.0.exe</code> ~183 MB</li>
+  </ol>
+  <h3>Pièges Windows rencontrés</h3>
+  <div class="box box-fail"><strong>Mode développeur Windows requis</strong> — electron-builder télécharge <code>winCodeSign-2.6.0.7z</code> qui contient des symlinks Unix (<code>darwin/10.12/lib/libcrypto.dylib</code>). Windows refuse de créer ces symlinks sans le privilège « Créer des liens symboliques », réservé aux admins par défaut. Activation via <code>ms-settings:developers</code> = autorise tout user à les créer (one-time).</div>
+  <div class="box box-fail"><strong>Icône 256×256 minimum</strong> — electron-builder refuse les .ico plus petits. Le PNG source était 32×32 (seoul_favicon.png — chien blanc) → upscale LANCZOS via PIL pour atteindre 256, multi-tailles 16/24/32/48/64/128/256 dans le .ico final.</div>
+  <p><strong>SmartScreen</strong> : pas de cert de signature → warning au 1er lancement chez les users. Acceptable (clic « Plus d'infos → Exécuter quand même »), mais condition explicite pour un déploiement pro.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="onedir-pyinstaller">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">PyInstaller onedir : -39% de poids, démarrage 5× plus rapide</span>
+    <span class="entry-tag tag-arch">Performance</span>
+  </div>
+  <p>Le premier portable (226 MB) prenait 10 s à démarrer. Diagnostic : double extraction.</p>
+  <div class="box box-note"><strong>Au démarrage en onefile</strong> : (1) electron-builder portable extrait 226 MB dans <code>%TEMP%</code>, (2) puis le PyInstaller <code>DerushTool.exe</code> à l'intérieur fait à son tour un <code>onefile self-extract</code> de 152 MB dans un autre <code>%TEMP%</code>. Total ~3-5 s d'extraction × 2 chaque démarrage.</div>
+  <h3>Fix : passage en onedir</h3>
+  <p>Le <code>derush.spec</code> utilise désormais <code>EXE(exclude_binaries=True)</code> + <code>COLLECT()</code> qui produit <code>dist/DerushTool/</code> avec un launcher .exe de 5.6 MB + un dossier <code>_internal/</code> avec tous les Python+DLLs+data. electron-builder embarque ce dossier entier via <code>extraResources</code>.</p>
+  <ul>
+    <li>Au démarrage du portable : 1 seule extraction (la portable Electron). Python démarre immédiatement (rien à extraire de son côté).</li>
+    <li>Cache portable Electron : aux lancements 2+, hash inchangé → aucune extraction. Le portable démarre en &lt; 2 s.</li>
+    <li>Effet de bord positif : 226 → 183 MB (-19%) car la compression Electron est meilleure que double-LZMA cumulée.</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="splash-window">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">Splash window Electron + login pré-rempli</span>
+    <span class="entry-tag tag-feature">UX</span>
+  </div>
+  <p>2 améliorations perçues du démarrage :</p>
+  <h3>Splash window pendant le boot Python</h3>
+  <p>Le backend Python prend ~1-2 s à se lever (HTTP server + thread sync + heartbeat watcher). Avant : écran noir muet. Maintenant : <code>BrowserWindow</code> frameless 380×220 avec « 🎬 Derush Tool · Démarrage… » + barre de progression CSS animée. Disparaît dès que la fenêtre principale est <code>ready-to-show</code>. Code en data-URL inline dans <code>main.js</code> — pas de fichier supplémentaire.</p>
+  <h3>Login pré-rempli avec checkbox</h3>
+  <p>Le token de session est en mémoire serveur → invalidé à chaque redémarrage = re-login obligatoire. Checkbox « Se souvenir de moi » → credentials sauvegardés dans <code>localStorage.derush_remember</code>, restaurés via <code>_prefillLogin()</code> à l'affichage du screen login. Pas d'auto-submit (sécurité).</p>
+  <h3>Honorer --no-browser dans derush_launcher.py</h3>
+  <div class="box box-fail"><strong>Bug</strong> : à chaque démarrage du portable, Firefox s'ouvrait EN PLUS d'Electron. Cause : le <code>derush_launcher.py</code> (entrée PyInstaller) ouvrait inconditionnellement le browser via <code>webbrowser.open()</code> et ne lisait pas <code>sys.argv</code>. Le flag <code>--no-browser</code> n'était honoré que dans <code>derush_server.py</code>.</div>
+  <div class="box box-ok"><strong>Fix</strong> : ajout du check <code>no_browser = '--no-browser' in sys.argv</code> en début de <code>derush_launcher.main()</code>. Mode no_browser = skip sleep 1.5 s, skip <code>webbrowser.open()</code>, skip tray icon → juste laisse le thread serveur tourner.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ui-polish-1">
+  <div class="entry-header">
+    <span class="entry-date">18 MAI 2026</span>
+    <span class="entry-title">Polish viewer multicam — scrollbar custom, timeline lisible, zone synchro</span>
+    <span class="entry-tag tag-feature">UX</span>
+  </div>
+  <p>3 améliorations cosmétiques mais à fort impact perçu :</p>
+  <ol>
+    <li><strong>Scrollbar custom globale</strong> — fine 8 px, thumb violet translucide (24% → 55% au hover). Style <code>::-webkit-scrollbar</code> + <code>scrollbar-width: thin</code> Firefox. Applique à tous les conteneurs scrollables : sidebar clips, thumbs multicam, panneau notes.</li>
+    <li><strong>Timeline du viewer multicam plus visible</strong> — passée de 18 → 42 px, header « 🎬 TIMELINE DU GROUPE · Durée X · N angles », ticks <code>00:00 / fin</code>, bordure marquée, playhead plus haut + glow renforcé.</li>
+    <li><strong>Zone synchro visible</strong> — bande verte hachurée (linear-gradient 135°) entre <code>max(normOff)</code> et <code>min(end)</code> des angles, label flottant « ✓ SYNCHRO X.Xs » au-dessus. Permet de voir d'un coup d'œil quelle plage TC permet vraiment le multicam (= toutes les caméras filment simultanément).</li>
+  </ol>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="marker-shapes">
+  <div class="entry-header">
+    <span class="entry-date">18-19 MAI 2026</span>
+    <span class="entry-title">Markers : shapes différenciées + son ingé visuels harmonisés</span>
+    <span class="entry-tag tag-feature">UX</span>
+  </div>
+  <h3>Shapes par catégorie</h3>
+  <p>Tous les markers étaient des cercles colorés → confusion entre rating et type d'incident. Maintenant :</p>
+  <ul>
+    <li>1/2/3 (rating) → <strong>cercle</strong> ⚫</li>
+    <li>T (problème image) → <strong>carré</strong> 🟦</li>
+    <li>S (problème son) → <strong>triangle</strong> 🔺 (clip-path)</li>
+    <li>D (note) → <strong>losange</strong> ◆ (rotated 45°)</li>
+    <li>X (à couper) → <strong>croix</strong> ✕ (pseudo-éléments)</li>
+  </ul>
+  <p>Aussi : renommé « Image »/« Son » en « Problème image »/« Problème son » (icône ⚠️) pour clarifier que c'est un signalement, pas une catégorie de plan.</p>
+
+  <h3>Stacking vertical anti-overlap</h3>
+  <div class="box box-note">Markers proches dans le temps se cachaient les uns les autres (impossible de dragger le 2nd). Pre-calcul du stack level (0/1/2) selon proximité horizontale &lt; 22 px → empilement vertical 13 px entre niveaux. Timeline passe de 64 → 88 px de haut pour l'espace.</div>
+
+  <h3>Bouton son ingé harmonisé (player single + multicam)</h3>
+  <p>Avant : couleurs incohérentes entre le bouton du player et celui du viewer multicam. Maintenant pattern unique :</p>
+  <ul>
+    <li><strong>ON (= son ingé actif)</strong> : fond vert translucide + texte vert vif + glow → « tu écoutes l'ingé »</li>
+    <li><strong>OFF (= son caméra)</strong> : transparent + texte gris + ligne barrée → « tu écoutes la caméra »</li>
+  </ul>
+  <p>Même pattern que le LUT toggle (barré/éclatant) pour cohérence dans toute l'app.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="textarea-bug-saga">
+  <div class="entry-header">
+    <span class="entry-date">18-19 MAI 2026</span>
+    <span class="entry-title">Saga du bug textarea — confirm() natif casse Chromium</span>
+    <span class="entry-tag tag-bug">Bug coriace</span>
+  </div>
+  <p>Symptôme rapporté : « j'ajoute un marker avec commentaire, je supprime, j'essaie d'en remettre un — je peux placer le marker mais impossible de cliquer dans la zone commentaire. Le curseur de la souris est bien I-beam mais aucun caret clignotant ».</p>
+
+  <h3>5 tentatives de fix avant de trouver</h3>
+  <ol>
+    <li>Reset défensif du textarea (disabled=false, readonly=false, removeAttribute inert, pointer-events=auto) → <span class="verdict verdict-fail">échec</span></li>
+    <li>Re-création complète du textarea via <code>replaceChild</code> → <span class="verdict verdict-fail">échec</span></li>
+    <li><code>pointer-events: none</code> sur popup-overlay (théorie : overlay intercepte le click) → <span class="verdict verdict-fail">échec</span></li>
+    <li>Blur du <code>document.activeElement</code> après delete + <code>setTimeout(deleteAction, 0)</code> → <span class="verdict verdict-fail">échec</span></li>
+    <li>Double <code>requestAnimationFrame</code> avant le focus pour laisser le layout se compléter → <span class="verdict verdict-fail">échec</span></li>
+  </ol>
+
+  <h3>Diagnostic via logs console</h3>
+  <p>Logs ajoutés dans le textarea (mousedown/click/focus events). Verdict : <strong>le textarea reçoit bien le focus</strong> (<code>activeElement === popupDesc</code>, event <code>FOCUSED ✓</code> fire) — mais aucun caret visible.</p>
+
+  <div class="box box-fail"><strong>Le coupable</strong> : <code>confirm()</code> natif. Chromium maintient un état « focus stealer prevention » après un dialog natif (confirm/alert/prompt) qui empêche le rendu du caret sur les éléments focusés ensuite. Comportement non documenté mais reproduisible.</div>
+
+  <h3>Fix définitif : suppression de TOUS les confirm() natifs</h3>
+  <p>10 occurrences supprimées : <code>deleteUser</code>, <code>mcRejectSelected</code>, <code>mcRejectSelectedValid</code>, <code>runDecodeLtc</code>, <code>runMulticamDetect</code>, <code>rejectMulticam</code>, suppression marker au clavier, <code>quitApp</code>, <code>revokeShare</code>, <code>clearCrashes</code>. Remplacés par toast non-bloquant (composant <code>showToast()</code> custom — fond sombre, slide-in animation 3.5 s).</p>
+
+  <h3>Bonus : fix bouton « Valider » du dessin</h3>
+  <p>Pendant la chasse, découvert que <code>prompt()</code> natif est <strong>désactivé par défaut dans Electron</strong> → retournait <code>null</code> silencieusement, le clic Valider ne créait pas le marker. Solution : réutiliser le popup marker existant avec un <code>_pendingDrawing</code> stash et <code>cat='D'</code> auto-sélectionné.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="lut-webgl2">
+  <div class="entry-header">
+    <span class="entry-date">18-19 MAI 2026</span>
+    <span class="entry-title">LUT preview WebGL2 — interpolation trilinéaire HW</span>
+    <span class="entry-tag tag-feature">Image quality</span>
+  </div>
+  <p>L'utilisateur testait des LUTs et trouvait le rendu « hyper compressé et dégueu ». Diagnostic en 3 causes cumulées :</p>
+  <ol>
+    <li><strong>MAX_W = 480 px</strong> — la vidéo était downsamplée à 480 px de large pour les perfs du Canvas 2D, puis upscalée par CSS à la taille écran. Sur 1920p → 4× nearest-neighbour = effet pixelisé.</li>
+    <li><strong>Lookup nearest-neighbour</strong> — <code>Math.round()</code> snap chaque pixel à la cellule LUT la plus proche. 33³ LUT = 32 paliers/canal → bandes visibles dans ciels et dégradés.</li>
+    <li><strong>Canvas 2D readback CPU</strong> — getImageData clampe 8-bit sRGB, on perd toute précision.</li>
+  </ol>
+  <h3>Rewrite WebGL2 + sampler3D</h3>
+  <p>Fragment shader avec <code>uniform sampler3D u_lut</code> + filtrage <code>gl.LINEAR</code> = interpolation trilinéaire en hardware (gratuite). Texture LUT uploadée comme <code>RGB16F</code>. Pleine résolution vidéo (jamais downsamplée). Zéro readback CPU (GPU end-to-end).</p>
+  <div class="box box-ok"><strong>Résultat</strong> : net + lisse, plus de pixelisation, plus de banding visible.</div>
+  <p>Le commentaire d'origine « abandonne WebGL — trop dépendant des drivers Windows/ANGLE » date d'un test Firefox. Dans Electron, on contrôle Chromium → ANGLE est fiable. Fix accessoire : <code>object-fit: contain</code> sur le canvas pour matcher l'aspect ratio du <code>&lt;video&gt;</code>.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="lut-scope-settings">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">LUT scoping par caméra + réglages temps réel + dithering</span>
+    <span class="entry-tag tag-feature">Pro tool</span>
+  </div>
+  <h3>Scope par caméra</h3>
+  <p>Une LUT Rec709 ne doit s'appliquer que sur les FS5 (log gamma), pas sur les FX6/GoPro (Rec709 natif). Au chargement d'un <code>.cube</code> : popup avec checkboxes par caméra unique du projet + radio « Ce rush uniquement ». FS5 pré-coché par défaut. Persistance dans <code>localStorage.derush_lut_scope</code>. <code>selectClip()</code> active/désactive automatiquement le canvas selon <code>clip.camera ∈ scope.cameras</code>.</p>
+  <p>Bouton 🎨 LUT : <strong>actif</strong> (fond accent + glow), <strong>désactivé</strong> (barré + dim), <strong>hors scope</strong> (dim + label « hors scope »).</p>
+
+  <h3>3 sliders temps réel</h3>
+  <p>Panneau auto-visible quand LUT actif sur ce clip :</p>
+  <ul>
+    <li><strong>Intensité</strong> 0–100% — mix entre source et LUT (utile pour adoucir une LUT trop agressive)</li>
+    <li><strong>Exposition</strong> -2 → +2 EV — compense sous/sur-ex avant LUT</li>
+    <li><strong>Saturation</strong> 0–200% — coefficients luma Rec.709</li>
+  </ul>
+  <p>Pipeline GPU : <code>expo → LUT → mix intensité → satu → dithering</code>. Uniforms re-pushés à chaque slide (cheap). Persistés dans <code>localStorage.derush_lut_settings</code>.</p>
+
+  <h3>Dithering anti-banding</h3>
+  <p>Bruit sub-pixel ±0.5/255 décorrélé par canal, varie chaque frame via <code>u_time</code> uniform → film grain doux qui casse les bandes visibles dans les ciels/dégradés sans perception consciente. Hash function IQ classic dans le shader.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="bwf-single-player">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Son ingé sur player single + downmix BWF multipistes</span>
+    <span class="entry-tag tag-feature">Audio</span>
+  </div>
+  <h3>BWF sur le player principal (pas que multicam)</h3>
+  <p>Le viewer multicam pouvait lire le BWF de l'ingé son sync avec les caméras. Mais pour reviewer un clip seul, fallait passer par le multicam. Nouveau : endpoint <code>GET /api/project/&lt;pid&gt;/clip_bwf/&lt;clip_id&gt;</code> qui trouve le BWF couvrant le TC du clip (réutilise <code>_bwf_candidates_for_clips</code>). Frontend : bouton 🔊 Son ingé apparaît auto quand un BWF couvre le clip actif. Toggle = mute audio caméra (gain stéréo + monoR à 0) + play BWF en sync avec offset TC. Listeners hookés sur <code>play/pause/seeked/ratechange</code> du video pour sync continu.</p>
+
+  <h3>Downmix multipistes (jusqu'à 8 canaux)</h3>
+  <p>Le <code>&lt;audio&gt;</code> HTML standard ne lit que les 2 premières pistes d'un BWF multipistes (downmix stéréo automatique du browser). Si le BWF a 4 pistes (perche/lav1/lav2/ambiance), tu n'entends que 2.</p>
+  <div class="box box-ok"><strong>Fix WebAudio</strong> : <code>_routeBwfMultiChannel(audio, ctx)</code> crée un <code>ChannelSplitter(8)</code> sur la source, mixe TOUTES les pistes (existantes ou non) vers <code>L+R</code> via 2 GainNodes atténués à 1/3 (anti-saturation). Marche pour les 2 contextes BWF (single player + multicam viewer). Cleanup propre via <code>_unrouteBwf()</code>.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="premiere-export">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Export Adobe Premiere XML (FCP7 schema)</span>
+    <span class="entry-tag tag-feature">Export</span>
+  </div>
+  <p>Jusqu'ici on exportait uniquement vers DaVinci (FCPXML 1.8). 50% du marché monte en Premiere et était bloqué. Nouvelle fonction <code>export_xml_fcp7(project, filter_config)</code> qui produit du Final Cut Pro 7 XML Interchange Format (xmeml v5) — accepté nativement par Premiere via <code>File › Import…</code>.</p>
+  <h3>Différences avec FCPXML</h3>
+  <ul>
+    <li><code>&lt;xmeml version="5"&gt;</code> root, pas de <code>&lt;library/event/project&gt;</code> nesting</li>
+    <li>Temps en <strong>frames</strong>, pas en rationals</li>
+    <li><code>&lt;in/out&gt;</code> pour source range, <code>&lt;start/end&gt;</code> pour record range</li>
+    <li>Markers dans <code>&lt;clipitem&gt;</code> avec <code>&lt;in&gt;</code> offset relatif au source FILE (pas au clipitem)</li>
+    <li>Files référencés par <code>id</code>, réutilisables (mais on émet le body chaque fois pour simplicité)</li>
+  </ul>
+  <p>Réutilise la logique de découpe par markers X (zones à couper) du <code>export_fcpxml</code> pour cohérence : 1 <code>&lt;clipitem&gt;</code> par segment kept. 5 boutons dans le modal export (complet + 4 filtres : ⭐⭐⭐, ⭐⭐+, son, image).</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="crash-reporter">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Crash reporter (Python + JS)</span>
+    <span class="entry-tag tag-feature">Stabilité</span>
+  </div>
+  <p>Aucun filet de sécurité jusqu'ici — si une exception silencieuse cassait quelque chose, personne ne savait. Maintenant :</p>
+  <ul>
+    <li><strong>Python</strong> : <code>sys.excepthook</code> + <code>threading.excepthook</code> (Python 3.8+) capturent les exceptions du main thread ET des threads background → append JSON line dans <code>%APPDATA%\DerushTool\crashes.jsonl</code></li>
+    <li><strong>JS</strong> : <code>window.addEventListener('error')</code> + <code>unhandledrejection</code> → POST <code>/api/crash</code> (throttle 500 ms pour éviter tempêtes)</li>
+    <li><strong>Endpoints</strong> : <code>GET /api/crashes</code> (100 derniers), <code>GET /api/crashes/clear</code></li>
+    <li><strong>UI</strong> : lien discret « 🐞 Journal des erreurs » sur l'écran projets → modal avec liste chronologique (badge JS/PY, timestamp, type, message, URL+line, stacktrace dépliable)</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="share-link">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Lien de review partagée — Frame.io light</span>
+    <span class="entry-tag tag-feature">Workflow pro</span>
+  </div>
+  <p>Demande utilisateur : « partager un projet avec un client/réal sans qu'il ait à installer quoi que ce soit ». Solution = upload léger (annotations + thumbnails seulement, pas la vidéo) vers <code>derush_sync.php</code> avec viewer HTML autonome côté serveur.</p>
+  <h3>Architecture</h3>
+  <ol>
+    <li>Bouton <strong>🔗 Partager</strong> → <code>POST /api/project/&lt;pid&gt;/share/create</code></li>
+    <li>Python construit le « share package » : annotations complètes (notes, markers, ratings, tags, drawings, discussions, users) + 4 previews HD 640×360 par clip (lanczos q=3, cachés en <code>_share[0-3].jpg</code>)</li>
+    <li>Upload vers PHP via <code>?action=create_share&token=ABC</code> (token random url-safe 12 chars)</li>
+    <li>URL publique : <code>https://host/derush_sync.php?view=share&token=ABC</code> → PHP rend une page HTML embarquée (CSS + JS inline) qui fetch le package via <code>?action=get_share</code></li>
+    <li>Viewer affiche sidebar clips + détails par clip (4 thumbs + markers + notes) + formulaire commentaire</li>
+    <li>Commentaires postés via <code>?action=add_comment&token=...</code> (token = auth, pas de clé secrète requise)</li>
+    <li>Derush pull les commentaires en background → affiche section « 🔗 Retours externes » verte sous chaque clip</li>
+  </ol>
+  <h3>Bugs rencontrés (et fixés)</h3>
+  <div class="box box-fail"><strong>Bug doublons commentaires (×4)</strong> : auto-poll concurrent (notes polling 60s + bg sync 10min + manuel) → plusieurs threads lisent le même <code>since</code>, récupèrent les mêmes commentaires, append en parallèle. Fix : <code>_share_pull_locks</code> per-pid + dédoublonnage rétroactif par <code>(ts, text)</code>.</div>
+  <div class="box box-fail"><strong>Bug since=None → 'None'</strong> : la chaîne « None » envoyée à PHP, comparaison <code>'2026-...' &lt;= 'None'</code> alphanumérique → True → tous les commentaires filtrés. Fix Python : <code>since = proj['share'].get('comments_last_pulled') or ''</code>.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="sync-hardening">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Sync cloud hardening — pull-on-enter + push debounced</span>
+    <span class="entry-tag tag-feature">Fiabilité</span>
+  </div>
+  <p>Avant : sync cloud déclenchée seulement par le background thread (toutes les 10 min). Conséquence : si t'éditais sur PC A puis ouvrais sur PC B dans la minute, le PC B voyait l'ancien état.</p>
+  <ul>
+    <li><strong>Pull-on-enter</strong> : <code>POST /api/project/enter</code> déclenche un <code>sync_project(pid)</code> en background non-bloquant. Le polling notes 60s + WS rattrapent la fraîcheur dans la seconde.</li>
+    <li><strong>Push debounced</strong> : après chaque save de notes, schedule un sync 3 s plus tard via <code>_sync_push_timers[pid]</code>. Les saves rapprochées (drag d'un marker, undo, etc.) reset le timer → 1 seul push pour une rafale d'éditions.</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="changelog-system">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Système changelog visible dans l'app</span>
+    <span class="entry-tag tag-feature">UX</span>
+  </div>
+  <p>Les collaborateurs ne savaient pas quelles features étaient ajoutées entre versions. Système end-to-end :</p>
+  <ul>
+    <li><code>VERSION</code> (single line) + <code>CHANGELOG.md</code> à la racine, bundlés via PyInstaller spec</li>
+    <li>Backend : <code>GET /api/version</code> → <code>{version}</code>, <code>GET /api/changelog</code> → entries parsées par version (regex split sur <code>## [X.Y.Z] — date</code>)</li>
+    <li>Frontend : au chargement, compare la version courante à <code>localStorage.derush_last_seen_version</code> → si différente, modal s'ouvre auto avec uniquement les nouveautés depuis la dernière vue</li>
+    <li>Lien manuel « 📜 Nouveautés » dans le footer projets pour réouvrir à tout moment</li>
+    <li>Version affichée en monospace dim en bas de l'écran projets (<code>v0.2.0</code>)</li>
+    <li>Render markdown léger : <code>##</code>, <code>**bold**</code>, <code>`code`</code>, listes <code>-</code></li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="tests-playwright">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Tests E2E Playwright — filet de sécurité avant refactor</span>
+    <span class="entry-tag tag-feature">Stabilité</span>
+  </div>
+  <p>La saga du bug textarea (5 tentatives sur 2 sessions) a montré qu'on chassait des régressions sans filet. Setup Playwright minimal dans <code>tests/</code> :</p>
+  <ul>
+    <li><code>tests/package.json</code> + <code>playwright.config.js</code> qui spawn <code>python derush_server.py --no-browser</code> via webServer</li>
+    <li>14 tests E2E sur 5 fichiers : <code>smoke</code> (page login, /api/version, /api/changelog, heartbeat, profile), <code>auth</code> (login flow), <code>changelog</code> (auto-modal + manuel), <code>markers</code> (le bug textarea regression — add → write → delete → re-add → write), <code>drawing</code> (startDrawing → validate → popup avec drawing)</li>
+    <li>Credentials via env vars (<code>DERUSH_TEST_USER</code>, <code>DERUSH_TEST_PASS</code>, <code>DERUSH_TEST_PROJECT</code>) — tests authentifiés skipés si pas de password</li>
+    <li>Lancement : <code>npm test</code> dans tests/ (Chromium headless), <code>npm run test:headed</code> pour debug visuel</li>
+  </ul>
+  <div class="box box-ok"><strong>Verdict</strong> : 14/14 passent en 30 s. La prochaine fois que quelqu'un casse le focus textarea ou la création de markers, le test échoue avant la prod.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="refactor-modules">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Refactor monolithe → 8 modules JS séparés</span>
+    <span class="entry-tag tag-arch">Maintenabilité</span>
+  </div>
+  <p><code>derush_app.html</code> atteignait 5077 lignes (~4250 lignes JS inline). Chaque modif devenait coûteuse — navigation lente, contexte mental énorme.</p>
+  <h3>Stratégie pragmatique : <code>&lt;script src&gt;</code> classique, pas ES modules</h3>
+  <p>Les <code>onclick=""</code> inline sont partout. Avec ES modules, les fonctions deviennent scoped au module → casse tout. Donc on garde le pattern <code>function foo() {}</code> global, juste réparti dans plusieurs fichiers. Tous les <code>let</code> et <code>function</code> top-level partagent le global lexical scope → ça « marche tout seul ».</p>
+  <h3>Découpage</h3>
+  <p>Script Python <code>_extract_modules.py</code> one-shot qui : lit les ranges de lignes par section (basé sur les commentaires <code>// ─── …</code>), écrit chaque section dans <code>js/X.js</code>, supprime les blocs du HTML du bas vers le haut (pour préserver les indices).</p>
+  <ul>
+    <li><code>js/lut.js</code> (354 lignes) — WebGL2 LUT preview + scope + settings</li>
+    <li><code>js/multicam-viewer.js</code> (643 lignes) — 4-up viewer overlay</li>
+    <li><code>js/multicam-modal.js</code> (450 lignes) — détection + groupes modal</li>
+    <li><code>js/audio-bwf.js</code> (256 lignes) — audio routing + BWF single + multitrack</li>
+    <li><code>js/compare.js</code> (175 lignes) — compare 2-clips overlay</li>
+    <li><code>js/share.js</code> (132 lignes) — lien de review</li>
+    <li><code>js/changelog.js</code> (77 lignes) — modal nouveautés</li>
+    <li><code>js/crash.js</code> (47 lignes) — viewer journal erreurs</li>
+  </ul>
+  <div class="box box-ok"><strong>HTML passe de 5077 → 3109 lignes (-39%)</strong>. Les modules ajoutés ensuite (auto-detect, session-live) restent dans <code>js/</code>. Les tests E2E (14/14) passent post-refactor → validation du pattern.</div>
+  <p>Serveur Python : nouvelle route <code>/js/*.js</code> qui sert depuis <code>BUNDLE_DIR/js/</code> (résolution PyInstaller-aware). Spec PyInstaller : bundle tous les <code>js/*.js</code> via <code>glob</code>.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="auto-update">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Auto-update via electron-updater + GitHub Releases</span>
+    <span class="entry-tag tag-feature">Distribution</span>
+  </div>
+  <p>Avant : chaque correctif = redistribuer manuellement un .exe de 183 MB aux collaborateurs. Insupportable dès qu'il y a 3+ users.</p>
+  <h3>Setup electron-updater + GitHub provider</h3>
+  <ul>
+    <li><code>electron-updater</code> ^6.8 ajouté en dependency</li>
+    <li><code>package.json</code> : <code>build.publish</code> avec provider GitHub, owner=davebixby, repo=derush-tool</li>
+    <li><code>build.portable</code> : <code>artifactName: 'DerushTool-Portable-${version}.${ext}'</code> + <code>unpackDirName: 'DerushTool'</code> (dossier stable pour que l'update puisse remplacer les fichiers)</li>
+    <li><code>scripts.release: 'electron-builder --win --x64 --publish always'</code></li>
+    <li><code>main.js</code> : <code>autoUpdater.checkForUpdates()</code> 5 s après boot (seulement si <code>app.isPackaged</code>), notification utilisateur quand prête à installer avec <code>quitAndInstall(false, true)</code></li>
+  </ul>
+  <h3>Workflow release</h3>
+  <p>Documenté dans <code>RELEASE.md</code>. Synthèse : bump VERSION + electron/package.json, update CHANGELOG.md, <code>pyinstaller derush.spec --noconfirm --clean</code>, <code>npm run release</code>. Le draft GitHub Release est créé auto, faut le publier manuellement via l'UI.</p>
+  <h3>Pièges</h3>
+  <div class="box box-fail"><strong>GH_TOKEN au niveau User pas propagé aux subprocess npm</strong> sur Windows. Faut injecter explicitement : <code>$env:GH_TOKEN = [Environment]::GetEnvironmentVariable('GH_TOKEN', 'User')</code> avant <code>npm run release</code>.</div>
+  <div class="box box-fail"><strong>Repository is empty</strong> : GitHub refuse de publier une release sur un repo sans commit. Solution : push un README via API ou git push de la codebase complète.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="github-push">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Push initial du code sur GitHub public</span>
+    <span class="entry-tag tag-doc">Distribution</span>
+  </div>
+  <p>Repo : <a href="https://github.com/davebixby/derush-tool">github.com/davebixby/derush-tool</a> (public).</p>
+  <h3>Précautions sécurité</h3>
+  <div class="box box-note"><strong>Secrets exclus du push</strong> via <code>.gitignore</code> : <code>derush_sync.php</code> (contient <code>SECRET_KEY = 'drift2026'</code> hardcodée → utiliser <code>derush_sync.example.php</code> template avec placeholder), <code>derush_profile.json</code> (password hash), <code>derush_config.json</code> (sync_url + key), <code>projects/</code>, <code>thumbnails/</code>, <code>waveforms/</code>, <code>ffmpeg.exe</code>+<code>ffprobe.exe</code> (141 MB chacun, à télécharger séparément).</div>
+  <h3>Description repo (anglais)</h3>
+  <p><em>« Collaborative video logging &amp; dailies review tool for film crews. Multi-camera TC sync, production sound playback, markers/notes per clip, exports to DaVinci Resolve &amp; Adobe Premiere. »</em></p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="auto-detect">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Auto-détection de plans (scene change ffmpeg)</span>
+    <span class="entry-tag tag-feature">Productivité</span>
+  </div>
+  <p>Sur des longs rushs FX6 avec 50 takes enchaînés, le dérusheur scrubait manuellement pour trouver chaque cut. Maintenant : <strong>auto-suggestion</strong>.</p>
+  <h3>Backend</h3>
+  <p><code>detect_scenes_for_clip(file_path, threshold)</code> appelle ffmpeg avec le filter <code>select=gt(scene\,X),showinfo</code>. Parse les <code>pts_time</code> dans stderr → liste de timestamps. Background job <code>_auto_detect_job(pid, threshold, clip_ids)</code> avec polling status. Candidats stockés dans <code>proj['auto_detected'][clip_id]</code> (séparé des notes → rescan sans pollution). Dédup à 0.5 s pour éviter bursts d'I-frames.</p>
+  <h3>Frontend</h3>
+  <p>Bouton 🔍 Auto-plans. Modal : scope (tous/ce clip) + slider sensibilité 0.05–0.80 (défaut 0.25) + progress bar. Candidats apparaissent comme <strong>losanges jaunes semi-transparents</strong> sur la timeline (CSS <code>.timeline-autodetect-pin</code>). Clic gauche = accepter (devient marker D « [Auto] Plan détecté »), clic droit = rejeter (mémorisé pour ne pas re-suggérer au prochain scan).</p>
+  <h3>Bugs rencontrés (et fixés)</h3>
+  <div class="box box-fail"><strong>0 candidats malgré le scan OK</strong>. Cause 1 : <code>-loglevel info</code> (mon défaut initial) masque les lignes <code>showinfo</code> de ffmpeg → 0 pts_time matchés. Fix : passer à <code>-loglevel verbose</code>. Cause 2 : la regex <code>r'pts_time:([0-9.]+)'</code> matche aussi une ligne verbose <code>[graph -1 input ...] video frame properties congruent with link at pts_time: 0</code> qui crée un faux positif à t=0, ensuite filtré par « marker existant proche ». Fix : regex stricte <code>r'\[Parsed_showinfo[^\]]*\][^\n]*pts_time:([0-9.]+)'</code>.</div>
+  <div class="box box-note"><strong>Threshold par défaut abaissé</strong> de 0.4 → 0.25. Pour les longs takes FX6 continus, 0.4 ne détecte presque rien. 0.25 capture les vraies coupes embarquées sans trop de bruit.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="session-live">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Session live (leader / follower via WebSocket)</span>
+    <span class="entry-tag tag-feature">Collaboration</span>
+  </div>
+  <p>Pour les revues d'équipe à distance (réal + monteur + dérusheur), un utilisateur peut <strong>diriger la session</strong> — ses actions (clip select, seek, play, pause) sont broadcastées en temps réel aux autres clients du projet via WebSocket. Les autres activent « Suivre » pour voir l'écran du leader sur le leur.</p>
+  <h3>Architecture</h3>
+  <ul>
+    <li>Backend : <code>_session_leaders[pid] = username</code> dict (un seul leader par projet)</li>
+    <li>Endpoints : <code>GET /api/project/&lt;pid&gt;/session/state</code>, <code>POST .../session/start_leading|stop_leading|action</code></li>
+    <li>WS broadcast types : <code>session_state</code> (leader change), <code>session_action</code> ({action, data, from})</li>
+    <li>Frontend : module <code>js/session-live.js</code> avec state <code>_sessionIsLeading</code> / <code>_sessionFollowing</code> + handler WS</li>
+    <li>Anti-loop : flag <code>_sessionApplyingRemote</code> bloque le re-broadcast d'une action reçue</li>
+    <li>Cleanup au logout : libère leadership automatiquement</li>
+  </ul>
+  <h3>UX bouton 🎬</h3>
+  <ul>
+    <li>Personne ne dirige → « Diriger la session » (clic = deviens leader)</li>
+    <li>Quelqu'un dirige (autre user) → « 👁 Suivre [name] » (clic = follow)</li>
+    <li>Tu suis → « ✓ Suit [name] » (clic = arrête)</li>
+    <li>Tu diriges → « 🛑 Arrêter de diriger »</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="ffmpeg-loglevel-bug">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026</span>
+    <span class="entry-title">Bug ffmpeg loglevel — showinfo masqué en info, faux positif graph</span>
+    <span class="entry-tag tag-bug">Diagnostic</span>
+  </div>
+  <p>Voir détail dans <a href="#auto-detect">Auto-détection</a>. Mention spéciale parce que c'était un bug à deux étages typique :</p>
+  <ol>
+    <li><strong>Étage 1</strong> : <code>-loglevel info</code> (par défaut) ne montre pas les <code>[Parsed_showinfo_X] n:0 pts:... pts_time:...</code>. Faut <code>verbose</code>.</li>
+    <li><strong>Étage 2</strong> : passé en verbose, ma regex matchait AUSSI une ligne debug-graph <code>[graph -1 input...] video frame properties congruent with link at pts_time: 0</code> → 1 « candidat » à t=0 systématiquement, ensuite éliminé par le filtre « proche d'un marker existant » → l'utilisateur voyait 0 candidats malgré une scan apparente OK.</li>
+  </ol>
+  <p>Leçon : pour parser du stderr ffmpeg, toujours regex spécifique au préfixe de l'output filter (<code>\[Parsed_showinfo</code> ici), jamais regex globale sur la valeur seule.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
 <div class="entry" id="docs">
   <div class="entry-header">
     <span class="entry-date">15 MAI 2026 · FIN DE SESSION</span>
@@ -1347,7 +1792,7 @@ offset 30s : LTC = 16:59:39  ==> début déduit = 16:59:09</code></pre>
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 18 mai 2026 (LTC decoder, optimisations perf, POC Electron)
+  Derush Tool · Journal de développement · Dernière mise à jour 19 mai 2026 (Phase B Electron, refactor modules, tests E2E, auto-update GitHub, share link, auto-détection plans, session live)
 </div>
 
 </main>

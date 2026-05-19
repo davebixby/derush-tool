@@ -202,6 +202,16 @@ function selectClip(c) {
     // BWF Son ingé : charge le BWF qui couvre ce clip (s'il existe). Cleanup d'abord.
     _loadSingleBwfForClip(c);
 
+    // Rendu candidats auto-détection sur timeline (délai = laisser la duration se charger)
+    if (typeof renderAutoDetectCandidates === 'function') {
+        setTimeout(() => renderAutoDetectCandidates(), 100);
+    }
+
+    // Session live : broadcast le changement de clip si on dirige
+    if (typeof _sessionOnSelectClip === 'function') _sessionOnSelectClip(c);
+    // Attache les listeners play/pause/seeked au player (one-shot via attribut)
+    if (typeof attachSessionVideoListeners === 'function') attachSessionVideoListeners();
+
     const _myKey = currentSession.user_id || currentSession.username;
     const n = (allNotes[_myKey] || {})[c.id] || {};
     document.getElementById('clipNotes').value = n.notes || '';

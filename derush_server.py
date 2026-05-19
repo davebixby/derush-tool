@@ -260,6 +260,11 @@ SESSIONS = {}
 # WebSocket clients: {project_id: [[sock, token], ...]}
 _ws_clients: dict = {}
 _ws_clients_lock = threading.Lock()
+
+# Session live : un seul leader par projet à la fois. Les actions du leader
+# (select_clip, seek, play, pause) sont broadcasted aux autres clients via WS.
+_session_leaders = {}        # pid → username (current leader)
+_session_leaders_lock = threading.Lock()
 _WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 def _ws_accept(key):
@@ -2670,6 +2675,118 @@ def _detect_multicam_job(pid):
         with _mc_jobs_lock:
             _mc_jobs[pid] = {'status': 'error', 'error': str(e)}
 
+# ─── Auto-détection de plans (scene change via ffmpeg) ──────────────────────
+# Scanne les clips et identifie les moments significatifs (cuts embarqués,
+# transitions, etc.) via le filtre ffmpeg `select='gt(scene,X)'`. Stocke les
+# candidats dans proj['auto_detected'][clip_id] — séparé des notes utilisateur
+# pour permettre rescan sans pollution. Les candidats acceptés deviennent des
+# vrais markers (cat='D'), les rejetés sont mémorisés pour ne pas re-suggérer.
+
+_auto_detect_jobs = {}
+_auto_detect_jobs_lock = threading.Lock()
+
+def detect_scenes_for_clip(file_path, threshold=0.4, timeout=300):
+    """Retourne une liste de timestamps (en secondes) où ffmpeg détecte un changement
+    de scène. Threshold typique : 0.3 (agressif) à 0.7 (conservateur).
+
+    Notes :
+    - En mode argv (subprocess sans shell), les single-quotes shell-style ne sont
+      pas interprétées par ffmpeg. On échappe donc la virgule de `scene,X` avec
+      backslash pour éviter qu'ffmpeg la prenne comme un séparateur de filtres.
+    - On utilise aussi -vsync vfr -an pour aller plus vite (skip audio, sync frames).
+    """
+    # Format correct argv-style : virgule échappée avec \\
+    # IMPORTANT : showinfo n'imprime ses lignes qu'à partir de -loglevel verbose,
+    # pas en `info` (qui est le défaut). Sans ça, on récupère 0 candidat.
+    filter_str = f"select=gt(scene\\,{threshold}),showinfo"
+    cmd = [FFMPEG, '-hide_banner', '-loglevel', 'verbose',
+           '-analyzeduration', '5M', '-probesize', '10M',
+           '-i', str(file_path),
+           '-an',
+           '-filter:v', filter_str,
+           '-f', 'null', '-']
+    try:
+        r = _ffmpeg_run(cmd, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return []
+    stderr = (r.stderr or b'').decode('utf-8', errors='replace')
+    import re as _re
+    times = []
+    # IMPORTANT : regex stricte = uniquement les lignes showinfo, sinon on matche
+    # aussi la ligne verbose "[graph -1 input ...] video frame properties congruent
+    # with link at pts_time: 0" qui crée un faux positif à t=0.
+    for m in _re.finditer(r'\[Parsed_showinfo[^\]]*\][^\n]*pts_time:([0-9.]+)', stderr):
+        try:
+            times.append(float(m.group(1)))
+        except ValueError:
+            pass
+    # Filtre les doublons proches (< 0.5s) qui peuvent venir de bursts de I-frames
+    deduped = []
+    for t in times:
+        if not deduped or t - deduped[-1] >= 0.5:
+            deduped.append(t)
+    return deduped
+
+def _auto_detect_job(pid, threshold=0.4, clip_ids=None):
+    """Background worker : scan tous (ou clip_ids) les clips du projet."""
+    proj = load_project(pid)
+    if not proj:
+        with _auto_detect_jobs_lock:
+            _auto_detect_jobs[pid] = {'status': 'error', 'error': 'Projet introuvable'}
+        return
+    clips = proj.get('clips', [])
+    if clip_ids:
+        clips = [c for c in clips if c['id'] in clip_ids]
+    total = len(clips)
+    with _auto_detect_jobs_lock:
+        _auto_detect_jobs[pid] = {'status': 'running', 'done': 0, 'total': total, 'current': '', 'new_candidates': 0}
+    proj.setdefault('auto_detected', {})
+    new_count = 0
+    for i, clip in enumerate(clips):
+        with _auto_detect_jobs_lock:
+            _auto_detect_jobs[pid].update({'done': i, 'current': clip.get('stem', clip['id'])})
+        file_path = _resolve_clip_local_path(proj, clip)
+        if not file_path:
+            continue
+        try:
+            times = detect_scenes_for_clip(str(file_path), threshold)
+        except Exception:
+            continue
+        # Existing markers (toutes équipes) pour ne pas suggérer en double
+        existing_times = set()
+        for u in proj.get('users', []):
+            uid = user_note_key(u)
+            cn = (proj.get('notes', {}).get(uid) or {}).get(clip['id'])
+            if cn:
+                for m in cn.get('markers', []):
+                    existing_times.add(round(m.get('time', 0), 1))
+        # Conserve les décisions précédentes (accepted/rejected) pour les mêmes timestamps
+        prev_candidates = proj['auto_detected'].get(clip['id'], {}).get('candidates', [])
+        prev_by_time = {round(c.get('time', 0), 1): c for c in prev_candidates}
+        new_candidates = []
+        for t in times:
+            t_rounded = round(t, 1)
+            if any(abs(t - et) < 1.0 for et in existing_times):
+                continue
+            if t_rounded in prev_by_time:
+                new_candidates.append(prev_by_time[t_rounded])
+            else:
+                new_candidates.append({
+                    'id': secrets.token_hex(4),
+                    'time': t,
+                    'type': 'scene',
+                    'status': 'pending',
+                })
+                new_count += 1
+        proj['auto_detected'][clip['id']] = {
+            'candidates': new_candidates,
+            'scanned_at': datetime.now().isoformat(timespec='seconds'),
+            'threshold': threshold,
+        }
+        save_project(pid, proj)
+    with _auto_detect_jobs_lock:
+        _auto_detect_jobs[pid] = {'status': 'done', 'done': total, 'total': total, 'new_candidates': new_count}
+
 # ─── Import Functions ───
 
 def project_health(proj, pid):
@@ -3046,6 +3163,29 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             pid = m.group(1)
             with _mc_jobs_lock:
                 self._json_response(_mc_jobs.get(pid, {'status': 'idle'}))
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/auto_detect/status$', path)
+        if m:
+            pid = m.group(1)
+            with _auto_detect_jobs_lock:
+                self._json_response(_auto_detect_jobs.get(pid, {'status': 'idle'}))
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/auto_detect$', path)
+        if m:
+            pid = m.group(1)
+            proj = load_project(pid)
+            if not proj: self.send_error(404); return
+            self._json_response({'auto_detected': proj.get('auto_detected', {})})
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/session/state$', path)
+        if m:
+            pid = m.group(1)
+            with _session_leaders_lock:
+                leader = _session_leaders.get(pid)
+            self._json_response({'leader': leader})
             return
 
         m = re.match(r'^/api/project/([^/]+)/decode_ltc/status$', path)
@@ -3491,7 +3631,16 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
         if path == '/api/logout':
             auth = self.headers.get('Authorization', '')
             if auth.startswith('Bearer '):
-                SESSIONS.pop(auth[7:], None)
+                tok = auth[7:]
+                sess = SESSIONS.pop(tok, None)
+                # Si l'utilisateur dirigeait une session, libère le leader status
+                if sess:
+                    uname = sess.get('username', '') or sess.get('user_id', '')
+                    with _session_leaders_lock:
+                        for pid, leader in list(_session_leaders.items()):
+                            if leader == uname:
+                                _session_leaders.pop(pid, None)
+                                _ws_broadcast(pid, {'type': 'session_state', 'leader': None})
             self._json_response({'ok': True})
             return
 
@@ -3861,6 +4010,97 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             # _detect_multicam_job initialises _mc_jobs[pid] itself on entry
             threading.Thread(target=_detect_multicam_job, args=(pid,), daemon=True).start()
             self._json_response({'ok': True, 'status': 'running'})
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/session/(start_leading|stop_leading|action)$', path)
+        if m:
+            pid, kind = m.group(1), m.group(2)
+            s = require_auth(self)
+            if not s: return
+            user = s.get('username', '') or s.get('user_id', '')
+            if kind == 'start_leading':
+                with _session_leaders_lock:
+                    _session_leaders[pid] = user
+                _ws_broadcast(pid, {'type': 'session_state', 'leader': user})
+                self._json_response({'ok': True, 'leader': user})
+                return
+            if kind == 'stop_leading':
+                with _session_leaders_lock:
+                    if _session_leaders.get(pid) == user:
+                        _session_leaders.pop(pid, None)
+                _ws_broadcast(pid, {'type': 'session_state', 'leader': None})
+                self._json_response({'ok': True})
+                return
+            if kind == 'action':
+                with _session_leaders_lock:
+                    cur = _session_leaders.get(pid)
+                if cur != user:
+                    self._json_response({'ok': False, 'error': 'Pas leader'}, 403); return
+                action = body.get('action', '')
+                data = body.get('data', {})
+                # Broadcast à tous les clients du projet (y compris l'expéditeur — son client
+                # ignore les actions venant de lui-même)
+                _ws_broadcast(pid, {'type': 'session_action', 'action': action, 'data': data, 'from': user})
+                self._json_response({'ok': True})
+                return
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/auto_detect/(start|decide)$', path)
+        if m:
+            pid, action = m.group(1), m.group(2)
+            s = require_auth(self)
+            if not s: return
+            if action == 'start':
+                threshold = float(body.get('threshold', 0.4))
+                threshold = max(0.05, min(0.95, threshold))
+                clip_ids = body.get('clip_ids')  # None = tous les clips
+                with _auto_detect_jobs_lock:
+                    cur = _auto_detect_jobs.get(pid, {})
+                    if cur.get('status') == 'running':
+                        self._json_response({'ok': False, 'error': 'Détection déjà en cours'}, 409)
+                        return
+                threading.Thread(target=_auto_detect_job, args=(pid, threshold, clip_ids), daemon=True).start()
+                self._json_response({'ok': True, 'status': 'running'})
+                return
+            elif action == 'decide':
+                # body: {clip_id, candidate_id, status: 'accepted'|'rejected'}
+                clip_id = body.get('clip_id', '')
+                cand_id = body.get('candidate_id', '')
+                new_status = body.get('status', 'pending')
+                if new_status not in ('accepted', 'rejected', 'pending'):
+                    self._json_response({'ok': False, 'error': 'status invalide'}, 400); return
+                proj = load_project(pid)
+                if not proj:
+                    self._json_response({'ok': False}, 404); return
+                ad = proj.setdefault('auto_detected', {})
+                clip_data = ad.get(clip_id)
+                if not clip_data:
+                    self._json_response({'ok': False, 'error': 'Clip non scanné'}, 404); return
+                cand = next((c for c in clip_data['candidates'] if c.get('id') == cand_id), None)
+                if not cand:
+                    self._json_response({'ok': False, 'error': 'Candidat introuvable'}, 404); return
+                cand['status'] = new_status
+                # Si accepté : crée un vrai marker D dans les notes de l'utilisateur
+                if new_status == 'accepted':
+                    user_key = s.get('user_id') or s.get('username', '')
+                    proj.setdefault('notes', {}).setdefault(user_key, {}).setdefault(clip_id, {}).setdefault('markers', [])
+                    markers = proj['notes'][user_key][clip_id]['markers']
+                    # Trouve fps + clip pour calculer le TC
+                    clip = next((c for c in proj.get('clips', []) if c['id'] == clip_id), None)
+                    fps = (clip or {}).get('fps', 25) or 25
+                    t = cand.get('time', 0)
+                    tc = seconds_to_tc(t, fps)
+                    markers.append({
+                        'id': secrets.token_hex(4),
+                        'tc': tc,
+                        'time': t,
+                        'cat': 'D',
+                        'desc': '[Auto] Plan détecté',
+                    })
+                    markers.sort(key=lambda m: m.get('time', 0))
+                save_project(pid, proj)
+                self._json_response({'ok': True})
+                return
             return
 
         m = re.match(r'^/api/project/([^/]+)/decode_ltc/start$', path)
