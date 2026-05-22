@@ -2920,7 +2920,18 @@ function renderMultiUser() {
     const RATING_LABELS = {'3':'⭐⭐⭐','2':'⭐⭐','1':'⭐','X':'❌'};
     const CAT_LABELS = {'3':'⭐⭐⭐','2':'⭐⭐','1':'⭐','T':'👁️','S':'🎵','D':'📝','X':'❌'};
     const CAT_COLORS = {'3':'#fcd34d','2':'#a78bfa','1':'#9ca3af','T':'#3b82f6','S':'#10b981','D':'#f59e0b','X':'#ef4444'};
-    const otherUsers = (currentProject.users || []).filter(u => { const k = u.id || u.username || u.name; return k !== uid; });
+    // Exclut l'utilisateur courant en comparant TOUTES ses formes d'identifiant
+    // (id / username / name). Un user old-style a un id ET un name : une
+    // comparaison sur une seule clé le laissait parfois passer → il se voyait
+    // lui-même dans « Avis des autres ».
+    const _mine = [currentSession && currentSession.user_id,
+                   currentSession && currentSession.username,
+                   currentSession && currentSession.name]
+                  .filter(Boolean).map(x => String(x).toLowerCase());
+    const otherUsers = (currentProject.users || []).filter(u => {
+        const theirs = [u.id, u.username, u.name].filter(Boolean).map(x => String(x).toLowerCase());
+        return !theirs.some(t => _mine.includes(t));
+    });
     if(!otherUsers.length) { wrap.style.display='none'; return; }
 
     const html = otherUsers.map(u => {
