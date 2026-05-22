@@ -77,8 +77,9 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
   chaînes `if/elif` géantes. → Découper en modules + routeur par table de routes.
 - 🟡 Modèle de données `notes` fragile (clés dédoublées, IDs de clip orphelins —
   cf. pièges #11/#12 de CLAUDE.md). → Schéma strict + validation au `load_project`.
-- 🟢 Tests E2E Playwright présents. Manquent des tests unitaires sur les fonctions
-  pures (export FCPXML, `merge_projects`, résolveur de chemins, décodeur LTC).
+- ✅ Tests E2E Playwright + **tests unitaires Python** (`tests/test_server_units.py`,
+  20 cas : hachage, timecodes, `merge_projects`, résolveur de chemins, clés
+  users) — *ajoutés le 22 mai.* Reste à couvrir : export FCPXML, décodeur LTC.
 
 ## 5. Limites fonctionnelles (conception)
 
@@ -116,7 +117,8 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 | 2.4 anti-brute-force login | ✅ corrigé |
 | 2.5 expiration liens de review | ✅ corrigé |
 | §5 sync : propagation des suppressions | ✅ corrigé |
-| 1.4 · 2.3 · §4 · §5 (multi-device) · §6 | à planifier |
+| §4 tests unitaires Python | ✅ ajoutés (20 cas) |
+| 1.4 · 2.3 · §4 (refacto) · §5 (multi-device) · §6 | à planifier |
 
 ### Détail des corrections appliquées
 

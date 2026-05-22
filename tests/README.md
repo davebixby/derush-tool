@@ -1,4 +1,17 @@
-# Tests E2E Derush Tool
+# Tests Derush Tool
+
+Deux suites complémentaires :
+
+- **Tests unitaires Python** (`test_server_units.py`) — fonctions pures du
+  serveur (hachage, timecodes, fusion de sync, résolveur de chemins). Rapides,
+  aucune dépendance. Lancer depuis la racine du projet :
+  ```bash
+  python -m unittest tests.test_server_units
+  ```
+- **Tests E2E Playwright** (`*.spec.js`) — workflows complets dans un navigateur
+  (voir ci-dessous).
+
+## Tests E2E (Playwright)
 
 Tests Playwright qui lancent le backend Python en mode dev et vérifient les workflows critiques.
 
