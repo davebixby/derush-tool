@@ -1062,8 +1062,120 @@ GET  /js/*.js                                         (sert les modules JS bundl
 1. **`confirm()`, `alert()`, `prompt()` natifs** dans Electron : `prompt` retourne `null`, `confirm` casse le focus state. Toujours utiliser toast custom.
 2. **`GH_TOKEN` au niveau User** : pas propagé aux subprocess npm sur Windows. Injecter en session avant `npm run release`.
 3. **Mode Développeur Windows** : requis pour electron-builder (symlinks darwin/).
-4. **PyInstaller onedir** : 5× plus rapide que onefile au démarrage. `derush.spec` utilise `EXE(exclude_binaries=True) + COLLECT(...)`. `extraResources` pointe sur `../dist/DerushTool` (dossier), pas `.exe`.
+4. **PyInstaller onedir** : 5× plus rapide que onefile au démarrage. `derush.spec` utilise `EXE(exclude_binaries=True) + COLLECT(...)`. `extraResources` est **séparé par plateforme** dans `package.json` : `win.extraResources` → `../dist/DerushTool` (dossier COLLECT, contient `DerushTool.exe`) ; `mac.extraResources` → `../dist/DerushTool.app` (le `.app` BUNDLE) copié vers `DerushTool/DerushTool.app`. `main.js` attend `Resources/DerushTool/DerushTool.app/Contents/MacOS/DerushTool` sur Mac — un `extraResources` commun pointant le dossier COLLECT brut casse le backend (`spawn ENOENT`).
 5. **`derush_sync.php` jamais commité** : contient `SECRET_KEY` hardcodée. Utiliser `derush_sync.example.php` template.
 6. **Bundle `js/` dans PyInstaller** : `*([(str(p), 'js') for p in (ROOT / 'js').glob('*.js')])` dans datas du derush.spec.
 7. **ffmpeg `showinfo`** : invisible en `-loglevel info`. Faut `verbose`. Et regex parsing doit être préfixée à `\[Parsed_showinfo` pour éviter faux positifs sur lignes graph debug.
 8. **Tests E2E** : faire tourner avant tout refactor risqué. `cd tests && DERUSH_TEST_PASS=... npm test`.
+9. **tkinter sur Mac** : doit tourner sur le main thread, hangue silencieux en worker thread. → `/api/browse` détecte `sys.platform == 'darwin'` et utilise `osascript` (`choose folder with prompt …`) à la place. Windows garde tkinter.
+10. **Path resolution cross-platform** : `_resolve_relpath_tolerant(root, rel)` walk segment par segment avec tolérance numérique (`01↔1↔001`) + case-insensitive fallback. Indispensable quand un disque source est copié entre PCs et que les noms de slot perdent leur zéro de tête (rsync, robocopy parfois). Cache positif pour ne pas re-walker à chaque requête.
+11. **Clé de notes dédoublée (`user_note_key` vs save)** : l'endpoint `POST /api/project/<id>/notes` sauve sous `s.get('user_id') or s.get('username')`, mais l'export FCPXML et le reste lisent via `user_note_key(u) = u.get('id') or u.get('username') or u.get('name')`. Si une session perd son `user_id`, les notes du même humain partent sous une 2e clé (`username`/`name`) que `user_note_key` n'atteint jamais → notes orphelines invisibles à l'export, suppressions de marqueurs appliquées au mauvais jeu. La clé de save doit être résolue via le user trouvé dans `project['users']` (donc identique à `user_note_key`), pas via la session brute.
+12. **IDs de clip orphelins après ré-import** : les `notes` sont indexées par `clip['id']`. Un re-scan / ré-import qui régénère les IDs de clip laisse les anciennes notes pointer dans le vide → marqueurs/ratings perdus silencieusement (jamais lus par l'export). Re-mapper par nom de fichier si récupération nécessaire.
+
+# État au 19 mai 2026 (suite, soirée) — Distribution zip + fixes cross-PC + support Mac
+
+## Refonte distribution Windows : portable .exe → zip
+Le `.exe` portable d'electron-builder dézippe dans `%LOCALAPPDATA%\Temp\<id>\` à chaque lancement (1 min sur premier run à cause de Defender qui scanne 176 Mo). Switché en `target: zip` → user dézippe manuellement dans un dossier fixe → démarrage 3–5s, zéro self-extract.
+
+`electron/package.json` :
+```json
+"win": { "target": [{ "target": "zip", "arch": ["x64"] }], "artifactName": "DerushTool-${version}-win.${ext}" }
+```
+Perte : plus d'auto-update (electron-updater zip-target supporté mais nécessite write-access au dossier).
+
+## Bug saga : utilisateur supprimé qui revient via sync (tombstone)
+1. **Symptôme initial** : créer un user, fermer l'app, relancer → user disparu.
+2. **Cause** : le tombstone qu'on avait ajouté pour fixer la suppression (`deleted_users[]`) restait actif. Au prochain sync, `merge_projects` filtrait le user re-créé parce que son nom était toujours dans `deleted_users` (côté remote).
+3. **Fix 1** (`authorize_user`) : à la (ré)autorisation d'un user, retirer son nom de `deleted_users` local.
+4. **Fix 2** (`merge_projects`) : un user présent dans `users[]` local lève automatiquement le tombstone (`all_dead -= local_alive`) → propagation correcte au remote au prochain push.
+
+## URL encoding pour sync (espaces, accents)
+`_sync_url_for(pid)` faisait `f"...?key={SYNC_KEY}&project={pid}"` sans encoding. Un `pid` avec espace (« drift club ») crashe urllib avec `URL can't contain control characters`. Fix :
+- `_urlquote(SYNC_KEY, safe='')` + `_urlquote(pid, safe='')`
+- Validation locale du `pid` : `re.match(r'^[a-zA-Z0-9_\-]+$', pid)` avant l'appel → message clair « ID invalide, pas d'espaces ni accents »
+- Messages d'erreur explicites : « Clé sync incorrecte. Vérifie SYNC_KEY dans ⚙️ Configuration » au lieu de « Erreur serveur sync (403) »
+
+## Refonte UX du setup wizard
+- **Bouton 📁 Parcourir…** ajouté à côté du champ « Dossier Projets » dans `derush_setup.html`. Appelle `/api/browse` (qui utilise tkinter sur Win, osascript sur Mac).
+- **« Rejoindre un projet »** retiré de la page de login (contre-intuitif : on demande de se loguer ET on propose de rejoindre, mais rejoindre nécessite d'être loggé). Reste visible uniquement sur l'écran « Mes projets » après connexion.
+
+## Feedback visuel pour les thumbnails (génération ffmpeg sur fresh install)
+Sur un PC qui rejoint un projet, `THUMBNAILS_DIR` côté serveur est vide → ffmpeg génère 428 vignettes à la demande (~1s/clip via `.LRV` GoPro, ~2s/MXF). Sans feedback, l'utilisateur voit 428 cases vides pendant 5+ minutes.
+
+Ajouts dans `derush_app.html` :
+- **Skeleton shimmer** animé sur `.clip-thumb-wrap:not(.thumb-ready)::before` pendant la requête
+- **Barre flottante** en bas-droite : « Génération des aperçus… 47 / 428 » avec barre violette qui se remplit. Fade out à 100%.
+- **Placeholder ⚠ rouge** sur les vignettes en 404 (au lieu de l'icône image cassée du browser)
+- **Spinner sur le player** (cercle violet rotatif + « Chargement… ») wire sur `onloadstart`, `onwaiting`, `oncanplay`, `onplaying`
+- **Écran d'erreur vidéo** : si 404, affiche le chemin demandé + code HTTP + rappel sur le dossier des rushs
+
+Compteur dédoublonnage : `_thumbState.done = Set<clip_id>` pour ne pas double-compter sur rerender.
+
+## Résolveur de chemins tolérant aux variantes (le gros morceau)
+**Cas typique** : SSD copié de PC1 → PC2 avec rsync/robocopy/drag-drop Explorer. Folders perdent leur zéro de tête (`IMAGE\01` → `IMAGE\2`). Le serveur ne trouvait plus aucun fichier → 404 pour TOUS les proxies/thumbnails.
+
+`_resolve_relpath_tolerant(root, rel)` dans `derush_server.py` :
+1. Fast path : essaie le chemin littéral (cas pas-de-problème)
+2. Slow path : walk segment par segment. Pour chaque segment numérique, essaie : valeur littérale, sans zéro de tête (01→1, 002→2), avec zéro (1→01, 1→001).
+3. Dernier recours : `iterdir()` + match case-insensitive (pour APFS case-sensitive ou disques externes formatés ailleurs).
+4. Cache positif `_relpath_resolve_cache[(root, rel)]` thread-safe pour ne pas re-walker à chaque hit.
+
+Appliqué partout : `/proxy/`, `/thumbnail/`, `/strip/`, `_ltc_proxy_path`, `_resolve_clip_local_path`.
+
+## Support Mac (Apple Silicon arm64) — Phase initiale
+Cross-build depuis Windows impossible (PyInstaller pas de cross-compilation, electron-builder a besoin d'outils Mac). Workflow : build sur le Mac mini M1 directement, distribution vers MBP M2 via zip + AirDrop.
+
+**Fichiers créés/modifiés** :
+- `derush.spec` : détecte `sys.platform == 'darwin'`, désactive UPX (incompatible code signing), génère un `BUNDLE(...)` produisant `DerushTool.app` (Mac standard bundle) avec Info.plist incluant les permissions `NSDesktopFolderUsageDescription`, `NSDocumentsFolderUsageDescription`, `NSRemovableVolumesUsageDescription`. Icône `.icns` au lieu de `.ico` sur Mac.
+- `electron/main.js` : `backendCommand()` détecte `process.platform === 'darwin'` → lance `DerushTool.app/Contents/MacOS/DerushTool` au lieu de `DerushTool.exe`. En dev : `python3` au lieu de `python`.
+- `electron/package.json` : ajout `mac: { target: zip arm64, icon: ../derush_icon.icns, identity: null, hardenedRuntime: false }`. Nouveau script `build:mac`.
+- `build_mac.sh` : script bash auto qui vérifie Xcode CLT + Homebrew + Python3 + Node + ffmpeg/ffprobe (messages d'erreur clairs si manquant), copie `which ffmpeg`+`which ffprobe` à la racine pour bundling PyInstaller, génère `.icns` depuis `.png` via `iconutil`, crée venv Python, lance pyinstaller puis electron-builder.
+- `BUILD_MAC.md` : guide complet français — install prérequis, transfert sources Windows→Mac, lancement build, contournement Gatekeeper (clic droit → Ouvrir), distribution vers MBP, troubleshooting détaillé.
+
+**Fix critique** : `/api/browse` (folder picker) — tkinter doit tourner sur main thread sur Mac (sinon hang silencieux). Sur Mac, utiliser `osascript -e 'POSIX path of (choose folder with prompt "...")'` (NSOpenPanel natif via AppleScript). Win garde tkinter en worker thread.
+
+**Compatibilité données cross-platform vérifiée** :
+- `proxy_url` stocké avec `/` séparateurs → marche tel quel sur Mac
+- `rel_path` stocké avec `\\` Windows → résolveur convertit en `/` avant walk
+- `clip.path` absolu Windows → ignoré sur Mac, fallback automatique vers `rel_path` + resolveur tolérant
+- `_resolve_relpath_tolerant` couvre les diffs `IMAGE\01` Win ↔ `IMAGE/2` Mac SSD copié
+
+## Versionnage de la session
+- 0.3.1 → 0.3.2 : URL encoding sync
+- 0.3.2 → 0.3.3 : skeleton shimmer + barre progression thumbnails
+- 0.3.3 → 0.3.4 : placeholders ⚠ + écran erreur vidéo
+- 0.3.4 → 0.3.5 : résolveur de chemins tolérant + support Mac (spec/main.js/package.json/build_mac.sh/BUILD_MAC.md/osascript)
+
+# État au 20-21 mai 2026 — Build Mac (premier build réel) + bug export FCPXML
+
+## Build Mac : premier build effectif sur le Mac mini M1
+Jusqu'ici le support Mac était seulement préparé côté Windows. Premier build réel lancé sur le Mac mini → plusieurs bugs découverts et corrigés en conditions réelles.
+
+### Nouvel outil : `zip_for_mac.ps1` (racine projet, Windows)
+Script PowerShell qui prépare le `.zip` des sources à transférer sur le Mac. `robocopy` vers un staging temp en excluant les dossiers d'artefacts (`dist/ build/ node_modules/ projects/ .git/ __pycache__/ thumbnails/ waveforms/ sync_fingerprints/`) et les binaires Windows `ffmpeg.exe`/`ffprobe.exe` (~300 Mo, inutiles sur Mac — `build_mac.sh` recopie les versions Homebrew). Puis `Compress-Archive`. Lit `VERSION` pour nommer le zip, vérifie la présence des fichiers clés avant compression. `package-lock.json` est gardé (recette pour `npm install`), `node_modules/` non.
+
+### Fix `build_mac.sh` #1 — `cp ffmpeg` « Permission denied »
+Les binaires Homebrew sont en lecture seule ; `cp` (BSD) recopie ce mode → au 2e build, `cp` ne peut plus écraser le fichier non-inscriptible → `Permission denied`, et `set -e` stoppe tout. Fix : `rm -f "$ROOT/ffmpeg" "$ROOT/ffprobe"` avant les `cp`.
+
+### Fix `build_mac.sh` #2 — `electron-builder: command not found`
+Le test `if [ ! -d "node_modules" ]` sautait `npm install` dès que le dossier existait, même vide/incomplet (run précédent interrompu) → `electron-builder` jamais installé. Fix : tester `if [ ! -x "node_modules/.bin/electron-builder" ]`.
+
+### Fix `package.json` — `extraResources` par plateforme (backend `ENOENT`)
+`extraResources` commun pointait `../dist/DerushTool` (dossier COLLECT). Sur Mac `main.js` lance `Resources/DerushTool/DerushTool.app/Contents/MacOS/DerushTool` — il attend le `.app` BUNDLE → `spawn ... ENOENT`, le backend Python ne démarre jamais (« Le serveur Python n'a pas démarré »). Fix : `extraResources` déplacé dans les blocs `win`/`mac` — `win` → `../dist/DerushTool` → `DerushTool` ; `mac` → `../dist/DerushTool.app` → `DerushTool/DerushTool.app`. Voir piège #4.
+
+### Réseau studio : `npm install` bloqué (`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`)
+Le réseau du studio intercepte le TLS (proxy / inspection HTTPS) → npm rejette les certificats. `NODE_TLS_REJECT_UNAUTHORIZED=0` ne suffit **pas** : npm a son propre `strict-ssl` (défaut `true`) qui écrase la variable. Contournement : `npm config set strict-ssl false` (registre npm) **+** `export NODE_TLS_REJECT_UNAUTHORIZED=0` (téléchargement du binaire Electron) dans le même terminal. Plus propre : builder sur un partage de connexion (hotspot), sans interception. Documenté dans `BUILD_MAC.md` § dépannage.
+
+## Bug export FCPXML — timeline réduite à 2 clips + marqueur supprimé qui revient
+Diagnostic sur `projects/drift_club.derush.json`.
+
+**Symptômes** : (1) l'export FCPXML ne contient que `Clip0002` + `Clip0004` alors que beaucoup de clips sont notés ; (2) un marqueur 3★ « TRES BEBBEBE » supprimé dans l'UI réapparaît dans DaVinci.
+
+**Cause unique — identité dédoublée** (piège #11) : les `notes` du projet ont 4 clés (`6714b070`, `Sebastien`, `Paola`, `davebixby`) pour 3 users déclarés. L'user « Sébastien » (`id=6714b070`, `name=Sebastien`) a ses notes éparpillées entre `6714b070` et `Sebastien`. L'export ne lit que `user_note_key(u)` = `6714b070` → toutes les notes sous la clé `Sebastien` sont invisibles ; et la suppression de « TRES BEBBEBE » (faite côté session `Sebastien`) n'a jamais touché le marqueur réel, stocké sous `6714b070`. S'ajoute le piège #12 : des notes sous IDs de clip `J02_*` orphelins (re-import).
+
+**Règle de sélection d'un clip dans la timeline FCPXML** (`export_fcpxml`, export par défaut sans filtre) : un clip est inclus si **au moins un user reconnu** a sur ce clip un marqueur, une note écrite, ou un rating 1/2/3 — et **exclu** si un user l'a noté **X** (X = rejet du clip entier). Documenté aussi dans `GUIDE.html` § Export.
+
+**Correctif appliqué (22 mai 2026)** :
+- **Notes fusionnées** : merge *data-aware* de `Sebastien` dans `6714b070`. Sur le seul vrai conflit (`J02_…FS5_Clip0002`, le clip « TRES BEBBEBE ») le jeu `Sebastien` récent l'emporte ; partout ailleurs on garde le jeu qui porte des données → **aucune perte**. Les 2 notes à IDs de clip orphelins (`J02_*` ré-import) sont supprimées. Clé `Sebastien` supprimée → clés finales : `6714b070`, `Paola`, `davebixby` (une par personne ; `6714b070` = compte de Sébastien, nom affiché « Sebastien »). Backup : `projects/drift_club.derush.PREMERGE-BACKUP.json`. Export FCPXML : 2 → 8 clips.
+- **Endpoint `/notes` corrigé** : la clé de save est résolue via `find_project_user(proj, …)` + `user_note_key()` — strictement identique à ce que lit l'export. Plus de dédoublement possible (piège #11).
+- Canonique retenue = `6714b070` (l'`id` du user, ce que `user_note_key` rend) plutôt que le texte `Sebastien` : pas de modif de l'objet user (qui porte `password_hash` + `id` admin) — moins risqué, et la clé interne est invisible côté UI.

@@ -29,13 +29,33 @@
         .btn-primary:hover { background: #b8a2fb; }
         
         /* Main Layout */
-        .sidebar { width: 320px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar { width: 360px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
         .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
         .clip-list { flex: 1; overflow-y: auto; }
         .day-header { padding: 5px 16px 4px; font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 1; }
         .clip-item { display: flex; gap: 8px; align-items: flex-start; }
         .clip-thumb-wrap { position: relative; width: 60px; height: 34px; flex-shrink: 0; margin-top: 2px; border-radius: 3px; overflow: hidden; background: #12121a; }
-        .clip-thumb { width: 60px; height: 34px; object-fit: cover; display: block; }
+        /* Skeleton shimmer pendant la generation ffmpeg de la vignette.
+           Retire des qu'image charge OU 404 via la classe .thumb-ready. */
+        .clip-thumb-wrap:not(.thumb-ready)::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, #16161f 0%, #25253a 50%, #16161f 100%);
+            background-size: 200% 100%;
+            animation: thumb-shimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes thumb-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        #playerSpinner[style*="display: flex"], #playerSpinner.show { display: flex !important; }
+        .clip-thumb { width: 60px; height: 34px; object-fit: cover; display: block; opacity: 0; transition: opacity .15s; }
+        .clip-thumb-wrap.thumb-ready .clip-thumb { opacity: 1; }
+        /* Barre de progression globale "X / N thumbnails" — flotte en bas-droite, fade out a 100% */
+        #thumbProgress { position: fixed; bottom: 14px; right: 14px; background: rgba(18,18,26,0.92);
+            border: 1px solid rgba(167,139,250,.3); border-radius: 6px; padding: 8px 14px;
+            font-size: 0.78em; color: var(--text); z-index: 200; display: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,.5); min-width: 200px; }
+        #thumbProgress .pbar { height: 4px; background: rgba(167,139,250,.15); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+        #thumbProgress .pbar-fill { height: 100%; background: var(--accent); width: 0%; transition: width .25s; }
+        #thumbProgress.fade-out { opacity: 0; transition: opacity 1.2s; pointer-events: none; }
         .clip-scrub-bar { position: absolute; bottom: 0; left: 0; height: 2px; background: rgba(167,139,250,.9); width: 0%; pointer-events: none; }
         .clip-scrub-tc { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-family: monospace; font-size: 0.52em; color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000; opacity: 0; pointer-events: none; transition: opacity .1s; }
         .clip-thumb-wrap:hover .clip-scrub-tc { opacity: 1; }
@@ -109,7 +129,14 @@
         .video-wrapper:fullscreen { background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
         .video-wrapper:-webkit-full-screen { background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 
-        .player-controls { background: var(--surface); padding: 6px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+        /* Toolbar player : flex-wrap pour permettre aux boutons de passer à la ligne quand la fenêtre est étroite.
+           Font-size en clamp() pour rester lisible sur grand écran et s'adapter sur petit écran (descend jusqu'à 0.72em).
+           Buttons avec line-height + min-height fixes pour conserver une hauteur uniforme malgré les emojis variables. */
+        .player-controls { background: var(--surface); padding: 6px 12px; border-top: 1px solid var(--border); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; row-gap: 6px; }
+        .player-controls > button { font-size: clamp(0.72em, 0.85vw + 0.5em, 0.9em); padding: 4px 9px; line-height: 1.4; min-height: 28px; white-space: nowrap; }
+        .player-controls > .tc-display { font-size: clamp(0.78em, 0.9vw + 0.6em, 0.95em); }
+        @media (max-width: 1200px) { .player-controls > button { padding: 3px 7px; font-size: 0.78em; } }
+        @media (max-width: 900px)  { .player-controls > button { padding: 3px 6px; font-size: 0.72em; } }
         .tc-display { font-family: monospace; color: var(--accent); font-size: 0.9em; min-width: 90px; }
 
         /* Timeline */
@@ -298,8 +325,6 @@
             </label>
             <div id="loginError" style="color:var(--red);font-size:0.85em;display:none;"></div>
             <button class="btn-primary" onclick="login()">Se connecter</button>
-            <hr style="border:0;border-top:1px solid var(--border);">
-            <button id="joinCloudBtn" onclick="showJoinCloud()" style="display:none;">🔑 Rejoindre un projet (clé d'invitation)</button>
         </div>
         <div style="margin-top:16px;text-align:center;">
             <a href="/setup" style="font-size:0.75em;color:var(--dim);text-decoration:none;opacity:0.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">⚙️ Configuration</a>
@@ -394,8 +419,8 @@
                     </div>
                 </div>
                 <div>
-                    <label style="display:block;font-size:0.85em;margin-bottom:6px;">Sensibilité <span id="adThreshVal" style="color:var(--accent);font-family:monospace;float:right;">0.25</span></label>
-                    <input type="range" id="adThresh" min="0.05" max="0.80" step="0.05" value="0.25" style="width:100%;" oninput="document.getElementById('adThreshVal').textContent = parseFloat(this.value).toFixed(2);">
+                    <label style="display:block;font-size:0.85em;margin-bottom:6px;">Sensibilité <span id="adThreshVal" style="color:var(--accent);font-family:monospace;float:right;">0.10</span></label>
+                    <input type="range" id="adThresh" min="0.02" max="0.80" step="0.02" value="0.10" style="width:100%;" oninput="document.getElementById('adThreshVal').textContent = parseFloat(this.value).toFixed(2);">
                     <div style="display:flex;justify-content:space-between;font-size:0.7em;color:var(--dim);margin-top:2px;">
                         <span>Aggressif (+ candidats)</span><span>Strict (- candidats)</span>
                     </div>
@@ -486,16 +511,22 @@
 </div>
 
 <!-- WORKSPACE SCREEN -->
+<!-- Barre de progression flottante pour la generation initiale des thumbnails -->
+<div id="thumbProgress">
+    <div><span id="thumbProgressLabel">Génération des aperçus…</span></div>
+    <div class="pbar"><div class="pbar-fill" id="thumbProgressBar"></div></div>
+</div>
+
 <div id="screenWork" class="screen" style="padding:0; flex-direction: row;">
     <div class="sidebar">
         <div class="sidebar-header">
             <h2 id="wsProjName" style="font-size: 1em; margin:0;">Projet</h2>
-            <div style="display: flex; gap: 4px; margin-top: 8px;">
-                <span id="userBadge" style="flex:1;padding:4px 8px;border-radius:6px;font-size:0.8em;font-weight:600;"></span>
+            <div style="display: flex; gap: 4px; margin-top: 8px; align-items: stretch;">
+                <span id="userBadge" style="flex:1;padding:0 10px;border-radius:6px;font-size:0.8em;font-weight:600;display:inline-flex;align-items:center;line-height:1;"></span>
                 <button onclick="showUserMgmt()" title="Gestion utilisateurs">⚙️</button>
                 <button onclick="showRootPathModal(true)" title="Chemin local des rushs">📁</button>
                 <button onclick="rescanProject(this)" title="Rescanner les médias">🔄</button>
-                <button onclick="doLogout()" title="Se déconnecter">Déco</button>
+                <button onclick="doLogout()" title="Se déconnecter">🚪</button>
                 <button onclick="quitApp()" title="Fermer le logiciel" style="color:#ef4444;border-color:rgba(239,68,68,.3);">⏻</button>
             </div>
         </div>
@@ -784,7 +815,13 @@
         <div class="player-area" onclick="if(event.target===this||event.target.id==='player')togglePlay()">
             <div id="noVideoMsg" style="color: var(--dim);">Sélectionnez un clip</div>
             <div class="video-wrapper" id="videoWrapper">
-                <video id="player" style="display:none;"></video>
+                <video id="player" style="display:none;" onloadstart="_videoLoading(true)" onwaiting="_videoLoading(true)" oncanplay="_videoLoading(false)" onplaying="_videoLoading(false)" onerror="_videoError(this)"></video>
+                <div id="playerSpinner" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(10,10,15,.55);z-index:5;pointer-events:none;">
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+                        <div style="width:36px;height:36px;border:3px solid rgba(167,139,250,.2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+                        <div style="font-size:0.8em;color:var(--dim);">Chargement…</div>
+                    </div>
+                </div>
                 <canvas id="drawCanvas"></canvas>
                 <canvas id="lutCanvas"></canvas>
                 <span id="lutBadge">LUT</span>
@@ -824,6 +861,11 @@
             <button onclick="startDrawing()">🖌 Dessin</button>
             <button onclick="toggleFullscreen()" title="Plein écran (Touche Echap pour quitter)" style="font-size:1.1em;">⤢</button>
             <button id="bwfBtn" onclick="toggleSingleBwf()" title="Lire le son BWF de l'ingé en sync" style="display:none;">🔊 Son ingé</button>
+            <!-- Volume control : slider + icone toggle mute -->
+            <div style="display:flex;align-items:center;gap:4px;">
+                <button id="volIcon" onclick="toggleMute()" title="Mute" style="padding:2px 6px;font-size:1.05em;line-height:1;">🔊</button>
+                <input type="range" id="volSlider" min="0" max="100" step="1" value="100" oninput="setVolume(this.value/100)" title="Volume" style="width:80px;cursor:pointer;">
+            </div>
             <div style="flex:1;"></div>
             <div style="display:flex;gap:2px;align-items:center;margin-right:4px;">
                 <button class="spd-btn active" id="spd10" onclick="setSpeed(1)">1×</button>
@@ -836,7 +878,8 @@
             <input type="file" id="lutFileInput" accept=".cube" style="display:none;" onchange="onLUTFileSelected(event)">
             <button onclick="document.getElementById('lutFileInput').click()" title="Charger une LUT .cube">📂 LUT</button>
             <button onclick="openMulticamModal()" title="Détecter et gérer les groupes multi-caméra">🎥 Multi-cam</button>
-            <button onclick="openAutoDetectModal()" title="Auto-détection des plans (scene change ffmpeg)">🔍 Auto-plans</button>
+            <!-- Auto-détection désactivée (résultats trop approximatifs) — code conservé dans js/auto-detect.js, modal #autoDetectModal et backend pour réactivation future. -->
+            <!-- <button onclick="openAutoDetectModal()" title="Auto-détection des plans (scene change ffmpeg)">🔍 Auto-plans</button> -->
             <button id="sessionBtn" onclick="toggleSession()" title="Session live : diriger ou suivre">🎬 Diriger la session</button>
             <button onclick="openExportModal()" title="Exporter vers DaVinci Resolve">📤 Exporter</button>
             <button onclick="openShareModal()" title="Créer un lien de review public">🔗 Partager</button>
@@ -999,6 +1042,118 @@ function _pregenRun() {
     }
 }
 function _pregenAdd(url) { _pregen.q.push(url); _pregenRun(); }
+
+// --- PROGRESSION DES THUMBNAILS (feedback utilisateur pendant ffmpeg) ---
+// Sur un PC qui rejoint un projet, THUMBNAILS_DIR est vide cote serveur → ffmpeg
+// genere chaque vignette a la demande (~1s/clip pour un .LRV GoPro, ~2s pour MXF).
+// Sans feedback, l'utilisateur voit 428 cases vides pendant 5+ minutes → flippant.
+const _thumbState = { done: new Set(), total: 0, hideTimer: null };
+
+function _thumbInitProgress(total) {
+    _thumbState.done = new Set();
+    _thumbState.total = total || 0;
+    if (_thumbState.hideTimer) { clearTimeout(_thumbState.hideTimer); _thumbState.hideTimer = null; }
+    _thumbUpdateProgress();
+}
+
+function _thumbDone(img, ok) {
+    if (!img) return;
+    const m = (img.src || '').match(/\/thumbnail\/([^?]+)/);
+    const id = m ? decodeURIComponent(m[1]) : null;
+    // Marqueur visuel : leve le skeleton shimmer dans tous les cas (succes ou 404).
+    const wrap = img.parentElement;
+    if (wrap) {
+        wrap.classList.add('thumb-ready');
+        if (!ok) {
+            // Thumbnail manquante (404 = ffmpeg n'a pas trouve le fichier source).
+            // Cache l'icone image-cassee du navigateur, affiche un placeholder lisible.
+            img.style.display = 'none';
+            if (!wrap.querySelector('.thumb-broken')) {
+                const ph = document.createElement('div');
+                ph.className = 'thumb-broken';
+                ph.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.1em;background:#1f1010;color:#ef4444;';
+                ph.textContent = '⚠';
+                ph.title = 'Fichier source introuvable côté serveur (vérifie le chemin des rushs)';
+                wrap.appendChild(ph);
+            }
+        }
+    }
+    if (!id || _thumbState.done.has(id)) return;
+    _thumbState.done.add(id);
+    _thumbUpdateProgress();
+}
+
+function _videoLoading(on) {
+    const el = document.getElementById('playerSpinner');
+    if (!el) return;
+    el.style.display = on ? 'flex' : 'none';
+    // Cache l'eventuel ecran d'erreur d'un clip precedent quand on charge un nouveau
+    if (on) {
+        const err = document.getElementById('playerErrorMsg');
+        if (err) err.style.display = 'none';
+    }
+}
+
+function _videoError(video) {
+    _videoLoading(false);
+    // Probe via HEAD pour avoir le code HTTP exact (404 = file pas trouve, 5xx = autre).
+    // Aide a distinguer "mauvais root_path" d'un probleme codec/serveur.
+    const src = video.src || '(aucune source)';
+    let detail = '';
+    try {
+        fetch(src, {method: 'HEAD'}).then(r => {
+            detail = ` (HTTP ${r.status})`;
+        }).catch(() => {}).finally(() => {
+            _showVideoError(src, detail);
+        });
+    } catch(e) {
+        _showVideoError(src, '');
+    }
+}
+
+function _showVideoError(src, detail) {
+    let err = document.getElementById('playerErrorMsg');
+    if (!err) {
+        err = document.createElement('div');
+        err.id = 'playerErrorMsg';
+        err.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,5,5,.92);z-index:6;padding:24px;text-align:center;flex-direction:column;gap:12px;';
+        const wrap = document.getElementById('videoWrapper');
+        if (wrap) wrap.appendChild(err);
+    }
+    err.innerHTML = `
+        <div style="font-size:2.4em;">⚠️</div>
+        <div style="font-size:1.05em;color:#ef4444;font-weight:600;">Vidéo introuvable${detail}</div>
+        <div style="font-size:0.85em;color:var(--dim);max-width:420px;">
+            Le serveur n'a pas trouvé le fichier proxy à cet emplacement :<br>
+            <code style="background:rgba(255,255,255,.05);padding:3px 6px;border-radius:3px;font-size:0.9em;word-break:break-all;">${src.replace(window.location.origin,'')}</code>
+        </div>
+        <div style="font-size:0.78em;color:var(--dim);max-width:420px;line-height:1.5;">
+            Vérifie le chemin des rushs (⚙️ Configuration → Dossier des rushs).
+            Le dossier doit contenir directement les sous-dossiers comme <code>J01_2026_04_07/IMAGE/…</code>
+        </div>`;
+    err.style.display = 'flex';
+}
+
+function _thumbUpdateProgress() {
+    const el = document.getElementById('thumbProgress');
+    if (!el) return;
+    const total = _thumbState.total;
+    const done = _thumbState.done.size;
+    if (total <= 0) { el.style.display = 'none'; return; }
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    const lbl = document.getElementById('thumbProgressLabel');
+    const bar = document.getElementById('thumbProgressBar');
+    if (bar) bar.style.width = pct + '%';
+    if (done >= total) {
+        if (lbl) lbl.textContent = `✓ ${total} aperçus prêts`;
+        el.classList.add('fade-out');
+        _thumbState.hideTimer = setTimeout(() => { el.style.display = 'none'; el.classList.remove('fade-out'); }, 1400);
+    } else {
+        if (lbl) lbl.textContent = `Génération des aperçus… ${done} / ${total}`;
+        el.style.display = 'block';
+        el.classList.remove('fade-out');
+    }
+}
 let _stripObserver = null;
 const STATUS_LABELS = { arevoir: '↺ À revoir', valide: '✓ Validé' };
 const STATUS_CSS = { arevoir: 'status-arevoir', valide: 'status-valide' };
@@ -1039,7 +1194,7 @@ async function init() {
         if (!pd.exists) { window.location.href = '/setup'; return; }
     } catch(e) {}
 
-    document.getElementById('joinCloudBtn').style.display = 'block';
+    // joinCloudBtn (login screen) supprimé → on n'affiche plus que joinCloudBtn2 (écran projets, post-connexion)
     document.getElementById('joinCloudBtn2').style.display = 'block';
 
     // Restore session from localStorage
@@ -1321,7 +1476,8 @@ async function enterWorkspace(pid) {
         _rootPathCallback = () => rescanProject(null);
         showRootPathModal(false);
     }
-    // Pré-générer thumbnails pour tous les clips dès le chargement
+    // Init du compteur global de génération + pré-génère pour tous les clips
+    _thumbInitProgress(clips.length);
     clips.forEach(c => _pregenAdd(`/api/project/${pid}/thumbnail/${c.id}`));
     // Load multicam groups so the badges appear on the clip list
     refreshMulticam().then(renderClipList);
@@ -1662,7 +1818,7 @@ function renderClipList() {
                 break;
             }
         }
-        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onerror="this.style.opacity='0'"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}${teamDots ? `<span style="display:flex;gap:3px;align-items:center;margin-left:auto;">${teamDots}</span>` : ''}</div></div>`;
+        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}${teamDots ? `<span style="display:flex;gap:3px;align-items:center;margin-left:auto;">${teamDots}</span>` : ''}</div></div>`;
         if(rating === 'X') div.style.opacity = '0.4';
         div.onclick = () => selectClip(c);
 

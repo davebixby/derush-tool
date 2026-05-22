@@ -88,10 +88,17 @@ async function _pollAutoDetectStatus() {
         } else if (d.status === 'done') {
             clearInterval(_autoDetectPoll); _autoDetectPoll = null;
             bar.style.width = '100%';
-            lbl.textContent = `✓ Terminé · ${d.new_candidates || 0} nouveaux candidats`;
-            showToast(`Auto-détection terminée : ${d.new_candidates || 0} nouveaux candidats`, 'ok');
+            const n = d.new_candidates || 0;
+            lbl.textContent = `✓ Terminé · ${n} nouveaux candidats`;
             const btn = document.getElementById('adStartBtn');
             btn.disabled = false; btn.textContent = '🔍 Re-scanner';
+            if (n === 0) {
+                // Feedback explicite : 0 candidats = sensibilité trop élevée pour ce contenu
+                showToast(`0 candidat trouvé — essaie une sensibilité plus basse (0.05 ou moins) si tes clips sont des longs takes sans cuts secs`, 'warn', 7000);
+                lbl.innerHTML = `<span style="color:var(--orange);">⚠ 0 candidat · baisse la sensibilité (slider à gauche) puis re-scan</span>`;
+            } else {
+                showToast(`Auto-détection terminée : ${n} nouveaux candidats`, 'ok');
+            }
             // Recharge le state et re-render
             await loadAutoDetected();
             _updateAutoDetectStats();

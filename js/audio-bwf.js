@@ -1,6 +1,41 @@
 // ─── Son ingé sur player principal + BWF multichannel routing ───────────────────────────────────────────
 // Module externalisé depuis derush_app.html.
 
+// ─── Volume control (HTML5 video.volume + mute toggle) ────────────────────
+let _playerVolume = parseFloat(localStorage.getItem('derush_volume') || '1');
+let _playerMutedBefore = _playerVolume;
+
+function setVolume(v) {
+    v = Math.max(0, Math.min(1, parseFloat(v)));
+    _playerVolume = v;
+    try { localStorage.setItem('derush_volume', String(v)); } catch(e) {}
+    const video = document.getElementById('player');
+    if (video) video.volume = v;
+    // BWF audio si actif → applique aussi
+    if (_singleBwf && _singleBwf.audio) {
+        try { _singleBwf.audio.volume = v; } catch(e) {}
+    }
+    // Update UI
+    const slider = document.getElementById('volSlider');
+    if (slider && Math.abs(parseFloat(slider.value)/100 - v) > 0.01) slider.value = Math.round(v * 100);
+    const icon = document.getElementById('volIcon');
+    if (icon) icon.textContent = v === 0 ? '🔇' : (v < 0.5 ? '🔉' : '🔊');
+}
+
+function toggleMute() {
+    if (_playerVolume > 0) {
+        _playerMutedBefore = _playerVolume;
+        setVolume(0);
+    } else {
+        setVolume(_playerMutedBefore > 0 ? _playerMutedBefore : 1);
+    }
+}
+
+function _restoreVolume() {
+    // Appelé à chaque selectClip pour ré-appliquer le volume sur le nouveau video element
+    setVolume(_playerVolume);
+}
+
 // ─── Son ingé sur player principal ──────────────────────────────────────────
 // Charge un BWF qui couvre le TC du clip actif et le joue en sync avec la vidéo.
 // Pendant la lecture BWF : on coupe l'audio natif (gain stereo + monoR à 0).
@@ -195,6 +230,7 @@ function selectClip(c) {
     // de leur proxy. On force mono R pour ne pas entendre le BZZZZ.
     _attachPlayerAudio();
     _setPlayerMonoR(c.ltc_tc_in_sec != null);
+    _restoreVolume();  // applique le volume sauvegardé au nouveau video element
 
     // LUT : ré-évalue le scope pour ce clip (active/désactive le canvas selon la caméra)
     if (_lut) enableLUT(_lutEnabled);

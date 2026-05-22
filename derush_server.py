@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import copy, threading, urllib.request, urllib.error, time as _time
 from pathlib import Path
 from datetime import datetime, timedelta
-from urllib.parse import urlparse, unquote, parse_qs
+from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
 from collections import Counter
 import mimetypes
 
@@ -645,6 +645,87 @@ def find_proxy(root, clip_path):
             except ValueError:
                 return str(lrv)
     return ''
+
+# Resolution-cache pour _resolve_relpath_tolerant : evite de re-walker l'arbo a
+# chaque requete /thumbnail/, /proxy/, /strip/ pour le meme clip. Cleared via SIGHUP
+# si jamais (mais en pratique reset au prochain redemarrage).
+_relpath_resolve_cache = {}
+_relpath_cache_lock = threading.Lock()
+
+def _resolve_relpath_tolerant(root, rel):
+    """Resolve `<root>/<rel>` en etant tolerant aux differences de zero-padding sur les
+    segments numeriques (cas typique : XDROOT/01 vs XDROOT/1, IMAGE/02 vs IMAGE/2).
+
+    Cas tres frequent quand un disque source est copie/transfere entre PCs et que la
+    copie a perdu le zero de tete (rsync, robocopy, drag&drop Explorer parfois).
+
+    Strategie : essaie le chemin litteral d'abord (cas rapide). Si echec, walk segment
+    par segment, pour chaque segment numerique essaie aussi les variantes avec/sans
+    zero-padding (1↔01, 1↔001, 12↔012, etc.). Cache le resultat positif.
+
+    Renvoie Path() si trouve, sinon None.
+    """
+    root = Path(root)
+    cache_key = (str(root), rel)
+    with _relpath_cache_lock:
+        cached = _relpath_resolve_cache.get(cache_key)
+    if cached is not None:
+        if cached.exists(): return cached
+        # Stale (fichier supprime depuis) → on retire et on retente
+        with _relpath_cache_lock:
+            _relpath_resolve_cache.pop(cache_key, None)
+
+    # Fast path : chemin litteral
+    literal = root / rel
+    if literal.exists() and literal.is_file():
+        with _relpath_cache_lock:
+            _relpath_resolve_cache[cache_key] = literal
+        return literal
+
+    # Slow path : walk segment par segment avec tolerance numerique
+    segments = [s for s in rel.replace('\\', '/').split('/') if s]
+    current = root
+    for seg in segments:
+        if not current.is_dir():
+            return None
+        # Variantes a essayer pour ce segment, dans cet ordre :
+        # 1. Le segment litteral
+        # 2. Sans zero de tete (01 → 1, 002 → 2)
+        # 3. Avec zero de tete (1 → 01) — moins frequent mais possible
+        candidates = [seg]
+        if seg.isdigit():
+            stripped = seg.lstrip('0') or '0'
+            if stripped != seg: candidates.append(stripped)
+            for w in (2, 3):
+                padded = seg.zfill(w)
+                if padded != seg and padded not in candidates:
+                    candidates.append(padded)
+        matched = None
+        for c in candidates:
+            cand = current / c
+            if cand.exists():
+                matched = cand
+                break
+        if matched is None:
+            # Dernier recours : match case-insensitive (Windows est insensitif mais
+            # un disque externe en NTFS depuis Linux peut avoir d'autres casses)
+            try:
+                seg_lower = seg.lower()
+                for entry in current.iterdir():
+                    if entry.name.lower() == seg_lower:
+                        matched = entry
+                        break
+            except (OSError, PermissionError):
+                pass
+        if matched is None:
+            return None
+        current = matched
+
+    if current.exists() and current.is_file():
+        with _relpath_cache_lock:
+            _relpath_resolve_cache[cache_key] = current
+        return current
+    return None
 
 # ─── Project Management ───
 
@@ -2203,10 +2284,11 @@ def _ltc_proxy_path(clip, project):
     if clip.get('proxy_url'):
         rel = unquote(clip['proxy_url'][7:]).replace('\\', '/')
         for u in project.get('users', []):
-            rp = Path(u.get('root_path', project.get('root_path', '')))
-            cand = rp / rel
-            if cand.exists():
-                return cand
+            rp = u.get('root_path') or project.get('root_path', '')
+            if not rp: continue
+            resolved = _resolve_relpath_tolerant(rp, rel)
+            if resolved is not None:
+                return resolved
     p = Path(clip.get('path', ''))
     return p if p.exists() else None
 
@@ -3123,27 +3205,46 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == '/api/browse':
+            # Folder picker natif. Sur Mac, tkinter doit tourner sur le main thread
+            # (sinon hang silencieux) → on utilise osascript a la place. Sur Windows
+            # et Linux, on garde tkinter en worker thread (deja eprouve sur Win).
             try:
-                import queue as _queue
-                q = _queue.Queue()
-                def _pick():
+                folder_path = ''
+                if sys.platform == 'darwin':
+                    # NSOpenPanel via AppleScript : pas de dep externe, dialog natif macOS
+                    apple_script = 'POSIX path of (choose folder with prompt "Choisir le dossier des rushs")'
                     try:
-                        import tkinter as tk
-                        from tkinter import filedialog
-                        root = tk.Tk()
-                        root.withdraw()
-                        root.lift()
-                        root.attributes('-topmost', True)
-                        result = filedialog.askdirectory(parent=root)
-                        root.destroy()
-                        q.put(result or '')
-                    except Exception as ex:
-                        q.put('')
-                t = threading.Thread(target=_pick, daemon=True)
-                t.start()
-                t.join(timeout=120)
-                folder_path = q.get_nowait() if not q.empty() else ''
-                self._json_response({'path': folder_path.replace('/', os.sep) if folder_path else ''})
+                        r = subprocess.run(['osascript', '-e', apple_script],
+                                           capture_output=True, text=True, timeout=120)
+                        if r.returncode == 0:
+                            folder_path = r.stdout.strip()
+                        # returncode != 0 = utilisateur a annule (-128) → silencieux
+                    except Exception:
+                        folder_path = ''
+                else:
+                    import queue as _queue
+                    q = _queue.Queue()
+                    def _pick():
+                        try:
+                            import tkinter as tk
+                            from tkinter import filedialog
+                            root = tk.Tk()
+                            root.withdraw()
+                            root.lift()
+                            root.attributes('-topmost', True)
+                            result = filedialog.askdirectory(parent=root)
+                            root.destroy()
+                            q.put(result or '')
+                        except Exception:
+                            q.put('')
+                    t = threading.Thread(target=_pick, daemon=True)
+                    t.start()
+                    t.join(timeout=120)
+                    folder_path = q.get_nowait() if not q.empty() else ''
+                # Normalize separators : on Mac on garde POSIX, sur Win on convertit en backslash
+                if folder_path and sys.platform == 'win32':
+                    folder_path = folder_path.replace('/', os.sep)
+                self._json_response({'path': folder_path or ''})
             except Exception as e:
                 self._json_response({'error': str(e)}, 500)
             return
@@ -3412,19 +3513,28 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == '/api/sync/cloud_projects':
-            list_url = f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&action=list"
+            if not SYNC_URL or not SYNC_KEY:
+                self._json_response({'error': 'Sync cloud non configurée. Va dans ⚙️ Configuration.'}, 400)
+                return
+            list_url = f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&action=list"
             try:
                 req = urllib.request.Request(list_url, headers={'User-Agent': 'DerushTool'})
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode('utf-8'))
             except urllib.error.HTTPError as e:
                 if e.code == 403:
-                    self._json_response({'error': 'Clé secrète incorrecte — vérifiez la clé sync dans ⚙️ Configuration'}, 403)
+                    self._json_response({'error': 'Clé sync incorrecte. Vérifie la valeur de SYNC_KEY dans ⚙️ Configuration (elle doit correspondre exactement à $SECRET_KEY dans derush_sync.php).'}, 403)
                 else:
-                    self._json_response({'error': f'Erreur serveur sync ({e.code})'}, 500)
+                    self._json_response({'error': f'Erreur serveur sync (HTTP {e.code})'}, 500)
+                return
+            except urllib.error.URLError as e:
+                self._json_response({'error': f'Serveur sync injoignable : {e.reason}. Vérifie l\'URL dans ⚙️ Configuration.'}, 500)
+                return
+            except json.JSONDecodeError:
+                self._json_response({'error': 'Réponse invalide du serveur sync (pas du JSON).'}, 500)
                 return
             except Exception as e:
-                self._json_response({'error': f'Impossible de joindre le serveur sync : {e}'}, 500)
+                self._json_response({'error': f'Erreur inattendue : {e}'}, 500)
                 return
             local_pids = {f.stem.replace('.derush', '') for f in PROJECTS_DIR.glob('*.derush.json')}
             available = [p for p in data.get('projects', []) if p['id'] not in local_pids]
@@ -3489,12 +3599,20 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 if clip.get('proxy_url'):
                     rel = unquote(clip['proxy_url'][7:]).replace('\\', '/')
                     for u in proj.get('users', []):
-                        rp = Path(u.get('root_path', proj.get('root_path', '')))
-                        candidate = rp / rel
-                        if candidate.exists(): file_path = candidate; break
+                        rp = u.get('root_path') or proj.get('root_path', '')
+                        if not rp: continue
+                        resolved = _resolve_relpath_tolerant(rp, rel)
+                        if resolved is not None: file_path = resolved; break
                 if not file_path:
                     cp = Path(clip.get('path', ''))
                     if cp.exists(): file_path = cp
+                    elif clip.get('rel_path'):
+                        # Fallback : pareil pour le fichier source (cas ou y'a pas de proxy)
+                        for u in proj.get('users', []):
+                            rp = u.get('root_path') or proj.get('root_path', '')
+                            if not rp: continue
+                            resolved = _resolve_relpath_tolerant(rp, clip['rel_path'])
+                            if resolved is not None: file_path = resolved; break
                 if not file_path: self.send_error(404); return
                 if scrub_mode:
                     compute_thumbnail_scrub(str(file_path), clip_id, t_sec)
@@ -3523,12 +3641,20 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 if clip.get('proxy_url'):
                     rel = unquote(clip['proxy_url'][7:]).replace('\\', '/')
                     for u in proj.get('users', []):
-                        rp = Path(u.get('root_path', proj.get('root_path', '')))
-                        candidate = rp / rel
-                        if candidate.exists(): file_path = candidate; break
+                        rp = u.get('root_path') or proj.get('root_path', '')
+                        if not rp: continue
+                        resolved = _resolve_relpath_tolerant(rp, rel)
+                        if resolved is not None: file_path = resolved; break
                 if not file_path:
                     cp = Path(clip.get('path', ''))
                     if cp.exists(): file_path = cp
+                    elif clip.get('rel_path'):
+                        # Fallback : pareil pour le fichier source (cas ou y'a pas de proxy)
+                        for u in proj.get('users', []):
+                            rp = u.get('root_path') or proj.get('root_path', '')
+                            if not rp: continue
+                            resolved = _resolve_relpath_tolerant(rp, clip['rel_path'])
+                            if resolved is not None: file_path = resolved; break
                 if not file_path: self.send_error(404); return
                 compute_strip(str(file_path), clip_id, clip.get('duration_sec', 10), n=n_frames)
                 if not strip.exists(): self.send_error(404); return
@@ -3595,9 +3721,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                             roots_to_try.append(rp)
                 except: pass
             for root in roots_to_try:
-                file_path = root / rel
-                if file_path.exists() and file_path.is_file():
-                    self._serve_video(file_path)
+                resolved = _resolve_relpath_tolerant(root, rel)
+                if resolved is not None:
+                    self._serve_video(resolved)
                     return
             self.send_error(404)
             return
@@ -3881,6 +4007,10 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                     'root_path': '',
                     'invite_key': invite_key,
                 })
+            # IMPORTANT : si l'user était dans la tombstone (re-création après suppression),
+            # on le retire — sinon merge_projects le re-filtrera au prochain sync.
+            tomb = [t for t in proj.get('deleted_users', []) if t.lower() != target_username.lower()]
+            proj['deleted_users'] = tomb
             save_project(pid, proj)
             threading.Thread(target=sync_project, args=(pid,), daemon=True).start()
             self._json_response({'ok': True, 'invite_key': invite_key, 'username': target_username})
@@ -3934,7 +4064,14 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             if len(proj['users']) == before:
                 self._json_response({'error': 'Utilisateur introuvable'}, 404)
                 return
+            # Tombstone : marque cet user comme supprimé pour que merge_projects ne
+            # le re-pompe pas depuis le cloud (qui peut encore l'avoir).
+            tombstones = set(proj.get('deleted_users', []))
+            tombstones.add(target_username.lower())
+            proj['deleted_users'] = sorted(tombstones)
             save_project(pid, proj)
+            # Push immédiat pour propager la suppression au cloud
+            _schedule_sync_push(pid, delay=0.5)
             self._json_response({'ok': True})
             return
 
@@ -3948,7 +4085,15 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404); return
             user = find_project_user(proj, s['username'])
             if not user:
-                self._json_response({'error': 'Accès refusé'}, 403); return
+                # Diagnostic : on dit explicitement pourquoi
+                in_tomb = s['username'].lower() in [t.lower() for t in proj.get('deleted_users', [])]
+                user_list = [u.get('username') or u.get('name', '') for u in proj.get('users', [])]
+                msg = f"L'utilisateur '{s['username']}' n'est pas inscrit sur ce projet."
+                if in_tomb:
+                    msg += " (Il a été supprimé du projet — demande à l'admin de te réinviter.)"
+                else:
+                    msg += f" Users actuels : {', '.join(user_list) if user_list else '(aucun)'}."
+                self._json_response({'error': msg}, 403); return
             user['root_path'] = root_path
             save_project(pid, proj)
             auth = self.headers.get('Authorization', '')[7:]
@@ -3981,7 +4126,12 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             if not proj:
                 self.send_error(404)
                 return
-            user_key = s.get('user_id') or s.get('username', '')
+            # Résout la clé de notes via le user du projet — donc identique à ce
+            # que user_note_key() et l'export utilisent. Sauver via la session brute
+            # (`user_id or username`) dédoublait les notes d'un même humain sous 2
+            # clés (ex. `6714b070` vs `Sebastien`) → notes invisibles à l'export.
+            _pu = find_project_user(proj, s.get('username') or s.get('name') or s.get('user_id') or '')
+            user_key = user_note_key(_pu) if _pu else (s.get('user_id') or s.get('username', ''))
             notes = body.get('notes', {})
             if not proj.get('notes'):
                 proj['notes'] = {}
@@ -4069,7 +4219,15 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             pid = body.get('project_id', '').strip()
             invite_key = body.get('invite_key', '').strip().upper()
             if not pid or not invite_key:
-                self._json_response({'error': 'project_id et invite_key requis'}, 400)
+                self._json_response({'error': 'ID de projet et clé d\'invitation requis'}, 400)
+                return
+            # Validation pid : doit matcher ce que la PHP accepte (a-zA-Z0-9_-).
+            # Sans ça, espaces et accents font soit crasher urllib, soit silently miss.
+            if not re.match(r'^[a-zA-Z0-9_\-]+$', pid):
+                self._json_response({'error': 'ID de projet invalide. Utilisez uniquement lettres, chiffres, tirets et underscores (pas d\'espaces ni d\'accents).'}, 400)
+                return
+            if not SYNC_URL or not SYNC_KEY:
+                self._json_response({'error': 'Sync cloud non configurée. Va dans ⚙️ Configuration pour définir l\'URL et la clé sync.'}, 400)
                 return
             url = _sync_url_for(pid)
             try:
@@ -4078,12 +4236,20 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                     project_data = json.loads(resp.read().decode('utf-8'))
             except urllib.error.HTTPError as e:
                 if e.code == 404:
-                    self._json_response({'error': 'Projet introuvable sur le serveur sync'}, 404)
+                    self._json_response({'error': f'Aucun projet "{pid}" trouvé sur le serveur sync. Vérifie l\'ID exact (admin → ⚙️ → Configuration).'}, 404)
+                elif e.code == 403:
+                    self._json_response({'error': 'Clé sync incorrecte. Vérifie la valeur de SYNC_KEY dans ⚙️ Configuration (elle doit correspondre exactement à $SECRET_KEY dans derush_sync.php).'}, 403)
                 else:
-                    self._json_response({'error': f'Erreur serveur sync ({e.code})'}, 500)
+                    self._json_response({'error': f'Erreur serveur sync (HTTP {e.code})'}, 500)
+                return
+            except urllib.error.URLError as e:
+                self._json_response({'error': f'Serveur sync injoignable : {e.reason}. Vérifie l\'URL dans ⚙️ Configuration et ta connexion internet.'}, 500)
+                return
+            except json.JSONDecodeError:
+                self._json_response({'error': 'Réponse du serveur sync invalide (pas du JSON). derush_sync.php est-il bien à jour et accessible ?'}, 500)
                 return
             except Exception as e:
-                self._json_response({'error': f'Impossible de joindre le serveur sync : {e}'}, 500)
+                self._json_response({'error': f'Erreur inattendue : {e}'}, 500)
                 return
             username = s['username']
             user_entry = find_project_user(project_data, username)
@@ -4484,7 +4650,10 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 def _sync_url_for(pid):
-    return f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&project={pid}"
+    # URL-encode pour gérer les espaces et caractères spéciaux (sinon urllib râle).
+    # NB : la PHP filtre déjà via preg_replace([^a-zA-Z0-9_\-]) côté serveur, donc
+    # un pid avec espaces ne matchera jamais — mais ici on évite au moins le crash.
+    return f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&project={_urlquote(pid, safe='')}"
 
 def merge_projects(local, remote):
     """Fusionne remote dans local. Chaque user_id est indépendant → zéro conflit."""
@@ -4512,11 +4681,29 @@ def merge_projects(local, remote):
                 local_disc[clip_id][marker_id].sort(key=lambda x: x.get('ts', ''))
     result['discussions'] = local_disc
 
-    # Utilisateurs : ajoute les users du remote absents en local
-    local_ids = {user_note_key(u) for u in local.get('users', [])}
+    # Tombstones : union des suppressions local + remote, MAIS un user qui est
+    # actuellement présent dans les users[] locaux est considéré comme "lift" du
+    # tombstone (re-création après suppression). Sinon impossible de re-créer
+    # un user supprimé : le tombstone remote le re-filtre à chaque sync.
+    local_dead = set(t.lower() for t in local.get('deleted_users', []))
+    remote_dead = set(t.lower() for t in (remote.get('deleted_users', []) or []))
+    all_dead = local_dead | remote_dead
+    local_alive = {(u.get('username') or u.get('name', '')).lower() for u in local.get('users', [])}
+    all_dead -= local_alive  # un user "vivant" en local lève le tombstone
+    result['deleted_users'] = sorted(all_dead)
+
+    # Filtre les users locaux : retire ceux qui sont dans les tombstones (cas où
+    # le remote a supprimé un user que le local avait encore)
+    result['users'] = [u for u in result.get('users', [])
+                       if (u.get('username') or u.get('name', '')).lower() not in all_dead]
+
+    # Utilisateurs : ajoute les users du remote absents en local ET pas tombstoned
+    local_ids = {user_note_key(u) for u in result.get('users', [])}
     for u in remote.get('users', []):
+        uname = (u.get('username') or u.get('name', '')).lower()
+        if uname in all_dead: continue  # supprimé → ne pas re-pomper
         if user_note_key(u) not in local_ids:
-            result.setdefault('users', []).append(u)
+            result['users'].append(u)
 
     return result
 
@@ -4610,10 +4797,11 @@ def _resolve_clip_local_path(proj, clip):
     if clip.get('proxy_url'):
         rel = unquote(clip['proxy_url'][7:]).replace('\\', '/')
         for u in proj.get('users', []):
-            rp = Path(u.get('root_path', proj.get('root_path', '')))
-            candidate = rp / rel
-            if candidate.exists():
-                return candidate
+            rp = u.get('root_path') or proj.get('root_path', '')
+            if not rp: continue
+            resolved = _resolve_relpath_tolerant(rp, rel)
+            if resolved is not None:
+                return resolved
     cp = Path(clip.get('path', ''))
     if cp.exists():
         return cp

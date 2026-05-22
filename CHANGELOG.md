@@ -4,6 +4,27 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.5] — 2026-05-19 (soir)
+
+### ✨ Ajouté
+- **Support Mac Apple Silicon** (arm64) : `derush.spec` cross-platform, `build_mac.sh` auto-vérificateur, `BUILD_MAC.md` guide complet français, script bash qui vérifie Xcode CLT/Homebrew/Python/Node/ffmpeg et compile le `.app` + zip distribuable.
+- **Résolveur de chemins tolérant** : `_resolve_relpath_tolerant()` walk segment par segment avec variantes numériques (`01↔1↔001`) et case-insensitive. Fix le cas SSD copié entre PCs où les noms de slot perdent leur zéro de tête.
+- **Skeleton shimmer + barre de progression** des thumbnails : feedback visuel pendant la génération initiale (5+ min sur fresh install). Compteur dédoublonné « X / 428 aperçus prêts ».
+- **Spinner sur le player vidéo** + écran d'erreur explicite (chemin demandé + code HTTP) si le proxy est introuvable.
+- **Placeholder ⚠ rouge** sur les vignettes en 404 (au lieu de l'icône image-cassée du browser).
+- **Bouton 📁 Parcourir** dans le setup wizard pour pointer le dossier projets via dialog natif.
+- **Messages d'erreur sync clairs** : « Clé sync incorrecte », « Aucun projet trouvé », « Serveur injoignable » au lieu des codes HTTP bruts.
+- **Distribution zip Windows** (au lieu de portable .exe auto-extractible) : démarrage 3–5s au lieu de 1 min.
+
+### 🐛 Corrigé
+- **Tombstone bug** : un user supprimé puis re-créé disparaissait à chaque sync car le tombstone le re-filtrait. Fix dans `authorize_user` (lift local) et `merge_projects` (un user vivant en local lève le tombstone globalement).
+- **URL encoding sync** : crash `URL can't contain control characters` quand le pid contient un espace. Fix `_urlquote()` + validation locale `re.match(r'^[a-zA-Z0-9_\-]+$')`.
+- **tkinter folder picker sur Mac** : hangue silencieux car tkinter doit tourner sur le main thread. Remplacé par `osascript` natif macOS (NSOpenPanel via AppleScript). Windows garde tkinter.
+- **« Rejoindre un projet » sur la page de login** : retiré (contre-intuitif, on ne peut pas rejoindre sans être connecté). Reste visible uniquement après login.
+- **403 « Accès refusé » silencieux** sur set_root_path : message diagnostique explicite (« L'utilisateur X n'est pas inscrit sur ce projet. Users actuels : … »).
+
+---
+
 ## [0.3.0] — 2026-05-19
 
 ### ✨ Ajouté

@@ -72,7 +72,10 @@ button { padding: 9px 20px; border-radius: var(--radius); border: none; font-siz
     <h2>📁 Dossier de travail</h2>
     <div class="field">
       <label>Dossier Projets</label>
-      <input type="text" id="projectsDir" placeholder="ex: C:\MesRushes\DerushProjects">
+      <div style="display:flex;gap:8px;align-items:stretch;">
+        <input type="text" id="projectsDir" placeholder="ex: C:\MesRushes\DerushProjects" style="flex:1;">
+        <button type="button" class="btn-secondary" onclick="browseProjectsDir()" style="white-space:nowrap;">📁 Parcourir…</button>
+      </div>
       <p class="hint">Choisissez où stocker vos projets. Si vous avez déjà un dossier existant, pointez-y directement.</p>
     </div>
     <div class="field">
@@ -155,6 +158,24 @@ function goStep(n) {
   document.getElementById('step' + step).classList.add('active');
   if (document.getElementById('dot' + step))
     document.getElementById('dot' + step).className = 'step-dot active';
+}
+
+async function browseProjectsDir() {
+  const alertEl = document.getElementById('alert0');
+  alertEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/browse');
+    const d = await r.json();
+    if (d.path) {
+      document.getElementById('projectsDir').value = d.path;
+    } else if (d.error) {
+      alertEl.textContent = 'Impossible d\'ouvrir le sélecteur : ' + d.error;
+      alertEl.style.display = 'block';
+    }
+  } catch(e) {
+    alertEl.textContent = 'Erreur réseau : ' + e.message;
+    alertEl.style.display = 'block';
+  }
 }
 
 async function saveFolder() {

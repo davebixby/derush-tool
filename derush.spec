@@ -1,9 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec — Derush Tool
+# PyInstaller spec — Derush Tool (cross-platform : Windows + macOS)
 # Build: pyinstaller derush.spec
 
+import sys
 from pathlib import Path
+
 ROOT = Path(SPECPATH)
+IS_MAC = sys.platform == 'darwin'
+IS_WIN = sys.platform == 'win32'
+
+# Bundle ffmpeg/ffprobe : noms differents selon plateforme
+# Win : ffmpeg.exe / ffprobe.exe a la racine du projet
+# Mac : ffmpeg / ffprobe a la racine (binaire arm64/universal copie via build_mac.sh)
+ffmpeg_bin = 'ffmpeg.exe'  if IS_WIN else 'ffmpeg'
+ffprobe_bin = 'ffprobe.exe' if IS_WIN else 'ffprobe'
 
 a = Analysis(
     [str(ROOT / 'derush_launcher.py')],
@@ -19,8 +29,8 @@ a = Analysis(
         # Bundle tous les modules JS externalisés (js/*.js → _internal/js/)
         *([(str(p), 'js') for p in (ROOT / 'js').glob('*.js')] if (ROOT / 'js').exists() else []),
         # Bundle ffmpeg/ffprobe binaries if present
-        *( [(str(ROOT / 'ffmpeg.exe'),   '.')] if (ROOT / 'ffmpeg.exe').exists()   else [] ),
-        *( [(str(ROOT / 'ffprobe.exe'),  '.')] if (ROOT / 'ffprobe.exe').exists()  else [] ),
+        *( [(str(ROOT / ffmpeg_bin),   '.')] if (ROOT / ffmpeg_bin).exists()   else [] ),
+        *( [(str(ROOT / ffprobe_bin),  '.')] if (ROOT / ffprobe_bin).exists()  else [] ),
         # Include icon if it exists
         *( [(str(ROOT / 'derush_icon.png'), '.')] if (ROOT / 'derush_icon.png').exists() else [] ),
     ],
@@ -42,6 +52,18 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# UPX : Windows only. Sur Mac il abime souvent les binaires Python et le code
+# signing devient impossible (les binaires modifies ne matchent plus leur signature).
+use_upx = IS_WIN
+
+# Icon : .ico sur Win, .icns sur Mac
+if IS_MAC and (ROOT / 'derush_icon.icns').exists():
+    icon_path = str(ROOT / 'derush_icon.icns')
+elif IS_WIN and (ROOT / 'derush_icon.ico').exists():
+    icon_path = str(ROOT / 'derush_icon.ico')
+else:
+    icon_path = None
+
 # Mode onedir : EXE léger + COLLECT dossier dist/DerushTool/ avec _internal/
 # Beaucoup plus rapide à démarrer que onefile (pas de self-extract au runtime).
 exe = EXE(
@@ -53,9 +75,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=use_upx,
     console=False,
-    icon=str(ROOT / 'derush_icon.ico') if (ROOT / 'derush_icon.ico').exists() else None,
+    icon=icon_path,
 )
 
 coll = COLLECT(
@@ -63,7 +85,28 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=use_upx,
     upx_exclude=[],
     name='DerushTool',
 )
+
+# Sur Mac : on emballe le COLLECT en .app (bundle macOS standard).
+# Sinon Finder voit juste un dossier "DerushTool/" — pas un vrai .app.
+if IS_MAC:
+    app = BUNDLE(
+        coll,
+        name='DerushTool.app',
+        icon=icon_path,
+        bundle_identifier='be.sebastiendelahaye.derushtool.backend',
+        info_plist={
+            'CFBundleShortVersionString': (ROOT / 'VERSION').read_text().strip() if (ROOT / 'VERSION').exists() else '0.3.5',
+            'CFBundleVersion': (ROOT / 'VERSION').read_text().strip() if (ROOT / 'VERSION').exists() else '0.3.5',
+            'NSHighResolutionCapable': True,
+            'LSBackgroundOnly': False,
+            # Permission requise pour ouvrir des dossiers via tkinter.filedialog
+            # sinon Catalina+ bloque silencieusement
+            'NSDesktopFolderUsageDescription': 'Derush Tool a besoin d\'accéder aux dossiers de rushes que vous selectionnez.',
+            'NSDocumentsFolderUsageDescription': 'Derush Tool a besoin d\'accéder à vos dossiers de rushes.',
+            'NSRemovableVolumesUsageDescription': 'Derush Tool lit les rushes depuis les disques externes (SSD USB, cartes SD).',
+        },
+    )

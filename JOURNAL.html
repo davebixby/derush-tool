@@ -39,6 +39,7 @@ main { flex: 1; max-width: 860px; padding: 48px 60px; }
 .tag-fix { background: rgba(16,185,129,.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,.25); }
 .tag-arch { background: rgba(245,158,11,.12); color: #fcd34d; border: 1px solid rgba(245,158,11,.25); }
 .tag-doc { background: rgba(96,165,250,.12); color: #93c5fd; border: 1px solid rgba(96,165,250,.25); }
+.tag-build { background: rgba(245,158,11,.12); color: #fcd34d; border: 1px solid rgba(245,158,11,.25); }
 
 h3 { font-size: 1em; font-weight: 600; color: var(--accent); margin: 20px 0 8px; }
 h4 { font-size: 0.9em; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
@@ -168,8 +169,20 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#session-live">Session live (leader/follower WS)</a>
   <a href="#ffmpeg-loglevel-bug">Bug ffmpeg loglevel showinfo</a>
 
+  <div class="nav-section">Session 19 mai 2026 (soir — cross-PC + Mac)</div>
+  <a href="#dist-zip">Distribution zip (fini le portable)</a>
+  <a href="#tombstone-bug">Bug tombstone : user supprimé qui revient</a>
+  <a href="#url-encode">URL encoding sync (espaces, accents)</a>
+  <a href="#setup-ux">UX setup wizard (Parcourir + login propre)</a>
+  <a href="#thumb-feedback">Feedback visuel thumbnails + spinner vidéo</a>
+  <a href="#resolveur-chemins">Résolveur de chemins tolérant (01↔1)</a>
+  <a href="#mac-build">Support Mac Apple Silicon (build_mac.sh + osascript)</a>
+
   <div class="nav-section">Documentation</div>
   <a href="#docs">CLAUDE.md &amp; GUIDE.html</a>
+
+  <div class="nav-section">Session 20-21 mai 2026 (build Mac réel)</div>
+  <a href="#mac-build-fixes">Build Mac réel — fixes + bug export FCPXML</a>
 </nav>
 
 <main>
@@ -1770,6 +1783,144 @@ offset 30s : LTC = 16:59:39  ==> début déduit = 16:59:09</code></pre>
 </div>
 
 <!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="dist-zip">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">Distribution zip — fini le .exe portable</span>
+    <span class="entry-tag tag-build">Build</span>
+  </div>
+  <p>Le <code>.exe</code> portable d'electron-builder dézippe son contenu dans <code>%LOCALAPPDATA%\Temp\&lt;id&gt;\</code> à chaque lancement. Sur le premier run, Defender scanne les 176 Mo extraits → 1 minute de démarrage avec zéro feedback visuel (Electron n'est pas encore lancé). Inacceptable pour un test rapide chez un collaborateur.</p>
+  <p>Switché en cible <code>zip</code> dans <code>electron/package.json</code> : l'utilisateur dézippe lui-même une fois, puis double-clic sur <code>DerushTool.exe</code> → démarrage 3–5s, zéro self-extract. Coût : on perd l'auto-update simple (electron-updater le supporte mais nécessite write-access au dossier ; à creuser plus tard).</p>
+  <pre><code>"win": {
+  "target": [{ "target": "zip", "arch": ["x64"] }],
+  "artifactName": "DerushTool-${version}-win.${ext}"
+}</code></pre>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="tombstone-bug">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">Bug saga — utilisateur supprimé qui revient via sync</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+  <p><strong>Symptôme initial</strong> : Sébastien crée un nouveau collaborateur, ferme l'app, relance → le nouveau collaborateur a disparu de la liste. Reproductible 100% du temps.</p>
+  <p><strong>Cause racine</strong> : on avait précédemment ajouté un système de <em>tombstones</em> (<code>deleted_users[]</code>) pour empêcher qu'un user supprimé soit réimporté par le sync cloud. Mais le tombstone n'avait pas d'antidote : si on re-créait un user dont le nom était dans la liste, <code>merge_projects</code> le re-filtrait au prochain pull/push.</p>
+  <pre><code># Avant
+result['users'] = [u for u in result.get('users', [])
+                   if (u.get('username') or u.get('name', '')).lower() not in all_dead]</code></pre>
+  <p><strong>Fix 1</strong> dans <code>authorize_user</code> : quand on (ré)autorise un user, on le retire de <code>deleted_users</code> local.</p>
+  <p><strong>Fix 2</strong> dans <code>merge_projects</code> : un user présent dans <code>users[]</code> local lève automatiquement le tombstone (<code>all_dead -= local_alive</code>). Comme ça, même si le remote a encore la tombstone, elle est neutralisée à la fusion, puis propagée vide au prochain push.</p>
+  <p>En bonus : le 403 « Accès refusé » sur <code>set_root_path</code> renvoie maintenant un message diagnostique précis :<br>
+  « <em>L'utilisateur 'paola' n'est pas inscrit sur ce projet. Users actuels : Sebastien.</em> » — ou si tombstone : « <em>Il a été supprimé du projet — demande à l'admin de te réinviter.</em> »</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="url-encode">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">URL encoding sync — fini les crashs sur espaces</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+  <p>L'utilisateur tente de rejoindre un projet en tapant « drift club » (avec espace) comme ID → crash Python : <code>URL can't contain control characters '/derush_sync.php?key=drift2026&amp;project=drift club' (found at least ' ')</code>.</p>
+  <p>La fonction <code>_sync_url_for(pid)</code> faisait une concaténation f-string brute sans encoding. Fix :</p>
+  <pre><code>return f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&amp;project={_urlquote(pid, safe='')}"</code></pre>
+  <p>En plus, validation locale du <code>pid</code> avec <code>re.match(r'^[a-zA-Z0-9_\-]+$', pid)</code> avant l'appel — message clair « ID invalide, pas d'espaces ni accents » au lieu d'un crash.</p>
+  <p>Et refonte des messages d'erreur du flow join : 403 → « <em>Clé sync incorrecte. Vérifie SYNC_KEY dans ⚙️ Configuration (doit correspondre à $SECRET_KEY dans derush_sync.php).</em> » au lieu du laconique « Erreur serveur sync (403) ». Pareil pour URLError, JSONDecodeError, etc.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="setup-ux">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">Refonte UX setup wizard et page de login</span>
+    <span class="entry-tag tag-ui">UI/UX</span>
+  </div>
+  <p>Deux frictions identifiées par Sébastien lors d'un fresh install :</p>
+  <h3>1. Bouton « 📁 Parcourir… » manquant dans le setup</h3>
+  <p>L'étape 0 du wizard demandait de taper à la main le chemin du dossier projets. Pas de picker → l'utilisateur est obligé de copier-coller depuis l'Explorer. Ajout d'un bouton qui appelle <code>/api/browse</code> (endpoint déjà existant côté Python qui ouvre le dialog natif via tkinter / osascript sur Mac).</p>
+  <h3>2. « Rejoindre un projet » retiré de la page de login</h3>
+  <p>Le bouton « 🔑 Rejoindre un projet » apparaissait sous le formulaire de login. Mais cliquer dessus appelait une route authentifiée → toast d'erreur « non connecté ». Contre-intuitif. Retiré complètement de l'écran login, conservé uniquement sur l'écran « Mes projets » post-connexion où il a du sens.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="thumb-feedback">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">Feedback visuel pour la génération de thumbnails</span>
+    <span class="entry-tag tag-ui">UI/UX</span>
+  </div>
+  <p>Sur un PC qui <strong>rejoint</strong> un projet (cas du collaborateur sur PC2), le dossier <code>thumbnails/</code> côté serveur est vide. Chaque vignette doit être générée à la demande par ffmpeg. Pour les 428 clips de Drift_Club à ~1s/clip via les <code>.LRV</code> GoPro et ~2s/clip pour les MXF Sony → 5 à 10 minutes de génération, avec zéro indication visuelle : juste 428 cases noires silencieuses. Effet « est-ce que c'est planté ? ».</p>
+  <h3>Skeleton shimmer + barre de progression</h3>
+  <p>Chaque <code>.clip-thumb-wrap</code> a maintenant un pseudo-élément <code>::before</code> avec une animation CSS de shimmer (gradient violet-gris qui défile) tant que la classe <code>.thumb-ready</code> n'est pas appliquée. Wire sur l'<code>onload</code>/<code>onerror</code> de l'<code>&lt;img&gt;</code>.</p>
+  <p>Une barre flottante en bas-droite affiche « Génération des aperçus… 47 / 428 » avec une barre violette qui se remplit, et fade out 1,4s après avoir atteint 100%.</p>
+  <h3>Placeholder ⚠ pour les vignettes en 404</h3>
+  <p>Si une vignette retourne 404 (fichier source introuvable), au lieu de l'icône d'image cassée du navigateur, un carré rouge avec <code>⚠</code> et tooltip explicatif.</p>
+  <h3>Spinner sur le player vidéo</h3>
+  <p>Cercle violet rotatif + « Chargement… » sur l'élément <code>&lt;video&gt;</code>, wire sur <code>onloadstart</code>, <code>onwaiting</code>, <code>oncanplay</code>, <code>onplaying</code>. Et un écran d'erreur plein écran si la vidéo charge pas, avec le chemin demandé + code HTTP + rappel sur le dossier des rushs.</p>
+  <p>Le compteur utilise un <code>Set&lt;clip_id&gt;</code> pour dédoublonner (sinon un rerender de la liste re-déclencherait les <code>img.onload</code> via cache navigateur et fausserait le total).</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="resolveur-chemins">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">Résolveur de chemins tolérant aux variantes numériques et casse</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+  <p><strong>Le problème</strong> qui mangeait toute la soirée : sur PC2, après avoir rejoint Drift_Club et pointé le SSD externe (<code>E:\DRIFT_CLUB</code>), <strong>toutes</strong> les vignettes et vidéos retournent 404. Le serveur cherche au pixel près le chemin enregistré côté PC1 : <code>D:\DRIFT_CLUB\J01_2026_04_07\IMAGE\01\XDROOT\Sub\DRIFT_avril0001S03.MP4</code> → résolution relative donne <code>E:\DRIFT_CLUB\J01_2026_04_07\IMAGE\01\XDROOT\Sub\…</code> qui n'existe pas car le SSD a <code>IMAGE\2</code> (sans zéro de tête).</p>
+  <p>Cause probable : copie du disque source via Explorer drag-drop ou un outil qui a normalisé les noms numériques. Très fréquent en pratique sur les copies entre PC.</p>
+  <h3>La solution : _resolve_relpath_tolerant(root, rel)</h3>
+  <p>Walk segment par segment depuis <code>root</code>. Pour chaque segment numérique, essaie les variantes :</p>
+  <ol>
+    <li>Le segment littéral (cas le plus rapide)</li>
+    <li>Sans zéro de tête : <code>01→1</code>, <code>002→2</code></li>
+    <li>Avec zéro de tête : <code>1→01</code>, <code>1→001</code></li>
+    <li>Dernier recours : <code>iterdir()</code> + match case-insensitive (pour APFS case-sensitive ou volumes externes formatés ailleurs)</li>
+  </ol>
+  <p>Cache positif thread-safe <code>_relpath_resolve_cache[(root, rel)] = Path</code> pour ne pas re-walker l'arbo à chaque hit (sinon 428 thumbnails × 12 strips = 5000+ walks à chaque entrée dans le projet).</p>
+  <p>Appliqué partout : routes <code>/proxy/</code>, <code>/thumbnail/</code>, <code>/strip/</code> et helpers <code>_ltc_proxy_path</code>, <code>_resolve_clip_local_path</code>.</p>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mac-build">
+  <div class="entry-header">
+    <span class="entry-date">19 MAI 2026 · SOIR</span>
+    <span class="entry-title">Support Mac Apple Silicon — build_mac.sh + osascript</span>
+    <span class="entry-tag tag-build">Build</span>
+  </div>
+  <p>Sébastien veut tester sur Mac mini M1 + MacBook Pro M2. Cross-compilation depuis Windows impossible (PyInstaller ne fait pas de cross-compile, electron-builder a besoin de Xcode + ses outils). Décision : build sur le Mac mini directement, distribution vers MBP via zip + AirDrop.</p>
+  <h3>Adaptation des fichiers existants</h3>
+  <ul>
+    <li><code>derush.spec</code> : détecte <code>sys.platform == 'darwin'</code>, désactive UPX (incompatible code signing Apple), génère un <code>BUNDLE(...)</code> produisant <code>DerushTool.app</code> avec Info.plist incluant les permissions <code>NSDesktopFolderUsageDescription</code>, <code>NSDocumentsFolderUsageDescription</code>, <code>NSRemovableVolumesUsageDescription</code> (sans ça macOS Catalina+ bloque silencieusement l'accès au SSD externe). Icône <code>.icns</code> au lieu de <code>.ico</code>.</li>
+    <li><code>electron/main.js</code> : <code>backendCommand()</code> détecte <code>process.platform === 'darwin'</code> → lance <code>DerushTool.app/Contents/MacOS/DerushTool</code> au lieu de <code>DerushTool.exe</code>. En dev : <code>python3</code> au lieu de <code>python</code>.</li>
+    <li><code>electron/package.json</code> : ajout cible <code>mac: zip arm64, identity: null, hardenedRuntime: false</code> (pas de signing pour l'instant). Nouveau script <code>npm run build:mac</code>.</li>
+  </ul>
+  <h3>Nouveau : build_mac.sh</h3>
+  <p>Script bash auto-vérificateur. Lance avec <code>./build_mac.sh</code> sur le Mac mini :</p>
+  <ol>
+    <li>Vérifie Xcode CLT, Homebrew, Python3, Node, ffmpeg, ffprobe — affiche la commande exacte à taper si quelque chose manque</li>
+    <li>Copie <code>which ffmpeg</code> + <code>which ffprobe</code> à la racine pour que PyInstaller les bundle</li>
+    <li>Génère <code>derush_icon.icns</code> depuis <code>derush_icon.png</code> via <code>sips</code> + <code>iconutil</code> si nécessaire</li>
+    <li>Crée un venv Python isolé (<code>.venv/</code>) pour ne pas polluer le système</li>
+    <li>Installe les deps Python via <code>pip install -r requirements.txt</code></li>
+    <li>Lance <code>pyinstaller derush.spec</code> → produit <code>dist/DerushTool.app/</code></li>
+    <li>Lance <code>npm run build:mac</code> → produit <code>electron/dist/DerushTool-X.Y.Z-mac-arm64.zip</code></li>
+  </ol>
+  <h3>BUILD_MAC.md — guide complet français</h3>
+  <p>Document pas-à-pas qui couvre l'install des prérequis (avec les commandes Terminal exactes), le transfert des sources depuis Windows, le lancement du build, le contournement de Gatekeeper au premier lancement (clic droit → Ouvrir car app non signée), la distribution vers le MBP, et une grosse section dépannage (lipo error, brew not found, signing, tkinter folder picker, etc.).</p>
+  <h3>Fix critique : tkinter → osascript sur Mac</h3>
+  <p>Le folder picker <code>/api/browse</code> utilisait tkinter dans un worker thread. Marche sur Windows, mais sur macOS <strong>tkinter doit tourner sur le main thread</strong> sinon hang silencieux. Fix : sur Mac, utilise <code>osascript -e 'POSIX path of (choose folder with prompt "...")'</code> qui invoque NSOpenPanel natif via AppleScript. Zéro dépendance externe, dialog 100% natif macOS. Windows garde tkinter (qui fonctionne).</p>
+  <h3>Compatibilité des données stockées (vérifiée)</h3>
+  <ul>
+    <li><code>proxy_url</code> : stocké avec <code>/</code> séparateurs → marche tel quel sur Mac</li>
+    <li><code>rel_path</code> : stocké avec <code>\\</code> Windows → le résolveur convertit en <code>/</code> avant walk</li>
+    <li><code>clip.path</code> : chemin absolu Windows → ignoré silencieusement sur Mac (n'existe pas), fallback automatique vers <code>rel_path</code> + résolveur tolérant</li>
+    <li><code>_resolve_relpath_tolerant</code> couvre directement le cas Windows-source / Mac-destination avec ses variantes case-insensitive</li>
+  </ul>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
 <div class="entry" id="docs">
   <div class="entry-header">
     <span class="entry-date">15 MAI 2026 · FIN DE SESSION</span>
@@ -1789,10 +1940,44 @@ offset 30s : LTC = 16:59:39  ==> début déduit = 16:59:09</code></pre>
   <p>Carnet de bord chronologique expliquant les décisions d'architecture, les bugs rencontrés, les tentatives qui n'ont pas fonctionné et pourquoi, les solutions retenues. Destination : garder une trace lisible humainement de l'évolution du projet — utile pour reprendre après une longue pause ou expliquer les choix à quelqu'un qui arrive sur le projet.</p>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="mac-build-fixes">
+  <div class="entry-header">
+    <span class="entry-date">20–21 MAI 2026</span>
+    <span class="entry-title">Premier build Mac réel — fixes en chaîne + bug export FCPXML</span>
+    <span class="entry-tag tag-build">Build</span>
+  </div>
+  <p>Le support Mac n'avait été que <em>préparé</em> côté Windows. Premier build effectif sur le Mac mini M1 : chaque étape a révélé un bug. En parallèle, diagnostic d'un bug d'export FCPXML signalé par Sébastien.</p>
+
+  <h3>Outil : zip_for_mac.ps1</h3>
+  <p>Nouveau script PowerShell à la racine pour préparer le transfert des sources Windows → Mac. <code>robocopy</code> vers un staging en excluant les artefacts (<code>dist/</code>, <code>build/</code>, <code>node_modules/</code>, <code>projects/</code>, caches) et les binaires Windows <code>ffmpeg.exe</code>/<code>ffprobe.exe</code> (~300 Mo, recopiés depuis Homebrew côté Mac), puis <code>Compress-Archive</code>. <code>package-lock.json</code> est gardé (recette de <code>npm install</code>), <code>node_modules/</code> non.</p>
+
+  <h3>Fix build_mac.sh #1 — cp ffmpeg « Permission denied »</h3>
+  <div class="box box-fail"><strong>Symptôme :</strong> au 2e build, le script s'arrête sur <code>cp: .../ffmpeg: Permission denied</code>.</div>
+  <p>Les binaires Homebrew sont en lecture seule, et <code>cp</code> (BSD) recopie ce mode sur le fichier créé. Au build suivant, <code>cp</code> ne peut plus écraser un fichier non-inscriptible. Fix : <code>rm -f ffmpeg ffprobe</code> avant les copies.</p>
+
+  <h3>Fix build_mac.sh #2 — electron-builder introuvable</h3>
+  <p><code>sh: electron-builder: command not found</code>. Le test <code>if [ ! -d node_modules ]</code> sautait <code>npm install</code> dès que le dossier existait, même vide (run précédent coupé). Fix : tester le binaire réel — <code>if [ ! -x node_modules/.bin/electron-builder ]</code>.</p>
+
+  <h3>Fix package.json — extraResources par plateforme</h3>
+  <div class="box box-fail"><strong>Symptôme :</strong> l'app se lance puis « Le serveur Python n'a pas démarré » — <code>spawn .../DerushTool.app/Contents/MacOS/DerushTool ENOENT</code>.</div>
+  <p><code>extraResources</code> copiait <code>../dist/DerushTool</code> (le dossier COLLECT brut). Mais <code>main.js</code> attend sur Mac le <code>.app</code> BUNDLE à <code>Resources/DerushTool/DerushTool.app/…</code> — config jamais adaptée au Mac. Fix : <code>extraResources</code> séparé par plateforme — <code>win</code> → <code>../dist/DerushTool</code> ; <code>mac</code> → <code>../dist/DerushTool.app</code> vers <code>DerushTool/DerushTool.app</code>.</p>
+
+  <h3>Réseau studio — npm install bloqué par interception TLS</h3>
+  <p><code>UNABLE_TO_GET_ISSUER_CERT_LOCALLY</code> : le réseau du studio inspecte le HTTPS, npm rejette le certificat.</p>
+  <div class="box box-why"><strong>Piège :</strong> <code>NODE_TLS_REJECT_UNAUTHORIZED=0</code> ne suffit pas — npm a son propre <code>strict-ssl</code> (défaut <code>true</code>) qui écrase la variable d'environnement. Il faut <strong>les deux</strong> : <code>npm config set strict-ssl false</code> (paquets npm) + <code>export NODE_TLS_REJECT_UNAUTHORIZED=0</code> (binaire Electron). Alternative propre : builder sur un partage de connexion mobile, sans interception.</div>
+
+  <h3>Bug export FCPXML — timeline à 2 clips + marqueur fantôme</h3>
+  <p>Sébastien signale deux choses : son export FCPXML ne contient que <code>Clip0002</code> + <code>Clip0004</code> alors qu'il a noté beaucoup de clips ; et un marqueur 3★ « TRES BEBBEBE » qu'il a supprimé réapparaît dans DaVinci.</p>
+  <div class="box box-why"><strong>Cause unique — identité dédoublée.</strong> Le projet a 4 jeux de notes (<code>6714b070</code>, <code>Sebastien</code>, <code>Paola</code>, <code>davebixby</code>) pour 3 users. Sébastien (<code>id=6714b070</code>) a ses notes éparpillées sur deux clés, car l'endpoint <code>/notes</code> sauve sous <code>user_id or username</code> tandis que tout le reste lit via <code>user_note_key()</code> = <code>id</code> en priorité. L'export ne lit donc que <code>6714b070</code> : les notes sous la clé <code>Sebastien</code> sont invisibles, et la suppression de « TRES BEBBEBE » s'est appliquée à la mauvaise clé.</div>
+  <p><strong>Règle de sélection d'un clip</strong> dans la timeline FCPXML par défaut : un clip est inclus si au moins un user reconnu y a un marqueur, une note écrite ou un rating 1/2/3 — et exclu si un user l'a noté X (rejet du clip entier).</p>
+  <div class="box box-ok"><strong>Corrigé (22 mai).</strong> Notes fusionnées par merge <em>data-aware</em> : sur le seul vrai conflit (le clip « TRES BEBBEBE ») le jeu récent l'emporte, partout ailleurs on garde le jeu qui a des données — aucune perte. Notes à IDs orphelins supprimées. Clés finales : une par personne. Export FCPXML : 2 → 8 clips. Et l'endpoint <code>/notes</code> résout maintenant sa clé via <code>find_project_user()</code> + <code>user_note_key()</code> → plus de dédoublement possible. Backup : <code>drift_club.derush.PREMERGE-BACKUP.json</code>.</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 19 mai 2026 (Phase B Electron, refactor modules, tests E2E, auto-update GitHub, share link, auto-détection plans, session live)
+  Derush Tool · Journal de développement · Dernière mise à jour 21 mai 2026 (premier build Mac réel : fixes build_mac.sh + package.json extraResources par plateforme, contournement interception TLS npm ; diagnostic bug export FCPXML — identité de notes dédoublée)
 </div>
 
 </main>

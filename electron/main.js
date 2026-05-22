@@ -12,7 +12,9 @@
 // http://<lan-ip>:8765 from their own browser if they want, while the local user
 // gets a controlled Chromium with HEVC support and no leak quirks.
 
-const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, nativeTheme } = require('electron');
+// Force le dark mode pour que la title bar native (Win 10) soit sombre aussi
+nativeTheme.themeSource = 'dark';
 const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
@@ -36,16 +38,22 @@ let splashWindow = null;
 
 // ── Resolve which Python backend to launch ───────────────────────────────────
 function backendCommand() {
-  // Packaged: app.isPackaged === true → use the bundled DerushTool.exe sitting
+  // Packaged: app.isPackaged === true → use the bundled DerushTool exe sitting
   // in extraResources (declared in package.json under build.extraResources).
-  // Onedir layout: resources/DerushTool/DerushTool.exe + resources/DerushTool/_internal/
+  // Win onedir layout : resources/DerushTool/DerushTool.exe + resources/DerushTool/_internal/
+  // Mac : resources/DerushTool/DerushTool.app/Contents/MacOS/DerushTool
   if (app.isPackaged) {
+    if (process.platform === 'darwin') {
+      const exe = path.join(process.resourcesPath, 'DerushTool', 'DerushTool.app', 'Contents', 'MacOS', 'DerushTool');
+      return { cmd: exe, args: ['--no-browser'] };
+    }
     const exe = path.join(process.resourcesPath, 'DerushTool', 'DerushTool.exe');
     return { cmd: exe, args: ['--no-browser'] };
   }
-  // Dev: run the source server.py directly. Assumes `python` is on PATH.
+  // Dev: run the source server.py directly. Mac : `python3`, Windows : `python`.
   const serverPy = path.join(__dirname, '..', 'derush_server.py');
-  return { cmd: 'python', args: [serverPy, '--no-browser'] };
+  const pythonBin = process.platform === 'darwin' ? 'python3' : 'python';
+  return { cmd: pythonBin, args: [serverPy, '--no-browser'] };
 }
 
 function startBackend() {
@@ -159,9 +167,13 @@ function createWindow() {
     minHeight: 700,
     title: 'Derush Tool',
     icon: ICON_PATH,
-    backgroundColor: '#0f0f13',
+    backgroundColor: '#0a0a0f',
     autoHideMenuBar: true,
     show: false,  // restera caché jusqu'à did-finish-load (évite le flash blanc)
+    // Title bar sombre : nativeTheme dark (set en haut de main.js) → la title bar
+    // native Windows 11 utilise les couleurs sombres système. Sur Windows 10, le
+    // backgroundColor de la window est appliqué aussi à la title bar non-cliente.
+    // Pas de titleBarStyle:hidden (sinon plus de drag, plus de boutons natifs).
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

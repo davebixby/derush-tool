@@ -82,6 +82,9 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <a href="#sync">Synchronisation cloud</a>
   <div class="nav-section">Mises à jour</div>
   <a href="#updates">Auto-update + nouveautés</a>
+  <div class="nav-section">Plateformes</div>
+  <a href="#install-windows">Installation Windows</a>
+  <a href="#install-mac">Installation macOS</a>
   <div class="nav-section">Référence</div>
   <a href="#shortcuts">Raccourcis clavier</a>
   <a href="#troubleshooting">Dépannage</a>
@@ -90,8 +93,12 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <main>
 
 <h2 id="installation">Installation</h2>
-<p>Derush Tool se présente sous forme d'un fichier exécutable unique (<code>DerushTool.exe</code> sur Windows). Aucune installation requise — il suffit de le lancer.</p>
-<div class="tip"><strong>Prérequis :</strong> ffmpeg doit être installé et accessible dans le PATH système, ou copié à côté de l'exécutable.</div>
+<p>Derush Tool est livré sous forme d'un <strong>zip</strong> (Windows ou macOS) contenant tout le nécessaire : Chromium, Python, ffmpeg. Aucune installation classique — il suffit de dézipper et de lancer l'exécutable.</p>
+<ul>
+  <li><strong>Windows</strong> : <code>DerushTool-X.Y.Z-win.zip</code> → dézipper dans un dossier → double-clic sur <code>DerushTool.exe</code></li>
+  <li><strong>macOS Apple Silicon</strong> (M1/M2/M3) : <code>DerushTool-X.Y.Z-mac-arm64.zip</code> → dézipper → <strong>clic droit sur DerushTool.app → Ouvrir</strong> (premier lancement uniquement, voir <a href="#install-mac">section macOS</a>)</li>
+</ul>
+<div class="tip"><strong>Plus de fichier portable auto-extractible</strong> depuis la 0.3.2 : on est passé en distribution zip pour avoir des démarrages quasi-instantanés (3–5s au lieu de 1 minute la première fois) et éviter les soucis avec l'antivirus.</div>
 
 <h2 id="first-launch">Première ouverture</h2>
 <p>Au premier lancement, l'assistant de configuration s'ouvre automatiquement dans le navigateur.</p>
@@ -350,6 +357,16 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
   <li>Subclips autour des marqueurs avec pré-roll/post-roll configurables</li>
 </ul>
 
+<h3>Quels clips entrent dans la timeline ?</h3>
+<p>Pour le <strong>FCPXML complet</strong>, un clip apparaît dans la timeline dès qu'<strong>au moins un membre de l'équipe</strong> l'a annoté — c'est-à-dire qu'il a, sur ce clip :</p>
+<ul>
+  <li>au moins un <strong>marqueur</strong>, ou</li>
+  <li>une <strong>note écrite</strong>, ou</li>
+  <li>un <strong>rating ⭐, ⭐⭐ ou ⭐⭐⭐</strong>.</li>
+</ul>
+<p>À l'inverse, un clip noté <strong>❌ (à jeter)</strong> est <strong>retiré</strong> de la timeline — même si quelqu'un y a posé des marqueurs.</p>
+<div class="tip"><strong>Un clip que tu pensais avoir annoté n'apparaît pas ?</strong> Vérifie que tu es connecté avec le <strong>même utilisateur</strong> que lorsque tu l'as annoté. Les annotations sont rattachées à chaque identité, et l'export les regroupe par utilisateur : des notes faites sous une autre identité ne sortent pas dans la timeline.</div>
+
 <h2 id="export-premiere">Exporter vers Adobe Premiere Pro</h2>
 <p>Depuis le modal export, section <strong>Adobe Premiere Pro</strong>. Format XML Final Cut Pro 7 (xmeml v5) — accepté nativement par Premiere via <em>File › Import…</em>.</p>
 <p>Boutons disponibles : <strong>XML Premiere complet</strong>, ⭐⭐⭐, ⭐⭐ et ⭐⭐⭐, 🎵 Son, 👁️ Image. Markers, ratings et zones X coupées sont préservés.</p>
@@ -379,6 +396,24 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 
 <h3>Si quelque chose plante</h3>
 <p>Toutes les erreurs (JS et Python) sont automatiquement enregistrées dans un journal local. Pour le consulter : lien <strong>🐞 Journal des erreurs</strong> sur l'écran « Mes projets ». Si tu rencontres un bug, copie-colle l'entrée et signale-le.</p>
+
+<h2 id="install-windows">Installation Windows</h2>
+<p>Télécharge le zip <code>DerushTool-X.Y.Z-win.zip</code>, dézippe-le où tu veux (Documents, Bureau, dossier dédié…) et double-clic sur <code>DerushTool.exe</code>.</p>
+<div class="tip"><strong>Premier lancement</strong> : Windows Defender peut scanner les fichiers (le zip fait ~250 Mo) pendant 30s à 1 min. Les lancements suivants sont immédiats. Configuration et données stockées dans <code>%APPDATA%\DerushTool\</code>.</div>
+<h3>Mettre à jour</h3>
+<p>Ferme l'app, télécharge le nouveau zip, dézippe par-dessus l'ancien dossier (ou dans un nouveau). Tes projets et ta config sont dans <code>%APPDATA%\DerushTool\</code> et restent intacts.</p>
+
+<h2 id="install-mac">Installation macOS</h2>
+<p>Derush Tool est compatible Mac Apple Silicon (M1, M2, M3). Pour Intel Mac, ça tourne via Rosetta (2× plus lent).</p>
+<h3>Installation</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">Télécharge <code>DerushTool-X.Y.Z-mac-arm64.zip</code>.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Double-clic sur le zip dans Finder — il crée <code>DerushTool.app</code> à côté. Glisse-le dans <code>/Applications/</code> (ou laisse-le où tu veux).</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><strong>Premier lancement uniquement</strong> : <strong>clic droit</strong> (ou Ctrl+clic) sur <code>DerushTool.app</code> → choisis <strong>« Ouvrir »</strong>. Une popup apparaît avec « Développeur non identifié » — clique sur <strong>« Ouvrir »</strong> quand même. Cette autorisation est mémorisée : les lancements suivants se font par double-clic normal.</div></div>
+<div class="tip"><strong>Pourquoi ce clic droit ?</strong> L'app n'est pas signée par un certificat Apple Developer (99 $/an + procédure de notarization). macOS Gatekeeper bloque par défaut les apps non-signées. Le clic droit → Ouvrir contourne cette protection une fois pour cette app spécifique. Tu peux aussi taper dans Terminal : <code>xattr -dr com.apple.quarantine /Applications/DerushTool.app</code>.</div>
+<h3>Permissions au premier lancement</h3>
+<p>Quand tu pointes le dossier des rushs (typiquement un SSD externe), macOS peut demander l'autorisation d'accéder aux disques amovibles. Accepte — sinon le serveur ne pourra pas lire tes fichiers.</p>
+<h3>Distribution vers un autre Mac</h3>
+<p>Copie simplement le zip (AirDrop, clé USB, iCloud Drive). Sur le second Mac : dézippe, clic droit → Ouvrir.</p>
 
 <h2 id="shortcuts">Raccourcis clavier</h2>
 <h3>Lecture</h3>
@@ -411,8 +446,14 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 
 <h2 id="troubleshooting">Dépannage</h2>
 
-<h3>Le projet ne trouve pas les fichiers vidéo</h3>
-<p>Vérifiez le chemin des rushs (bouton 📁 dans la barre latérale), puis cliquez sur <strong>🔄 Rescanner</strong>.</p>
+<h3>Le projet ne trouve pas les fichiers vidéo (vignettes ⚠ et vidéo qui charge pas)</h3>
+<p>Vérifiez d'abord le chemin des rushs (bouton 📁 dans la barre latérale). Le chemin que vous donnez doit être le dossier qui contient directement les sous-dossiers comme <code>J01_2026_04_07/IMAGE/…</code> (et non un dossier parent ni un sous-dossier).</p>
+<p>Depuis la version 0.3.5, le serveur est <strong>tolérant aux variantes</strong> de noms de dossiers : il essaie automatiquement les variations <code>01 ↔ 1 ↔ 001</code> et fait du matching insensible à la casse. Cas typique : un SSD copié depuis un autre PC où les slots Sony s'appellent <code>IMAGE\01</code> mais qui sont devenus <code>IMAGE\1</code> à la copie (drag-drop Explorer). Plus besoin de renommer manuellement.</p>
+<p>Si vous voyez quand même des ⚠ rouges sur les vignettes, ouvrez F12 (DevTools) → onglet <strong>Console</strong> : les messages 404 vous diront exactement quel chemin le serveur cherche.</p>
+
+<h3>Première ouverture d'un projet sur un PC : génération des vignettes lente</h3>
+<p>Quand vous rejoignez un projet pour la première fois sur une machine, le serveur doit générer les vignettes de tous les clips (1–2s par clip via ffmpeg). Sur 400+ clips, comptez 5 à 10 minutes. Une barre flottante en bas-droite indique la progression « X / 428 aperçus prêts ». Pendant ce temps les vignettes affichent un effet shimmer animé.</p>
+<p>Une fois la première génération terminée, le cache est conservé : les ouvertures suivantes du projet sont instantanées.</p>
 
 <h3>Erreur 403 lors de la synchronisation</h3>
 <p>La clé de synchronisation dans <code>derush_config.json</code> (<code>sync_key</code>) ne correspond pas à la valeur <code>$SECRET_KEY</code> dans le fichier PHP sur le serveur web.</p>

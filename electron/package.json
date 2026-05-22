@@ -1,11 +1,12 @@
 {
   "name": "derush-tool-electron",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "Electron wrapper for Derush Tool — bundles Chromium + Python backend",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac --arm64",
     "release": "electron-builder --win --x64 --publish always"
   },
   "author": "Sébastien Delahaye",
@@ -30,19 +31,29 @@
       "derush_icon.png",
       "node_modules/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "../dist/DerushTool",
-        "to": "DerushTool"
-      }
-    ],
     "win": {
-      "target": "portable",
-      "icon": "../derush_icon.ico"
+      "target": [
+        { "target": "zip", "arch": ["x64"] }
+      ],
+      "icon": "../derush_icon.ico",
+      "artifactName": "DerushTool-${version}-win.${ext}",
+      "extraResources": [
+        { "from": "../dist/DerushTool", "to": "DerushTool" }
+      ]
     },
-    "portable": {
-      "artifactName": "DerushTool-Portable-${version}.${ext}",
-      "unpackDirName": "DerushTool"
+    "mac": {
+      "target": [
+        { "target": "zip", "arch": ["arm64"] }
+      ],
+      "icon": "../derush_icon.icns",
+      "category": "public.app-category.video",
+      "artifactName": "DerushTool-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "extraResources": [
+        { "from": "../dist/DerushTool.app", "to": "DerushTool/DerushTool.app" }
+      ]
     },
     "publish": [
       {
