@@ -11,9 +11,14 @@ function setVolume(v) {
     try { localStorage.setItem('derush_volume', String(v)); } catch(e) {}
     const video = document.getElementById('player');
     if (video) video.volume = v;
-    // BWF audio si actif → applique aussi
+    // BWF audio : volume via l'élément audio (fonctionne même avec WebAudio routing)
     if (_singleBwf && _singleBwf.audio) {
         try { _singleBwf.audio.volume = v; } catch(e) {}
+        // Synchronise aussi les gains du routing multichannel
+        if (_singleBwf.audio._bwfRouted) {
+            const r = _singleBwf.audio._bwfRouted;
+            try { r.gainL.gain.value = v / 3.0; r.gainR.gain.value = v / 3.0; } catch(e) {}
+        }
     }
     // Update UI
     const slider = document.getElementById('volSlider');
@@ -172,6 +177,9 @@ function toggleSingleBwf() {
         }
     } else {
         // ON
+        if (_playerAudioCtx && _playerAudioCtx.state === 'suspended') {
+            _playerAudioCtx.resume().catch(() => {});
+        }
         _setPlayerVideoAudioMuted(true);
         _singleBwf.enabled = true;
         // Attach listeners 1×

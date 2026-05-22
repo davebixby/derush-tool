@@ -44,7 +44,10 @@ function backendCommand() {
   // Mac : resources/DerushTool/DerushTool.app/Contents/MacOS/DerushTool
   if (app.isPackaged) {
     if (process.platform === 'darwin') {
-      const exe = path.join(process.resourcesPath, 'DerushTool', 'DerushTool.app', 'Contents', 'MacOS', 'DerushTool');
+      // extraResources copies dist/DerushTool (onedir) → Resources/DerushTool/
+      // The binary sits directly there, not inside a .app sub-bundle.
+      const exe = path.join(process.resourcesPath, 'DerushTool', 'DerushTool');
+      try { fs.chmodSync(exe, 0o755); } catch (e) { console.warn('[derush] chmod:', e.message); }
       return { cmd: exe, args: ['--no-browser'] };
     }
     const exe = path.join(process.resourcesPath, 'DerushTool', 'DerushTool.exe');
@@ -59,10 +62,18 @@ function backendCommand() {
 function startBackend() {
   const { cmd, args } = backendCommand();
   console.log(`[derush] Spawning backend: ${cmd} ${args.join(' ')}`);
+  // On macOS, Electron launched from the Dock has a minimal PATH (/usr/bin:/bin…).
+  // Inject Homebrew so that bare 'ffmpeg' commands also work as a fallback.
+  const spawnEnv = { ...process.env };
+  if (process.platform === 'darwin') {
+    const brewBin = fs.existsSync('/opt/homebrew/bin') ? '/opt/homebrew/bin' : '/usr/local/bin';
+    spawnEnv.PATH = `${brewBin}:${process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin'}`;
+  }
   backendProc = spawn(cmd, args, {
     cwd: path.join(__dirname, '..'),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: spawnEnv,
   });
   backendProc.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
   backendProc.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`));
@@ -272,12 +283,9 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   stopBackend();
-  // On macOS apps typically stay alive; on Windows/Linux we quit.
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();  // always quit — DerushTool has no reason to linger in the Dock
 });
 
 app.on('before-quit', stopBackend);
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+// No 'activate' handler — DerushTool should not reopen from the Dock after quit.

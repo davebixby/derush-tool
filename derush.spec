@@ -76,7 +76,10 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=use_upx,
-    console=False,
+    # Windows: console=False = pas de fenêtre cmd.exe
+    # Mac:     console=True  = binaire POSIX pur, pas de NSApplicationLoad()
+    #          → pas de fenêtre noire/Dock quand Electron le spawne headlessly
+    console=IS_WIN,
     icon=icon_path,
 )
 

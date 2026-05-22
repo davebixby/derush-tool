@@ -31,15 +31,18 @@
       "derush_icon.png",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../dist/DerushTool",
+        "to": "DerushTool"
+      }
+    ],
     "win": {
       "target": [
         { "target": "zip", "arch": ["x64"] }
       ],
       "icon": "../derush_icon.ico",
-      "artifactName": "DerushTool-${version}-win.${ext}",
-      "extraResources": [
-        { "from": "../dist/DerushTool", "to": "DerushTool" }
-      ]
+      "artifactName": "DerushTool-${version}-win.${ext}"
     },
     "mac": {
       "target": [
@@ -50,10 +53,7 @@
       "artifactName": "DerushTool-${version}-mac-${arch}.${ext}",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "identity": null,
-      "extraResources": [
-        { "from": "../dist/DerushTool.app", "to": "DerushTool/DerushTool.app" }
-      ]
+      "identity": null
     },
     "publish": [
       {

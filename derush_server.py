@@ -196,8 +196,17 @@ def _default_binary(name):
     bundled = BUNDLE_DIR / (name + ('.exe' if sys.platform == 'win32' else ''))
     return str(bundled) if bundled.exists() else name
 
-FFMPEG   = CONFIG.get('ffmpeg',  _default_binary('ffmpeg'))
-FFPROBE  = CONFIG.get('ffprobe', _default_binary('ffprobe'))
+def _resolve_binary(name):
+    cfg = CONFIG.get(name)
+    # Honour an explicit absolute path from config (user override).
+    # Ignore bare names like 'ffmpeg' — PATH is unreliable when launched from a
+    # desktop app (Dock/Finder) and would silently break thumbnail generation.
+    if cfg and os.path.isabs(cfg):
+        return cfg
+    return _default_binary(name)
+
+FFMPEG   = _resolve_binary('ffmpeg')
+FFPROBE  = _resolve_binary('ffprobe')
 
 # Throttle concurrent ffmpeg/ffprobe processes. ThreadedHTTPServer would otherwise
 # fan out as many ffmpeg as there are inflight HTTP requests — a sidebar hover that
@@ -2077,23 +2086,32 @@ def compute_strip(file_path, clip_id, duration_sec, n=12):
     return strip if strip.exists() else None
 
 
-def compute_waveform_peaks(file_path, num_buckets=800):
+def compute_waveform_peaks(file_path, num_buckets=800, pan_filter=None):
     """Extrait les pics RMS normalisés d'une piste audio via ffmpeg.
 
     Utilise numpy pour le bucketing — un struct.unpack + boucle Python pure
     construisait un tuple Python géant (~300 MB à 1 GB pour un clip d'1h+)
     qui pouvait saturer la RAM système. Avec numpy on garde un buffer compact
     et toute l'arithmétique est vectorisée en C : ~10x moins de RAM, ~100x plus
-    rapide."""
+    rapide.
+
+    pan_filter : filtre ffmpeg -af à appliquer avant le décodage (ex: 'pan=mono|c0=c1'
+    pour extraire le canal droit uniquement — utile sur les proxies FS5 dont le
+    canal gauche contient le signal LTC biphase à amplitude quasi-constante)."""
     try:
         import numpy as np
     except ImportError:
         # Fallback : moins efficace mais pas de dépendance
         import struct, math
         try:
-            cmd = [FFMPEG, '-i', str(file_path),
-                   '-ac', '1', '-ar', '4000', '-f', 's16le', '-vn',
-                   '-loglevel', 'error', 'pipe:1']
+            if pan_filter:
+                cmd = [FFMPEG, '-i', str(file_path),
+                       '-af', pan_filter, '-ar', '4000', '-f', 's16le', '-vn',
+                       '-loglevel', 'error', 'pipe:1']
+            else:
+                cmd = [FFMPEG, '-i', str(file_path),
+                       '-ac', '1', '-ar', '4000', '-f', 's16le', '-vn',
+                       '-loglevel', 'error', 'pipe:1']
             r = _ffmpeg_run(cmd, timeout=120)
             if not r.stdout or len(r.stdout) < 4: return []
             samples = struct.unpack(f'<{len(r.stdout)//2}h', r.stdout)
@@ -2111,11 +2129,18 @@ def compute_waveform_peaks(file_path, num_buckets=800):
         except Exception:
             return []
     try:
-        cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error',
-               '-analyzeduration', '1M', '-probesize', '5M',
-               '-i', str(file_path),
-               '-vn', '-ac', '1', '-ar', '4000', '-f', 's16le',
-               'pipe:1']
+        if pan_filter:
+            cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error',
+                   '-analyzeduration', '1M', '-probesize', '5M',
+                   '-i', str(file_path),
+                   '-vn', '-af', pan_filter, '-ar', '4000', '-f', 's16le',
+                   'pipe:1']
+        else:
+            cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error',
+                   '-analyzeduration', '1M', '-probesize', '5M',
+                   '-i', str(file_path),
+                   '-vn', '-ac', '1', '-ar', '4000', '-f', 's16le',
+                   'pipe:1']
         r = _ffmpeg_run(cmd, timeout=120)
         if not r.stdout or len(r.stdout) < 4:
             return []
@@ -2470,6 +2495,39 @@ def _bwf_origination_date(af):
         if info and info.get('origination_date'):
             return info['origination_date'].replace(':', '-')[:10]
     return None
+
+def _resolve_audio_clip_path(ac, proj):
+    """Resolve an audio clip's path, handling cross-platform migration.
+    Stored paths may be Windows absolute paths (D:\\DRIFT_CLUB\\...) that don't
+    exist on macOS. Strips the stored root and retries with each user's root_path."""
+    stored = ac.get('path', '')
+    fp = Path(stored)
+    if fp.exists():
+        return fp
+    stored_norm = stored.replace('\\', '/')
+    # Collect all candidate roots to try stripping
+    all_roots = []
+    proj_root = proj.get('root_path', '')
+    if proj_root:
+        all_roots.append(proj_root.replace('\\', '/').rstrip('/'))
+    for u in proj.get('users', []):
+        rp = u.get('root_path', '')
+        if rp:
+            all_roots.append(rp.replace('\\', '/').rstrip('/'))
+    for base in all_roots:
+        if not base:
+            continue
+        if stored_norm.lower().startswith(base.lower() + '/'):
+            rel = stored_norm[len(base) + 1:]
+            for u in proj.get('users', []):
+                rp = u.get('root_path', '')
+                if not rp:
+                    continue
+                candidate = Path(rp) / rel
+                if candidate.exists():
+                    return candidate
+    return None
+
 
 def _bwf_candidates_for_clips(audio_clips, clip_ids, clip_map, grace=2):
     """Retourne la liste des BWF qui contiennent strictement TOUS les clips
@@ -3696,7 +3754,10 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                     file_path = cp
             if not file_path:
                 self._json_response({'peaks': [], 'cached': False}); return
-            peaks = compute_waveform_peaks(str(file_path))
+            # FS5 proxies: L=LTC biphase (quasi-constant max amplitude), R=mic.
+            # Extract only the right channel to avoid LTC contaminating the waveform.
+            pan_filter = 'pan=mono|c0=c1' if clip.get('ltc_tc_in_sec') is not None else None
+            peaks = compute_waveform_peaks(str(file_path), pan_filter=pan_filter)
             result = {'peaks': peaks, 'cached': False}
             try:
                 cache_file.write_text(json.dumps(result), encoding='utf-8')
@@ -3756,8 +3817,8 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             if not proj: self.send_error(404); return
             ac = next((a for a in proj.get('audio_clips', []) if a.get('id') == ac_id), None)
             if not ac: self.send_error(404); return
-            fp = Path(ac.get('path', ''))
-            if not fp.exists(): self.send_error(404); return
+            fp = _resolve_audio_clip_path(ac, proj)
+            if not fp: self.send_error(404); return
             self._serve_audio(fp)
             return
 

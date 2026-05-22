@@ -35,6 +35,11 @@ index.db
 # Bundled large binaries (téléchargés séparément, voir build_windows.bat ou requirements)
 ffmpeg.exe
 ffprobe.exe
+ffmpeg
+ffprobe
+
+# Fichier corrompu (heredoc shell accidentellement sauvegardé)
+electron/package.son
 
 # Test exports & legacy artifacts
 test_export*.fcpxml

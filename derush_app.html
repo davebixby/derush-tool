@@ -191,8 +191,9 @@
         #compareOverlay.active { display: flex; }
         .compare-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
         .compare-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--border); overflow: hidden; min-height: 0; }
-        .compare-slot { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
-        .compare-slot-header { padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .compare-slot { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; cursor: default; }
+        .compare-slot-header { padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; transition: box-shadow .15s; }
+        .compare-slot.cmp-active .compare-slot-header { box-shadow: inset 3px 0 0 var(--accent); background: rgba(167,139,250,.07); }
         .compare-slot-header select { flex: 1; font-size: 0.82em; }
         .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; }
         .compare-video-area video { max-width: 100%; max-height: 100%; display: block; }
@@ -201,14 +202,13 @@
         .cmp-marker { color: var(--dim); font-size: 0.78em; padding: 1px 0; cursor: pointer; }
         .cmp-marker:hover { color: var(--text); }
         .cmp-tc { font-family: monospace; color: var(--dim); font-size: 0.75em; }
-        .compare-timeline { position: relative; height: 52px; background: #0a0a12; border-top: 1px solid var(--border); cursor: pointer; user-select: none; flex-shrink: 0; }
-        .compare-timeline .cmp-tl-track { position: absolute; top: 40px; left: 10px; right: 10px; height: 3px; background: rgba(255,255,255,0.10); transform: translateY(-50%); border-radius: 2px; overflow: visible; }
-        .compare-timeline .cmp-tl-progress { position: absolute; top: 0; left: 0; height: 100%; background: linear-gradient(90deg, #7c3aed, var(--accent)); border-radius: 2px; pointer-events: none; }
-        .compare-timeline .cmp-tl-head { position: absolute; top: 40px; width: 13px; height: 13px; background: #fff; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 8px rgba(167,139,250,1); pointer-events: none; }
-        .compare-timeline .cmp-pin { position: absolute; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); cursor: pointer; }
-        .compare-timeline .cmp-pin::before { content: ''; position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 13px; height: 13px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; transition: width .1s, height .1s, top .1s; }
-        .compare-timeline .cmp-pin:hover::before { width: 16px; height: 16px; top: 4px; box-shadow: 0 0 0 2px #fff, 0 0 8px currentColor; }
-        .compare-timeline .cmp-pin:hover::after { content: attr(data-label); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(10,10,20,0.95); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 0.65em; white-space: nowrap; color: var(--text); z-index: 10; pointer-events: none; margin-bottom: 4px; }
+        .compare-timeline { position: relative; height: 42px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; user-select: none; flex-shrink: 0; overflow: visible; margin: 6px 10px; }
+        .compare-timeline .cmp-tl-progress { position: absolute; top: 0; left: 0; height: 100%; background: linear-gradient(90deg, rgba(124,58,237,.18), rgba(167,139,250,.28)); pointer-events: none; border-radius: 6px 0 0 6px; }
+        .compare-timeline .cmp-tl-head { position: absolute; top: -4px; width: 3px; height: 50px; background: #fff; border-radius: 2px; pointer-events: none; left: 0%; box-shadow: 0 0 8px rgba(255,255,255,.8); z-index: 4; }
+        .compare-timeline .cmp-pin { position: absolute; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); cursor: pointer; z-index: 3; }
+        .compare-timeline .cmp-pin::before { content: ''; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); width: 10px; height: 10px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; transition: width .1s, height .1s, top .1s; }
+        .compare-timeline .cmp-pin:hover::before { width: 14px; height: 14px; top: 2px; box-shadow: 0 0 0 2px #fff, 0 0 8px currentColor; }
+        .compare-timeline .cmp-pin:hover::after { content: attr(data-label); position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); background: rgba(10,10,20,0.95); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 0.65em; white-space: nowrap; color: var(--text); z-index: 10; pointer-events: none; margin-bottom: 4px; }
         .timeline-tc-end { position: absolute; bottom: 3px; right: 12px; font-size: 0.62em; font-family: monospace; color: var(--dim); pointer-events: none; }
 
         /* Marker popup */
@@ -3202,6 +3202,8 @@ document.addEventListener('keydown', e => {
 
     // Le viewer multi-cam gère ses propres touches — ne pas interférer
     if (_mcView) return;
+    // Le compare overlay gère ses propres touches via _cmpKeydown (capture phase)
+    if (document.getElementById('compareOverlay').classList.contains('active')) return;
 
     const tag = e.target.tagName;
     if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -3326,38 +3328,36 @@ _loadVersionAndChangelog();
 <div id="compareOverlay">
     <div class="compare-toolbar">
         <strong style="font-size:0.9em;">⚡ Comparaison</strong>
-        <button id="cmpSyncBtn" onclick="toggleCmpSync()" style="font-size:0.8em;">🔗 Sync OFF</button>
+        <span style="font-size:0.75em;color:var(--dim);margin-left:6px;">Clic vidéo : activer · Espace : play · ◄/► : caler · Shift+◄/► : ±5s · 0/1 : slot · Échap : fermer</span>
         <div style="flex:1;"></div>
         <button onclick="closeCompare()" style="color:var(--red);border-color:rgba(239,68,68,.3);">✕ Fermer</button>
     </div>
     <div class="compare-grid">
-        <div class="compare-slot" id="cmpSlot0">
+        <div class="compare-slot cmp-active" id="cmpSlot0" onclick="_setCmpActiveSlot(0)">
             <div class="compare-slot-header">
-                <select id="cmpSel0" onchange="loadCmpClip(0)"><option value="">— Sélectionner un clip —</option></select>
+                <select id="cmpSel0" onchange="loadCmpClip(0)" onclick="event.stopPropagation()"><option value="">— Sélectionner un clip —</option></select>
                 <span id="cmpTc0" class="cmp-tc">--:--:--:--</span>
-                <button onclick="document.getElementById('cmpVid0').paused ? document.getElementById('cmpVid0').play() : document.getElementById('cmpVid0').pause()" style="padding:2px 8px;">⏯</button>
+                <button id="cmpBwfBtn0" onclick="event.stopPropagation(); toggleCmpBwf(0)" style="display:none;padding:2px 8px;" title="Son ingé">🔊 Son ingé</button>
+                <button onclick="event.stopPropagation(); _setCmpActiveSlot(0); cmpTogglePlay()" style="padding:2px 8px;" title="Play/Pause (ou Espace)">⏯</button>
             </div>
-            <div class="compare-video-area"><video id="cmpVid0" ontimeupdate="updateCmpTc(0)"></video></div>
-            <div class="compare-timeline" id="cmpTimeline0" onmousedown="cmpSeek(0,event)">
-                <div class="cmp-tl-track" id="cmpTrack0">
-                    <div class="cmp-tl-progress" id="cmpProg0" style="width:0%"></div>
-                    <div class="cmp-tl-head" id="cmpHead0" style="left:0%"></div>
-                </div>
+            <div class="compare-video-area" onclick="event.stopPropagation(); _setCmpActiveSlot(0); cmpTogglePlay()"><video id="cmpVid0" ontimeupdate="updateCmpTc(0)"></video></div>
+            <div class="compare-timeline" id="cmpTimeline0" onmousedown="cmpSeek(0,event)" onclick="event.stopPropagation()">
+                <div class="cmp-tl-progress" id="cmpProg0" style="width:0%"></div>
+                <div class="cmp-tl-head" id="cmpHead0" style="left:0%"></div>
             </div>
             <div class="compare-info" id="cmpInfo0"><span style="color:var(--dim);font-size:0.85em;">Sélectionnez un clip</span></div>
         </div>
-        <div class="compare-slot" id="cmpSlot1">
+        <div class="compare-slot" id="cmpSlot1" onclick="_setCmpActiveSlot(1)">
             <div class="compare-slot-header">
-                <select id="cmpSel1" onchange="loadCmpClip(1)"><option value="">— Sélectionner un clip —</option></select>
+                <select id="cmpSel1" onchange="loadCmpClip(1)" onclick="event.stopPropagation()"><option value="">— Sélectionner un clip —</option></select>
                 <span id="cmpTc1" class="cmp-tc">--:--:--:--</span>
-                <button onclick="document.getElementById('cmpVid1').paused ? document.getElementById('cmpVid1').play() : document.getElementById('cmpVid1').pause()" style="padding:2px 8px;">⏯</button>
+                <button id="cmpBwfBtn1" onclick="event.stopPropagation(); toggleCmpBwf(1)" style="display:none;padding:2px 8px;" title="Son ingé">🔊 Son ingé</button>
+                <button onclick="event.stopPropagation(); _setCmpActiveSlot(1); cmpTogglePlay()" style="padding:2px 8px;" title="Play/Pause (ou Espace)">⏯</button>
             </div>
-            <div class="compare-video-area"><video id="cmpVid1" ontimeupdate="updateCmpTc(1)"></video></div>
-            <div class="compare-timeline" id="cmpTimeline1" onmousedown="cmpSeek(1,event)">
-                <div class="cmp-tl-track" id="cmpTrack1">
-                    <div class="cmp-tl-progress" id="cmpProg1" style="width:0%"></div>
-                    <div class="cmp-tl-head" id="cmpHead1" style="left:0%"></div>
-                </div>
+            <div class="compare-video-area" onclick="event.stopPropagation(); _setCmpActiveSlot(1); cmpTogglePlay()"><video id="cmpVid1" ontimeupdate="updateCmpTc(1)"></video></div>
+            <div class="compare-timeline" id="cmpTimeline1" onmousedown="cmpSeek(1,event)" onclick="event.stopPropagation()">
+                <div class="cmp-tl-progress" id="cmpProg1" style="width:0%"></div>
+                <div class="cmp-tl-head" id="cmpHead1" style="left:0%"></div>
             </div>
             <div class="compare-info" id="cmpInfo1"><span style="color:var(--dim);font-size:0.85em;">Sélectionnez un clip</span></div>
         </div>
