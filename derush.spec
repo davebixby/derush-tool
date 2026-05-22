@@ -22,6 +22,7 @@ a = Analysis(
     datas=[
         (str(ROOT / 'derush_server.py'),    '.'),
         (str(ROOT / 'derush_core.py'),      '.'),
+        (str(ROOT / 'derush_exports.py'),   '.'),
         (str(ROOT / 'derush_app.html'),     '.'),
         (str(ROOT / 'derush_setup.html'),   '.'),
         (str(ROOT / 'GUIDE.html'),          '.'),

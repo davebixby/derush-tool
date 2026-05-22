@@ -76,8 +76,10 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 
 - 🔧 `derush_server.py` = monolithe ; `do_GET`/`do_POST` en chaînes `if/elif`
   géantes. → **Découpage en modules en cours.** Étape 1 ✅ : `derush_core.py`
-  (utilitaires purs : hachage, timecode, clés users). Étapes suivantes : exports
-  FCPXML/EDL, multicam, décodeur LTC, puis routeur par table de routes.
+  (utilitaires purs). Étape 2 ✅ : `derush_exports.py` (FCPXML/XML Premiere/
+  sous-clips/rough-cut/rapport HTML/EDL/CSV — ~990 lignes ; `derush_server.py`
+  passé de 5320 à ~4330 lignes). Étapes suivantes : multicam + décodeur LTC,
+  scan/média, puis routeur par table de routes.
 - 🟡 Modèle de données `notes` fragile (clés dédoublées, IDs de clip orphelins —
   cf. pièges #11/#12 de CLAUDE.md). → Schéma strict + validation au `load_project`.
 - ✅ Tests E2E Playwright + **tests unitaires Python** (`tests/test_server_units.py`,
@@ -122,7 +124,7 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 | §5 sync : propagation des suppressions | ✅ corrigé |
 | §4 tests unitaires Python | ✅ ajoutés (20 cas) |
 | 1.4 `except:` nus | ✅ corrigé |
-| §4 découpage en modules | 🔧 en cours — étape 1/N (`derush_core.py`) |
+| §4 découpage en modules | 🔧 en cours — étapes 1-2/5 (`derush_core`, `derush_exports`) |
 | 2.3 · §5 (multi-device) · §6 (features) | à planifier |
 
 ### Détail des corrections appliquées
