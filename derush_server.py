@@ -4904,14 +4904,35 @@ def _sync_url_for(pid):
     # un pid avec espaces ne matchera jamais — mais ici on évite au moins le crash.
     return f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&project={_urlquote(pid, safe='')}"
 
-def merge_projects(local, remote):
-    """Fusionne remote dans local. Chaque user_id est indépendant → zéro conflit."""
+def _own_note_key(proj):
+    """Clé de notes de l'utilisateur de CETTE machine (son profil local).
+    Sert au merge sync : une machine ne publie que ses propres notes (audit §5)."""
+    prof = load_profile()
+    if not prof:
+        return None
+    u = find_project_user(proj, prof.get('username', ''))
+    return user_note_key(u) if u else None
+
+def merge_projects(local, remote, own_uid=None):
+    """Fusionne remote dans local.
+
+    Notes (audit §5) : on part de la version distante et cette machine ne
+    réimpose QUE les notes de son propre utilisateur (`own_uid`). Sinon une
+    machine réécrirait les notes des autres users avec sa copie périmée → une
+    suppression de marqueur faite ailleurs « reviendrait » au sync suivant.
+    Si `own_uid` est inconnu, on retombe sur l'ancien comportement (toutes les
+    clés locales) pour ne risquer aucune perte.
+    """
     result = copy.deepcopy(local)
-    # Notes : union des user_ids. Local gagne pour les user_ids présents des deux côtés
-    # (chaque utilisateur n'écrit que ses propres notes → local = toujours le plus récent pour lui)
     merged_notes = copy.deepcopy(remote.get('notes', {}))
-    for uid, unotes in local.get('notes', {}).items():
-        merged_notes[uid] = unotes
+    local_notes = local.get('notes', {})
+    if own_uid is not None:
+        if own_uid in local_notes:
+            merged_notes[own_uid] = local_notes[own_uid]
+        # own_uid connu mais pas de notes locales pour lui → on ne touche à rien
+    else:
+        for uid, unotes in local_notes.items():
+            merged_notes[uid] = unotes
     result['notes'] = merged_notes
 
     # Discussions : ajoute les replies du remote absentes en local (clé = timestamp)
@@ -5011,7 +5032,8 @@ def sync_project(pid):
     # (audit 1.1).
     with _project_lock(pid):
         local_now = load_project(pid) or proj
-        merged = merge_projects(local_now, remote) if remote else local_now
+        own = _own_note_key(local_now)
+        merged = merge_projects(local_now, remote, own_uid=own) if remote else local_now
         save_project(pid, merged)
 
     # Push du résultat fusionné vers le cloud

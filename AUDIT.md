@@ -82,10 +82,12 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 
 ## 5. Limites fonctionnelles (conception)
 
-- 🟠 **La sync ne supprime jamais une note.** `merge_projects` fait de
-  l'union/remplacement par user, jamais de suppression → les notes s'accumulent,
-  une clé orpheline ne part jamais. → *Tombstone* par marqueur (id + flag
-  supprimé + timestamp), comme pour les users supprimés.
+- ✅ **La sync ne supprime jamais une note** — *corrigé le 22 mai.*
+  `merge_projects` laissait chaque machine réécrire les notes de **tous** les
+  users (y compris sa copie périmée de celles des autres) → une suppression
+  faite ailleurs « revenait ». Désormais une machine ne publie que les notes de
+  **son propre utilisateur** (`_own_note_key` + `merge_projects(own_uid=…)`) ;
+  pour les autres elle garde la version du cloud. Les suppressions se propagent.
 - 🟠 **Un même user sur deux machines en parallèle = perte de notes** (racine du
   bug `6714b070`/`Sebastien`).
 
@@ -113,7 +115,8 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 | 3.2 debounce indexation | ✅ corrigé |
 | 2.4 anti-brute-force login | ✅ corrigé |
 | 2.5 expiration liens de review | ✅ corrigé |
-| 1.4 · 2.3 · §4 · §5 · §6 | à planifier |
+| §5 sync : propagation des suppressions | ✅ corrigé |
+| 1.4 · 2.3 · §4 · §5 (multi-device) · §6 | à planifier |
 
 ### Détail des corrections appliquées
 
@@ -149,6 +152,13 @@ compteur est remis à zéro à la connexion réussie.
 un `expires_at` (création + 30 jours) est embarqué dans le package.
 `derush_sync.php` refuse de servir un lien périmé (HTTP 410). Re-partager un
 projet réétend le délai.
+
+**§5 — Sync : propagation des suppressions.** `merge_projects` ne laisse plus
+chaque machine réécrire les notes de tous les users. Une machine ne publie que
+les notes de **son propre utilisateur** (`_own_note_key`) ; pour les autres elle
+conserve la version du cloud. Une suppression de marqueur faite par un user se
+propage donc partout et ne peut plus « revenir ». Limite restante : un même user
+sur deux machines en parallèle (§5, 2ᵉ point) — non couvert.
 
 ### 2.2 — Activation de la clé en en-tête
 
