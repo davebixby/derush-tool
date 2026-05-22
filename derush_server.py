@@ -330,8 +330,38 @@ def _ws_broadcast(project_id, message, exclude_token=None):
                 try: _ws_clients.get(project_id, []).remove(d)
                 except: pass
 
-def hash_password(pw):
-    return hashlib.sha256(pw.encode('utf-8')).hexdigest()
+_PBKDF2_ITERS = 200_000
+
+def hash_password(pw, salt=None):
+    """Hache un mot de passe en PBKDF2-HMAC-SHA256 (salé).
+    Format stocké : 'pbkdf2$<iters>$<salt_hex>$<hash_hex>'."""
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    elif isinstance(salt, str):
+        salt = bytes.fromhex(salt)
+    dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, _PBKDF2_ITERS)
+    return f"pbkdf2${_PBKDF2_ITERS}${salt.hex()}${dk.hex()}"
+
+def is_legacy_hash(stored):
+    """True si le hash est dans l'ancien format SHA-256 nu (à re-hacher)."""
+    return bool(stored) and not str(stored).startswith('pbkdf2$')
+
+def verify_password(pw, stored):
+    """Vérifie un mot de passe contre un hash stocké. Gère le nouveau format
+    PBKDF2 et l'ancien SHA-256 nu (pour la migration transparente)."""
+    if not stored:
+        return False
+    stored = str(stored)
+    if stored.startswith('pbkdf2$'):
+        try:
+            _, iters, salt_hex, hash_hex = stored.split('$')
+            dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'),
+                                     bytes.fromhex(salt_hex), int(iters))
+            return secrets.compare_digest(dk.hex(), hash_hex)
+        except Exception:
+            return False
+    # Ancien format : SHA-256 nu, non salé
+    return secrets.compare_digest(hashlib.sha256(pw.encode('utf-8')).hexdigest(), stored)
 
 def get_session(handler):
     """Extract session from Authorization header or cookie."""
@@ -754,11 +784,75 @@ def list_projects():
         except: pass
     return sorted(projects, key=lambda p: p.get('modified', ''), reverse=True)
 
+# ─── Concurrence, cache & indexation projet (audit 22 mai 2026) ──────────────
+# Verrou ré-entrant par projet : sérialise les cycles load-modifie-save pour
+# éviter qu'une écriture concurrente en écrase une autre (lost update).
+_project_locks = {}
+_project_locks_guard = threading.Lock()
+
+def _project_lock(pid):
+    with _project_locks_guard:
+        lk = _project_locks.get(pid)
+        if lk is None:
+            lk = threading.RLock()
+            _project_locks[pid] = lk
+        return lk
+
+_PID_PATH_RE = re.compile(r'^/api/project/([^/]+)/')
+
+def _pid_from_path(rawpath):
+    """Extrait le pid d'une URL /api/project/<pid>/... — None sinon."""
+    m = _PID_PATH_RE.match(urlparse(rawpath).path)
+    return m.group(1) if m else None
+
+# Cache mémoire des projets, invalidé par (mtime, taille) du fichier — robuste
+# aux écritures externes (sync). Évite de relire+reparser 400 Ko à chaque
+# requête (polling notes, WebSocket…).
+_project_cache = {}
+_project_cache_lock = threading.Lock()
+
+# Indexation FTS debouncée : une rafale de saves ne déclenche qu'un réindex.
+_index_timers = {}
+_index_pending = {}
+_index_lock = threading.Lock()
+
+def _schedule_index(pid, data, delay=2.0):
+    with _index_lock:
+        _index_pending[pid] = data
+        t = _index_timers.get(pid)
+        if t:
+            try: t.cancel()
+            except Exception: pass
+        def _fire():
+            with _index_lock:
+                d = _index_pending.pop(pid, None)
+                _index_timers.pop(pid, None)
+            if d is not None:
+                try: _index_project_db(pid, d)
+                except Exception: pass
+        t = threading.Timer(delay, _fire)
+        t.daemon = True
+        _index_timers[pid] = t
+        t.start()
+
 def load_project(project_id):
     f = PROJECTS_DIR / f"{project_id}.derush.json"
-    if f.exists():
-        return json.loads(f.read_text(encoding='utf-8'))
-    return None
+    try:
+        st = f.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    key = (st.st_mtime_ns, st.st_size)
+    with _project_cache_lock:
+        cached = _project_cache.get(project_id)
+        if cached and cached[0] == key:
+            return copy.deepcopy(cached[1])
+    try:
+        data = json.loads(f.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None
+    with _project_cache_lock:
+        _project_cache[project_id] = (key, data)
+    return copy.deepcopy(data)
 
 def save_project(project_id, data):
     data['modified'] = datetime.now().isoformat()
@@ -771,9 +865,13 @@ def save_project(project_id, data):
         old_backups = sorted(backup_dir.glob('*.json'))
         for old in old_backups[:-10]:
             old.unlink(missing_ok=True)
-    f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    # Reindex FTS in background — never block save on indexing
-    threading.Thread(target=lambda: _index_project_db(project_id, data), daemon=True).start()
+    # Écriture atomique : .tmp puis os.replace() — jamais de fichier projet
+    # tronqué si le process meurt en plein write.
+    tmp = f.parent / (f.name + '.tmp')
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    os.replace(tmp, f)
+    # Indexation FTS debouncée — ne bloque jamais le save.
+    _schedule_index(project_id, data)
 
 def create_project(name, root_path, admin_username, color='#a78bfa'):
     pid = re.sub(r'[^a-zA-Z0-9_]', '_', name.lower()).strip('_')
@@ -2376,7 +2474,12 @@ def _decode_ltc_job(pid, force=False):
 
     try:
         n_with, n_without, n_skip, n_err = decode_project_ltc(proj, pid, _cb, force=force)
-        save_project(pid, proj)
+        # Re-charge sous verrou et ne réécrit que les clips — préserve les
+        # annotations faites pendant le décodage (audit 1.1).
+        with _project_lock(pid):
+            _fresh = load_project(pid) or proj
+            _fresh['clips'] = proj['clips']
+            save_project(pid, _fresh)
         with _ltc_jobs_lock:
             _ltc_jobs[pid] = {'status': 'done',
                               'n_with_ltc': n_with, 'n_without_ltc': n_without,
@@ -2802,11 +2905,14 @@ def _detect_multicam_job(pid):
         # Append to existing proposals (detect_multicam_groups already skips clips in
         # validated groups & proposals, so `groups` only contains new ones). This way
         # the user can iterate detection runs without losing previously found proposals.
-        existing = proj.get('multicam_proposals', [])
-        existing_ids = {g['id'] for g in existing}
-        new_groups = [g for g in groups if g['id'] not in existing_ids]
-        proj['multicam_proposals'] = existing + new_groups
-        save_project(pid, proj)
+        # Re-charge le projet sous verrou avant d'écrire (audit 1.1).
+        with _project_lock(pid):
+            proj = load_project(pid) or proj
+            existing = proj.get('multicam_proposals', [])
+            existing_ids = {g['id'] for g in existing}
+            new_groups = [g for g in groups if g['id'] not in existing_ids]
+            proj['multicam_proposals'] = existing + new_groups
+            save_project(pid, proj)
         with _mc_jobs_lock:
             _mc_jobs[pid] = {'status': 'done', 'group_count': len(new_groups),
                              'total_proposals': len(proj['multicam_proposals']),
@@ -2918,12 +3024,16 @@ def _auto_detect_job(pid, threshold=0.4, clip_ids=None):
                     'status': 'pending',
                 })
                 new_count += 1
-        proj['auto_detected'][clip['id']] = {
-            'candidates': new_candidates,
-            'scanned_at': datetime.now().isoformat(timespec='seconds'),
-            'threshold': threshold,
-        }
-        save_project(pid, proj)
+        # Écrit le résultat de ce clip sous verrou, sur une copie fraîche du
+        # projet — préserve les annotations concurrentes (audit 1.1).
+        with _project_lock(pid):
+            proj = load_project(pid) or proj
+            proj.setdefault('auto_detected', {})[clip['id']] = {
+                'candidates': new_candidates,
+                'scanned_at': datetime.now().isoformat(timespec='seconds'),
+                'threshold': threshold,
+            }
+            save_project(pid, proj)
     with _auto_detect_jobs_lock:
         _auto_detect_jobs[pid] = {'status': 'done', 'done': total, 'total': total, 'new_candidates': new_count}
 
@@ -3195,6 +3305,38 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
 
     def do_GET(self):
+        try:
+            self._dispatch_get()
+        except Exception:
+            self._handle_exception()
+
+    def do_POST(self):
+        # Verrou par projet : sérialise les écritures concurrentes sur un même
+        # projet (audit 1.1). + capture des exceptions → 500 propre (audit 1.3).
+        pid = _pid_from_path(self.path)
+        try:
+            if pid:
+                with _project_lock(pid):
+                    self._dispatch_post()
+            else:
+                self._dispatch_post()
+        except Exception:
+            self._handle_exception()
+
+    def _handle_exception(self):
+        import traceback
+        sys.stderr.write(f"[derush] Exception non gérée — {self.command} {self.path}\n"
+                         + traceback.format_exc() + "\n")
+        try:
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': 'Erreur interne du serveur'}).encode('utf-8'))
+        except Exception:
+            pass  # réponse déjà (partiellement) envoyée — rien à faire
+
+    def _dispatch_get(self):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
@@ -3576,7 +3718,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 return
             list_url = f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&action=list"
             try:
-                req = urllib.request.Request(list_url, headers={'User-Agent': 'DerushTool'})
+                req = urllib.request.Request(list_url, headers=_sync_headers())
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode('utf-8'))
             except urllib.error.HTTPError as e:
@@ -3883,7 +4025,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
 
         self.send_error(404)
 
-    def do_POST(self):
+    def _dispatch_post(self):
         global CONFIG, IS_CONFIGURED, PROJECTS_DIR, WAVEFORMS_DIR, THUMBNAILS_DIR, BACKUPS_DIR, PORT, FFMPEG, FFPROBE, SYNC_URL, SYNC_KEY
         parsed = urlparse(self.path)
         path = parsed.path
@@ -3912,7 +4054,13 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             if not profile:
                 self._json_response({'error': 'Aucun profil créé sur cet appareil. Relancez la configuration.'}, 403)
                 return
-            if profile['username'].lower() != username.lower() or profile['password_hash'] != hash_password(password):
+            profile_ok = (profile['username'].lower() == username.lower()
+                          and verify_password(password, profile.get('password_hash', '')))
+            if profile_ok and is_legacy_hash(profile.get('password_hash', '')):
+                # Migration transparente : re-hache en PBKDF2 au login réussi.
+                profile['password_hash'] = hash_password(password)
+                save_profile(profile)
+            if not profile_ok:
                 # Fallback: old-style project-based auth (backward compat)
                 matched_pid = matched_user = matched_proj = None
                 for pf in sorted(PROJECTS_DIR.glob('*.derush.json')):
@@ -3921,7 +4069,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                         proj = load_project(pid)
                         if not proj: continue
                         u = find_project_user(proj, username)
-                        if u and u.get('password_hash') == hash_password(password):
+                        if u and verify_password(password, u.get('password_hash', '')):
                             matched_pid, matched_user, matched_proj = pid, u, proj
                             break
                     except Exception:
@@ -4292,7 +4440,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 return
             url = _sync_url_for(pid)
             try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'DerushTool'})
+                req = urllib.request.Request(url, headers=_sync_headers())
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     project_data = json.loads(resp.read().decode('utf-8'))
             except urllib.error.HTTPError as e:
@@ -4710,6 +4858,16 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+def _sync_headers(extra=None):
+    """En-têtes des requêtes vers le serveur de sync. La clé passe en en-tête
+    X-Sync-Key (audit 2.2) — une fois derush_sync.php redéployé, elle n'a plus
+    besoin d'être dans le query string et n'apparaît plus dans les logs Apache.
+    Le ?key= reste pour l'instant (rétrocompatibilité)."""
+    h = {'User-Agent': 'DerushTool', 'X-Sync-Key': SYNC_KEY}
+    if extra:
+        h.update(extra)
+    return h
+
 def _sync_url_for(pid):
     # URL-encode pour gérer les espaces et caractères spéciaux (sinon urllib râle).
     # NB : la PHP filtre déjà via preg_replace([^a-zA-Z0-9_\-]) côté serveur, donc
@@ -4801,7 +4959,7 @@ def sync_project(pid):
 
     # Pull
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'DerushTool'})
+        req = urllib.request.Request(url, headers=_sync_headers())
         with urllib.request.urlopen(req, timeout=10) as resp:
             remote = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
@@ -4818,15 +4976,19 @@ def sync_project(pid):
             _sync_status.update({'online': False, 'error': msg})
         return {'ok': False, 'message': msg}
 
-    # Merge
-    merged = merge_projects(proj, remote) if remote else proj
+    # Merge + save sous verrou projet : on recharge le projet à l'instant T pour
+    # ne pas écraser une écriture concurrente survenue pendant le pull réseau
+    # (audit 1.1).
+    with _project_lock(pid):
+        local_now = load_project(pid) or proj
+        merged = merge_projects(local_now, remote) if remote else local_now
+        save_project(pid, merged)
 
-    # Push
+    # Push du résultat fusionné vers le cloud
     try:
         data = json.dumps(merged, ensure_ascii=False).encode('utf-8')
         req  = urllib.request.Request(url, data=data, method='POST',
-                                      headers={'Content-Type': 'application/json',
-                                               'User-Agent': 'DerushTool'})
+                                      headers=_sync_headers({'Content-Type': 'application/json'}))
         with urllib.request.urlopen(req, timeout=10) as resp:
             resp.read()
     except Exception as e:
@@ -4834,9 +4996,6 @@ def sync_project(pid):
         with _sync_lock:
             _sync_status.update({'online': False, 'error': msg})
         return {'ok': False, 'message': msg}
-
-    # Sauvegarder localement le résultat fusionné
-    save_project(pid, merged)
 
     ts = datetime.now().strftime('%H:%M')
     with _sync_lock:
@@ -4958,18 +5117,19 @@ def create_share(pid):
         url = f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&action=create_share&token={token}"
         data = json.dumps(package, ensure_ascii=False).encode('utf-8')
         req = urllib.request.Request(url, data=data, method='POST',
-                                     headers={'Content-Type': 'application/json',
-                                              'User-Agent': 'DerushTool'})
+                                     headers=_sync_headers({'Content-Type': 'application/json'}))
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp.read()
     except Exception as e:
         return {'ok': False, 'error': f'Push share échoué : {e}'}
-    proj['share'] = {
-        'token': token,
-        'created_at': datetime.now().isoformat(timespec='seconds'),
-        'comments_last_pulled': None,
-    }
-    save_project(pid, proj)
+    with _project_lock(pid):
+        proj = load_project(pid) or proj
+        proj['share'] = {
+            'token': token,
+            'created_at': datetime.now().isoformat(timespec='seconds'),
+            'comments_last_pulled': None,
+        }
+        save_project(pid, proj)
     # URL viewer (sans key) basée sur sync_url
     base = SYNC_URL.rstrip('/').rsplit('?', 1)[0]
     viewer_url = f"{base}?view=share&token={token}"
@@ -4984,13 +5144,15 @@ def revoke_share(pid):
     if token and SYNC_URL and SYNC_KEY:
         try:
             url = f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&action=revoke_share&token={token}"
-            req = urllib.request.Request(url, method='POST', headers={'User-Agent': 'DerushTool'})
+            req = urllib.request.Request(url, method='POST', headers=_sync_headers())
             with urllib.request.urlopen(req, timeout=10) as resp:
                 resp.read()
         except Exception:
             pass  # On supprime localement même si le cloud refuse
-    proj.pop('share', None)
-    save_project(pid, proj)
+    with _project_lock(pid):
+        proj = load_project(pid) or proj
+        proj.pop('share', None)
+        save_project(pid, proj)
     return {'ok': True}
 
 # Locks par projet pour empêcher pull_share_comments concurrents (cause de
@@ -5019,7 +5181,7 @@ def pull_share_comments(pid):
         since = proj['share'].get('comments_last_pulled') or ''
         try:
             url = f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&action=poll_comments&token={token}&since={since}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'DerushTool'})
+            req = urllib.request.Request(url, headers=_sync_headers())
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
         except Exception as e:
@@ -5056,7 +5218,8 @@ def pull_share_comments(pid):
             if c.get('ts', '') > max_ts:
                 max_ts = c['ts']
         proj['share']['comments_last_pulled'] = max_ts
-        save_project(pid, proj)
+        with _project_lock(pid):
+            save_project(pid, proj)
         return {'ok': True, 'count': added}
 
 def sync_all_projects():

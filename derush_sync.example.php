@@ -104,8 +104,11 @@ header('Access-Control-Allow-Headers: Content-Type');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit; }
 
-$key = $_GET['key'] ?? '';
-if ($key !== $SECRET_KEY) {
+// Clé acceptée via l'en-tête X-Sync-Key (recommandé : n'apparaît pas dans les
+// logs du serveur web) OU via ?key= (rétrocompatibilité). Comparaison à temps
+// constant (hash_equals) pour ne pas fuiter la clé via une attaque temporelle.
+$key = $_SERVER['HTTP_X_SYNC_KEY'] ?? ($_GET['key'] ?? '');
+if (!hash_equals($SECRET_KEY, (string)$key)) {
     http_response_code(403);
     echo json_encode(['error' => 'Forbidden']);
     exit;
