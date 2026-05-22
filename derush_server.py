@@ -4465,6 +4465,11 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             SESSIONS[auth_token] = {
                 **s,
                 'project_id': pid,
+                # Aligne user_id sur la clé de notes canonique du projet
+                # (user_note_key). Sinon l'UI indexe les notes sous le username
+                # tandis que /notes et l'export les rangent sous l'id du user →
+                # l'UI ne retrouve plus ses notes et finit par les écraser à vide.
+                'user_id': user_note_key(user),
                 'color': user.get('color', '#a78bfa'),
                 'is_admin': is_admin,
                 'role': role,
