@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
 from collections import Counter
 import mimetypes
+from derush_core import (hash_password, is_legacy_hash, verify_password,
+                        tc_to_seconds, seconds_to_tc, seconds_to_rational,
+                        find_project_user, user_note_key)
 
 # ─── Heartbeat / auto-shutdown ───
 _last_heartbeat = _time.time()
@@ -330,38 +333,7 @@ def _ws_broadcast(project_id, message, exclude_token=None):
                 try: _ws_clients.get(project_id, []).remove(d)
                 except Exception: pass
 
-_PBKDF2_ITERS = 200_000
-
-def hash_password(pw, salt=None):
-    """Hache un mot de passe en PBKDF2-HMAC-SHA256 (salé).
-    Format stocké : 'pbkdf2$<iters>$<salt_hex>$<hash_hex>'."""
-    if salt is None:
-        salt = secrets.token_bytes(16)
-    elif isinstance(salt, str):
-        salt = bytes.fromhex(salt)
-    dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'), salt, _PBKDF2_ITERS)
-    return f"pbkdf2${_PBKDF2_ITERS}${salt.hex()}${dk.hex()}"
-
-def is_legacy_hash(stored):
-    """True si le hash est dans l'ancien format SHA-256 nu (à re-hacher)."""
-    return bool(stored) and not str(stored).startswith('pbkdf2$')
-
-def verify_password(pw, stored):
-    """Vérifie un mot de passe contre un hash stocké. Gère le nouveau format
-    PBKDF2 et l'ancien SHA-256 nu (pour la migration transparente)."""
-    if not stored:
-        return False
-    stored = str(stored)
-    if stored.startswith('pbkdf2$'):
-        try:
-            _, iters, salt_hex, hash_hex = stored.split('$')
-            dk = hashlib.pbkdf2_hmac('sha256', pw.encode('utf-8'),
-                                     bytes.fromhex(salt_hex), int(iters))
-            return secrets.compare_digest(dk.hex(), hash_hex)
-        except Exception:
-            return False
-    # Ancien format : SHA-256 nu, non salé
-    return secrets.compare_digest(hashlib.sha256(pw.encode('utf-8')).hexdigest(), stored)
+# hash_password / is_legacy_hash / verify_password → derush_core.py (audit §4)
 
 # ─── Anti-brute-force login (audit 2.4) ──────────────────────────────────────
 _login_fails = {}            # ip -> [timestamps des échecs récents]
@@ -405,32 +377,7 @@ def require_auth(handler):
         handler.wfile.write(b'{"error":"Non authentifi\u00e9"}')
     return s
 
-# ─── Timecode Helpers ───
-
-def tc_to_seconds(tc_str, fps=25):
-    if not tc_str: return None
-    parts = tc_str.replace(';',':').split(':')
-    if len(parts) == 4:
-        h, m, s, f = [int(p) for p in parts]
-        return h*3600 + m*60 + s + f/fps
-    return None
-
-def seconds_to_tc(sec, fps=25):
-    if sec is None: return ''
-    fps_int = round(fps)
-    total_frames = int(round(sec * fps_int))
-    f = total_frames % fps_int
-    total_secs = total_frames // fps_int
-    s = total_secs % 60
-    total_mins = total_secs // 60
-    m = total_mins % 60
-    h = total_mins // 60
-    return f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
-
-def seconds_to_rational(sec, fps=25):
-    fps_int = round(fps)
-    frames = int(round(sec * fps_int))
-    return f"{frames}/{fps_int}s"
+# ─── Timecode : tc_to_seconds / seconds_to_tc / seconds_to_rational → derush_core.py
 
 # ─── Media Scanner ───
 
@@ -920,17 +867,7 @@ def create_project(name, root_path, admin_username, color='#a78bfa'):
     save_project(pid, data)
     return pid, data
 
-def find_project_user(proj, username):
-    """Find user entry in project by username (case-insensitive). Also handles old 'name' field."""
-    for u in proj.get('users', []):
-        uname = u.get('username') or u.get('name', '')
-        if uname.lower() == username.lower():
-            return u
-    return None
-
-def user_note_key(u):
-    """Return the key used to look up this user's notes (supports old id-based and new username-based models)."""
-    return u.get('id') or u.get('username') or u.get('name', '')
+# find_project_user / user_note_key → derush_core.py (audit §4)
 
 # ─── Search index (SQLite FTS5) ───
 # Hybrid model: .derush.json files remain the source of truth. This DB is a
