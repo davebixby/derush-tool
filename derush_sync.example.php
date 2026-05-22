@@ -50,6 +50,11 @@ if ($action === 'get_share') {
     if (!$token) { http_response_code(400); echo '{"error":"Token manquant"}'; exit; }
     $f = $SHARE_DIR . $token . '.json';
     if (!file_exists($f)) { http_response_code(404); echo '{"error":"Lien expiré ou révoqué"}'; exit; }
+    // Expiration du lien (audit 2.5) : le package embarque expires_at.
+    $pkg = json_decode(file_get_contents($f), true) ?: [];
+    if (!empty($pkg['expires_at']) && strtotime($pkg['expires_at']) < time()) {
+        http_response_code(410); echo '{"error":"Ce lien de review a expiré."}'; exit;
+    }
     readfile($f);
     exit;
 }

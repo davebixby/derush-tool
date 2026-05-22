@@ -111,7 +111,9 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 | 2.2 clé de sync (header) | ⏳ code prêt — activation ci-dessous |
 | 3.1 cache load_project | ✅ corrigé |
 | 3.2 debounce indexation | ✅ corrigé |
-| 1.4 · 2.3 · 2.4 · 2.5 · §4 · §5 · §6 | à planifier |
+| 2.4 anti-brute-force login | ✅ corrigé |
+| 2.5 expiration liens de review | ✅ corrigé |
+| 1.4 · 2.3 · §4 · §5 · §6 | à planifier |
 
 ### Détail des corrections appliquées
 
@@ -138,6 +140,15 @@ fichier → plus de relecture/parsing de 400 Ko à chaque requête. Robuste aux
 
 **3.2 — Debounce indexation.** L'indexation FTS est *debouncée* (2 s) : une
 rafale de saves ne déclenche qu'un seul réindex.
+
+**2.4 — Anti-brute-force login.** Au-delà de 8 échecs de connexion en 5 min
+depuis une même IP, `/api/login` répond 429 (« Trop de tentatives »). Le
+compteur est remis à zéro à la connexion réussie.
+
+**2.5 — Expiration des liens de review.** À la création d'un lien de partage,
+un `expires_at` (création + 30 jours) est embarqué dans le package.
+`derush_sync.php` refuse de servir un lien périmé (HTTP 410). Re-partager un
+projet réétend le délai.
 
 ### 2.2 — Activation de la clé en en-tête
 

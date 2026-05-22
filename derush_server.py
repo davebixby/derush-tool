@@ -363,6 +363,30 @@ def verify_password(pw, stored):
     # Ancien format : SHA-256 nu, non salé
     return secrets.compare_digest(hashlib.sha256(pw.encode('utf-8')).hexdigest(), stored)
 
+# ─── Anti-brute-force login (audit 2.4) ──────────────────────────────────────
+_login_fails = {}            # ip -> [timestamps des échecs récents]
+_login_fails_lock = threading.Lock()
+_LOGIN_MAX_FAILS = 8
+_LOGIN_WINDOW = 300          # secondes
+
+def _login_throttled(ip):
+    now = _time.time()
+    with _login_fails_lock:
+        fails = [t for t in _login_fails.get(ip, []) if now - t < _LOGIN_WINDOW]
+        _login_fails[ip] = fails
+        return len(fails) >= _LOGIN_MAX_FAILS
+
+def _login_record_fail(ip):
+    with _login_fails_lock:
+        _login_fails.setdefault(ip, []).append(_time.time())
+
+def _login_clear(ip):
+    with _login_fails_lock:
+        _login_fails.pop(ip, None)
+
+# Durée de vie par défaut d'un lien de review partagé (audit 2.5)
+_SHARE_TTL_DAYS = 30
+
 def get_session(handler):
     """Extract session from Authorization header or cookie."""
     auth = handler.headers.get('Authorization', '')
@@ -4050,6 +4074,10 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             if not username:
                 self._json_response({'error': 'Identifiant requis'}, 400)
                 return
+            _ip = self.client_address[0]
+            if _login_throttled(_ip):
+                self._json_response({'error': 'Trop de tentatives de connexion. Réessaie dans quelques minutes.'}, 429)
+                return
             profile = load_profile()
             if not profile:
                 self._json_response({'error': 'Aucun profil créé sur cet appareil. Relancez la configuration.'}, 403)
@@ -4075,12 +4103,14 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                     except Exception:
                         continue
                 if not matched_user:
+                    _login_record_fail(_ip)
                     self._json_response({'error': 'Identifiants incorrects'}, 401)
                     return
                 # Migrate: create profile from old admin user
                 if not load_profile():
                     save_profile({'username': matched_user.get('name', username), 'password_hash': hash_password(password)})
                 profile = load_profile()
+            _login_clear(_ip)
             token = secrets.token_hex(32)
             SESSIONS[token] = {
                 'username': profile['username'],
@@ -5113,6 +5143,10 @@ def create_share(pid):
     package = build_share_package(pid)
     if not package:
         return {'ok': False, 'error': 'Impossible de construire le package'}
+    # Expiration du lien (audit 2.5) — embarquée dans le package : c'est la PHP
+    # qui refusera de servir un lien périmé.
+    expires_at = (datetime.now() + timedelta(days=_SHARE_TTL_DAYS)).isoformat(timespec='seconds')
+    package['expires_at'] = expires_at
     try:
         url = f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&action=create_share&token={token}"
         data = json.dumps(package, ensure_ascii=False).encode('utf-8')
@@ -5127,13 +5161,14 @@ def create_share(pid):
         proj['share'] = {
             'token': token,
             'created_at': datetime.now().isoformat(timespec='seconds'),
+            'expires_at': expires_at,
             'comments_last_pulled': None,
         }
         save_project(pid, proj)
     # URL viewer (sans key) basée sur sync_url
     base = SYNC_URL.rstrip('/').rsplit('?', 1)[0]
     viewer_url = f"{base}?view=share&token={token}"
-    return {'ok': True, 'token': token, 'url': viewer_url}
+    return {'ok': True, 'token': token, 'url': viewer_url, 'expires_at': expires_at}
 
 def revoke_share(pid):
     """Révoque le partage : supprime le token côté projet et envoie un delete au cloud."""
