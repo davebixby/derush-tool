@@ -1,6 +1,6 @@
 {
   "name": "derush-tool-electron",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Electron wrapper for Derush Tool — bundles Chromium + Python backend",
   "main": "main.js",
   "scripts": {

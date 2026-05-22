@@ -4,6 +4,28 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.6] — 2026-05-22
+
+### 🔒 Stabilité & sécurité (audit technique)
+- **Verrou par projet** : fin des écritures concurrentes qui pouvaient s'écraser entre elles (perte d'annotations).
+- **Écriture atomique** des fichiers projet (`.tmp` + `os.replace`) : plus de fichier tronqué en cas de crash.
+- **Hachage des mots de passe en PBKDF2** salé (au lieu de SHA-256 nu), migration transparente au login.
+- **Anti-brute-force** sur le login (429 après trop d'échecs) ; **expiration** des liens de review (30 j).
+- Réponse 500 propre sur erreur serveur ; clé de sync transmissible par en-tête HTTP.
+
+### 🐛 Corrigé
+- **Sync** : une suppression de marqueur ne « revient » plus (chaque machine ne publie que ses propres notes).
+- **Marqueur perdu** après synchronisation : alignement de la clé de notes entre UI, serveur et export.
+- L'utilisateur ne se voit plus lui-même dans « Avis des autres ».
+- Barre de génération des aperçus : va jusqu'au bout au lieu de rester bloquée.
+- Export FCPXML : timeline complète (fin du dédoublement de clés de notes).
+
+### 🏗️ Interne
+- Cache de chargement des projets, indexation FTS debouncée.
+- Découpage du serveur en modules (`derush_core`, `derush_exports`) ; tests unitaires Python.
+
+---
+
 ## [0.3.5] — 2026-05-19 (soir)
 
 ### ✨ Ajouté
