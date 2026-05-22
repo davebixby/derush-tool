@@ -1037,7 +1037,11 @@ function _pregenRun() {
         const url = _pregen.q.shift();
         _pregen.n++;
         const img = new Image();
-        img.onload = img.onerror = () => { _pregen.n--; _pregenRun(); };
+        // La barre de progression suit la file de pré-génération (TOUS les
+        // clips), pas seulement les vignettes scrollées dans la liste — sinon
+        // elle reste bloquée tant qu'on n'a pas tout fait défiler.
+        img.onload  = () => { _thumbDone(img, true);  _pregen.n--; _pregenRun(); };
+        img.onerror = () => { _thumbDone(img, false); _pregen.n--; _pregenRun(); };
         img.src = url;
     }
 }
