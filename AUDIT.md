@@ -30,8 +30,9 @@ coupure en plein milieu = fichier projet tronqué et illisible.
 endpoint = connexion coupée brutalement, pas de réponse 500 propre.
 → *Correctif* : envelopper le dispatch, renvoyer un 500 JSON et logguer.
 
-### 🟡 1.4 — `except:` nus (~15)
-Avalent les vraies erreurs et `KeyboardInterrupt`. → `except Exception` typé + log.
+### ✅ 1.4 — `except:` nus (~15) — *corrigé le 22 mai*
+Les 15 `except:` nus (qui avalaient aussi `KeyboardInterrupt`/`SystemExit`) sont
+passés en `except Exception:`.
 
 ## 2. Sécurité
 
@@ -118,7 +119,8 @@ Sur des saves rapprochés, des threads d'indexation FTS s'empilent.
 | 2.5 expiration liens de review | ✅ corrigé |
 | §5 sync : propagation des suppressions | ✅ corrigé |
 | §4 tests unitaires Python | ✅ ajoutés (20 cas) |
-| 1.4 · 2.3 · §4 (refacto) · §5 (multi-device) · §6 | à planifier |
+| 1.4 `except:` nus | ✅ corrigé |
+| 2.3 · §4 (refacto modules) · §5 (multi-device) · §6 (features) | à planifier |
 
 ### Détail des corrections appliquées
 

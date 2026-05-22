@@ -286,7 +286,7 @@ def _ws_send(sock, message):
     elif n < 65536: header = bytes([0x81, 126]) + _struct.pack('>H', n)
     else:           header = bytes([0x81, 127]) + _struct.pack('>Q', n)
     try: sock.sendall(header + data); return True
-    except: return False
+    except Exception: return False
 
 def _ws_recv(sock):
     try:
@@ -314,7 +314,7 @@ def _ws_recv(sock):
             payload += chunk
         if masked: payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         return opcode, payload
-    except: return None
+    except Exception: return None
 
 def _ws_broadcast(project_id, message, exclude_token=None):
     payload = json.dumps(message, ensure_ascii=False)
@@ -328,7 +328,7 @@ def _ws_broadcast(project_id, message, exclude_token=None):
         with _ws_clients_lock:
             for d in dead:
                 try: _ws_clients.get(project_id, []).remove(d)
-                except: pass
+                except Exception: pass
 
 _PBKDF2_ITERS = 200_000
 
@@ -441,7 +441,7 @@ def ffprobe_metadata(filepath):
                '-v', 'quiet', '-print_format', 'json']
         r = _ffmpeg_run(cmd, timeout=30, text=True)
         return json.loads(r.stdout)
-    except:
+    except Exception:
         return {}
 
 def _extract_tech_metadata(fmt_tags, streams, fps=25):
@@ -473,7 +473,7 @@ def _extract_tech_metadata(fmt_tags, streams, fps=25):
             if num > 0:
                 formatted = f"f/{num:.1f}".rstrip('0').rstrip('.')
                 result['aperture'] = formatted if formatted != 'f/' else f"f/{num}"
-        except:
+        except Exception:
             if v.lower().startswith('f/') or '/' not in v:
                 result['aperture'] = v
         if 'aperture' in result:
@@ -499,7 +499,7 @@ def _extract_tech_metadata(fmt_tags, streams, fps=25):
                 angle = speed * fps * 360
                 if 1 <= angle <= 360:
                     result['shutter_angle'] = f"{angle:.1f}°".replace('.0°', '°')
-            except:
+            except Exception:
                 pass
             if 'shutter_angle' in result:
                 break
@@ -512,7 +512,7 @@ def _extract_tech_metadata(fmt_tags, streams, fps=25):
         if not v: continue
         try:
             result['focal_length'] = f"{float(v):.0f}mm"
-        except:
+        except Exception:
             result['focal_length'] = v
         break
 
@@ -580,7 +580,7 @@ def scan_media_folder(root_path, media_exts=None):
         try:
             num, den = fps_str.split('/')
             fps = round(int(num) / int(den), 3)
-        except:
+        except Exception:
             fps = 25
 
         # 3. Tech meta from ffprobe tags for non-Sony cameras (Blackmagic, etc.)
@@ -649,7 +649,7 @@ def parse_sony_xml(xml_path):
             elif name == 'IrisFNumber':        result['aperture'] = f"f/{val}"
             elif name == 'ShutterSpeedAngle':  result['shutter_angle'] = f"{val}°"
             elif name == 'FocalLength':        result['focal_length'] = f"{val}mm"
-    except: pass
+    except Exception: pass
     return result
 
 def find_proxy(root, clip_path):
@@ -805,7 +805,7 @@ def list_projects():
                 'clip_count': len(data.get('clips', [])),
                 'user_count': len(data.get('users', []))
             })
-        except: pass
+        except Exception: pass
     return sorted(projects, key=lambda p: p.get('modified', ''), reverse=True)
 
 # ─── Concurrence, cache & indexation projet (audit 22 mai 2026) ──────────────
@@ -2183,7 +2183,7 @@ def compute_strip(file_path, clip_id, duration_sec, n=12):
                 pass
             finally:
                 try: tmp.unlink(missing_ok=True)
-                except: pass
+                except Exception: pass
 
         # Throttle interne: 3 workers max (au lieu de n=12 threads simultanés).
         # Combiné avec _ffmpeg_sem (max 8 ffmpeg globaux), évite qu'un seul
@@ -2583,7 +2583,7 @@ def _read_bwf_tc_ffprobe(file_path):
                 sr = int(st['sample_rate'])
                 channels = int(st.get('channels', 1) or 1)
                 try: duration = float(st.get('duration') or 0) or None
-                except: pass
+                except Exception: pass
                 break
         time_ref_s = (d.get('format', {}).get('tags') or {}).get('time_reference')
         if sr and sr > 0 and time_ref_s:
@@ -3321,11 +3321,11 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 if opcode == 8: break  # close
                 if opcode == 9:  # ping → pong
                     try: sock.sendall(bytes([0x8A, 0]))
-                    except: break
+                    except Exception: break
         finally:
             with _ws_clients_lock:
                 try: _ws_clients.get(pid, []).remove(entry)
-                except: pass
+                except Exception: pass
             self.close_connection = True
 
     def do_GET(self):
@@ -3946,7 +3946,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                         rp = Path(u.get('root_path', pdata.get('root_path', '')))
                         if rp not in roots_to_try:
                             roots_to_try.append(rp)
-                except: pass
+                except Exception: pass
             for root in roots_to_try:
                 resolved = _resolve_relpath_tolerant(root, rel)
                 if resolved is not None:
