@@ -1,0 +1,3 @@
+# Les scripts shell doivent garder des fins de ligne LF (Unix), sinon ils
+# cassent sur Mac/Linux avec "bad interpreter: /bin/bash^M".
+*.sh text eol=lf
