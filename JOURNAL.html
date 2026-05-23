@@ -186,6 +186,9 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 22 mai 2026 (audit + v0.3.6)</div>
   <a href="#audit-v036">Audit sécurité/stabilité + déploiement v0.3.6</a>
+
+  <div class="nav-section">Session 23 mai 2026 (v0.3.7)</div>
+  <a href="#v037">Fix sync UI, snippets recherche, sécurité PHP, tests</a>
 </nav>
 
 <main>
@@ -2028,8 +2031,51 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="v037">
+  <div class="entry-header">
+    <span class="entry-date">23 mai 2026</span>
+    <span class="entry-title">v0.3.7 — Fix sync UI, snippets recherche, sécurité PHP, tests</span>
+  </div>
+
+  <h3>Fix bug sync asymétrique UI</h3>
+  <p>Racine du bug : <code>triggerSync()</code> conditionnait le rechargement des notes à <code>d.ok</code> (succès du push cloud). Si le push échouait mais que le merge local avait réussi, le panneau « Avis des autres » ne se rafraîchissait pas. De plus, toutes les clés <code>allNotes</code> étaient écrasées, y compris les notes locales non sauvegardées de l'utilisateur courant.</p>
+  <div class="box box-fix"><strong>Fix :</strong> rechargement systématique via <code>/api/project/{pid}/notes</code> indépendamment de <code>d.ok</code>. La clé de l'utilisateur courant (<code>uid</code>) est préservée pour ne pas écraser les notes locales en attente. <code>renderMarkers()</code>, <code>renderClipList()</code> et <code>renderMultiUser()</code> sont appelés à chaque sync.</div>
+
+  <h3>Snippets de recherche FTS dans la liste clips</h3>
+  <p>Quand une recherche est active, chaque clip affichait uniquement son nom sans contexte textuel. <code>_searchSnippets[c.id]</code> était peuplé mais jamais affiché.</p>
+  <div class="box box-fix"><strong>Fix :</strong> CSS <code>.search-snippet</code> ajouté (texte muted, gras accent sur les hits). <code>renderClipList()</code> insère le snippet sous le nom du clip quand <code>activeSearch</code> est actif.</div>
+
+  <h3>Slider volume — thumb atteint les extrêmes</h3>
+  <p>La règle CSS globale <code>input { padding: 8px 12px; }</code> s'appliquait aussi au <code>input[type=range]</code>, réduisant la zone de déplacement du thumb à <code>80 - 24 = 56 px</code>. Le thumb ne pouvait pas atteindre les valeurs 0 et 100.</p>
+  <div class="box box-fix"><strong>Fix :</strong> <code>input[type=range] { padding: 0; }</code> — une ligne. Design intact, comportement corrigé. Les fonctions <code>setVolume()</code> et <code>toggleMute()</code> (manquantes) ont aussi été implémentées.</div>
+
+  <h3>Sécurité sync PHP — nouvelle clé + hash_equals + X-Sync-Key</h3>
+  <p>Le PHP déployé utilisait encore <code>$key !== $SECRET_KEY</code> (vulnérable aux timing attacks) et ignorait le header <code>X-Sync-Key</code>. La clé était <code>drift2026</code> (faible, dans les logs Apache via <code>?key=</code>).</p>
+  <div class="box box-fix">
+    <strong>Fix :</strong>
+    <ul>
+      <li>Clé remplacée par 43 caractères aléatoires (generés via <code>secrets.token_urlsafe(32)</code>)</li>
+      <li>Comparaison <code>hash_equals()</code> — protège contre les timing attacks</li>
+      <li>PHP lit <code>$_SERVER['HTTP_X_SYNC_KEY']</code> en priorité, <code>?key=</code> en fallback</li>
+      <li>Python : <code>?key=</code> supprimé de <code>_sync_url_for()</code> — la clé ne transite plus dans l'URL ni les logs Apache</li>
+    </ul>
+    Déploiement vérifié : nouvelle clé → HTTP 200, ancienne clé → HTTP 403.
+  </div>
+
+  <h3>Tests unitaires — 11 nouveaux cas (total 31)</h3>
+  <ul>
+    <li><strong>TestExportFcpxml</strong> (6 cas) : clip noté inclus, clip rejeté exclu, clip non annoté exclu, filtre <code>min_rating=2</code>, note texte seule suffit à inclure, marker non-X génère un élément <code>&lt;marker&gt;</code> dans le XML.</li>
+    <li><strong>TestLtcDecoder</strong> (5 cas) : <code>None</code> → <code>None</code>, silence → <code>None</code>, buffer trop court → <code>None</code>, signal synthétique biphase mark à <code>01:00:00:00</code> → ≈ 3600 s, signal à <code>01:23:45:10</code> → ≈ 5025.4 s. Générateur PCM synthétique valide implémenté en méthode de test.</li>
+  </ul>
+
+  <h3>Déploiement v0.3.7</h3>
+  <p>Commit <code>f00d811</code> — build Windows PyInstaller + Electron → <code>DerushTool-0.3.7-win.zip</code> (260 Mo). Poussé sur <code>github.com/davebixby/derush-tool</code>. Build Mac : <code>git pull</code> + <code>./build_mac.sh</code> sur Mac mini. Paola et davebixby doivent mettre à jour <code>sync_key</code> dans leur <code>derush_config.json</code>.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 22 mai 2026 (audit sécurité/stabilité : 12 correctifs, PBKDF2, verrou projet, écriture atomique, modules, tests unitaires ; déploiement v0.3.6 sur 3 machines ; bug résiduel sync asymétrique UI)
+  Derush Tool · Journal de développement · Dernière mise à jour 23 mai 2026 (v0.3.7 : fix sync UI, snippets recherche FTS, slider volume, sécurité PHP sync, 11 nouveaux tests unitaires)
 </div>
 
 </main>
