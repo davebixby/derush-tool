@@ -60,11 +60,14 @@
         .clip-scrub-tc { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-family: monospace; font-size: 0.52em; color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000; opacity: 0; pointer-events: none; transition: opacity .1s; }
         .clip-thumb-wrap:hover .clip-scrub-tc { opacity: 1; }
         .clip-item-body { flex: 1; min-width: 0; }
+        .search-snippet { font-size: 0.72em; color: var(--muted); line-height: 1.4; margin-top: 3px; overflow: hidden; max-height: 2.8em; word-break: break-word; }
+        .search-snippet b { color: var(--accent); font-weight: 600; }
         #scrub-preview { position: fixed; left: 326px; z-index: 999; pointer-events: none; border-radius: 6px; overflow: hidden; background: #12121a; border: 1px solid rgba(167,139,250,.4); box-shadow: 0 8px 32px rgba(0,0,0,.8); }
         .preview-frame { width: 260px; height: 146px; background-color: #12121a; background-repeat: no-repeat; background-position: 0 0; background-size: 260px 146px; }
         #scrub-preview .preview-tc { font-family: monospace; font-size: 0.78em; color: rgba(255,255,255,.7); text-align: center; padding: 4px 0; background: rgba(0,0,0,.6); letter-spacing: .05em; }
         .spd-btn { padding: 1px 5px; font-size: 0.7em; border-radius: 3px; border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer; }
         .spd-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+        input[type=range] { padding: 0; }
         .tech-meta { font-size: 0.7em; color: var(--dim); margin-top: 1px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .tags-area { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 22px; }
         .tag-chip { display: inline-flex; align-items: center; gap: 3px; background: rgba(167,139,250,.15); border: 1px solid rgba(167,139,250,.3); border-radius: 10px; padding: 1px 7px; font-size: 0.72em; color: #c4b5fd; }
@@ -1822,7 +1825,9 @@ function renderClipList() {
                 break;
             }
         }
-        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}${teamDots ? `<span style="display:flex;gap:3px;align-items:center;margin-left:auto;">${teamDots}</span>` : ''}</div></div>`;
+        const snippet = (activeSearch && _searchSnippets[c.id])
+            ? `<div class="search-snippet">${_searchSnippets[c.id]}</div>` : '';
+        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}${teamDots ? `<span style="display:flex;gap:3px;align-items:center;margin-left:auto;">${teamDots}</span>` : ''}</div>${snippet}</div>`;
         if(rating === 'X') div.style.opacity = '0.4';
         div.onclick = () => selectClip(c);
 
@@ -2470,10 +2475,24 @@ async function triggerSync() {
         const r = await fetch('/api/sync/now', {method:'POST'});
         const d = await r.json();
         _updateSyncUI({configured: true, online: d.ok, last_sync: d.ok ? new Date().toISOString() : null, error: d.ok ? null : d.message});
-        if (d.ok && currentProjectId) {
-            // Recharger les notes après sync
+        // Recharger indépendamment de d.ok : le merge local a pu avoir lieu même
+        // si le push cloud a échoué. Sans ça, le panneau "Avis des autres" ne se
+        // rafraîchit pas après une sync descendante.
+        if (currentProjectId) {
+            const uid = currentSession ? (currentSession.user_id || currentSession.username) : null;
             const nRes = await apiFetch(`/api/project/${currentProjectId}/notes`);
-            if (nRes.ok) { const fresh = await nRes.json(); for(const [k,v] of Object.entries(fresh)) allNotes[k]=v; }
+            if (nRes.ok) {
+                const fresh = await nRes.json();
+                for (const [key, val] of Object.entries(fresh)) {
+                    if (key === uid) continue; // préserve les notes locales non sauvegardées
+                    for (const clipNotes of Object.values(val)) {
+                        for (const m of (clipNotes.markers || [])) {
+                            if (!m.id) m.id = Math.random().toString(36).slice(2, 10);
+                        }
+                    }
+                    allNotes[key] = val;
+                }
+            }
             const dRes = await apiFetch(`/api/project/${currentProjectId}/discussions`);
             if (dRes.ok) allDiscussions = await dRes.json();
             renderMarkers(); renderClipList(); renderMultiUser();
@@ -2665,6 +2684,25 @@ function timelineSeek(e) {
 
 function skip(s) { const v = document.getElementById('player'); if(v) v.currentTime += s; }
 function togglePlay() { const v = document.getElementById('player'); if(v) v.paused ? v.play() : v.pause(); }
+
+let _volMuted = false;
+let _volLevel = 1;
+
+function setVolume(v) {
+    _volLevel = Math.max(0, Math.min(1, v));
+    const player = document.getElementById('player');
+    if (player) player.volume = _volMuted ? 0 : _volLevel;
+    document.getElementById('volIcon').textContent = _volLevel === 0 ? '🔇' : '🔊';
+}
+
+function toggleMute() {
+    _volMuted = !_volMuted;
+    const player = document.getElementById('player');
+    if (player) player.volume = _volMuted ? 0 : _volLevel;
+    const sl = document.getElementById('volSlider');
+    if (sl) sl.value = _volMuted ? 0 : _volLevel * 100;
+    document.getElementById('volIcon').textContent = _volMuted ? '🔇' : '🔊';
+}
 
 function toggleFullscreen() {
     const wrapper = document.getElementById('videoWrapper');

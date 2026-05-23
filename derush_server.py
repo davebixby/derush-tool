@@ -3852,10 +3852,7 @@ def _sync_headers(extra=None):
     return h
 
 def _sync_url_for(pid):
-    # URL-encode pour gérer les espaces et caractères spéciaux (sinon urllib râle).
-    # NB : la PHP filtre déjà via preg_replace([^a-zA-Z0-9_\-]) côté serveur, donc
-    # un pid avec espaces ne matchera jamais — mais ici on évite au moins le crash.
-    return f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&project={_urlquote(pid, safe='')}"
+    return f"{SYNC_URL.rstrip('/')}?project={_urlquote(pid, safe='')}"
 
 def _own_note_key(proj):
     """Clé de notes de l'utilisateur de CETTE machine (son profil local).

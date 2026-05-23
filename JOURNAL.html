@@ -183,6 +183,9 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 20-21 mai 2026 (build Mac réel)</div>
   <a href="#mac-build-fixes">Build Mac réel — fixes + bug export FCPXML</a>
+
+  <div class="nav-section">Session 22 mai 2026 (audit + v0.3.6)</div>
+  <a href="#audit-v036">Audit sécurité/stabilité + déploiement v0.3.6</a>
 </nav>
 
 <main>
@@ -1974,10 +1977,59 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-ok"><strong>Corrigé (22 mai).</strong> Notes fusionnées par merge <em>data-aware</em> : sur le seul vrai conflit (le clip « TRES BEBBEBE ») le jeu récent l'emporte, partout ailleurs on garde le jeu qui a des données — aucune perte. Notes à IDs orphelins supprimées. Clés finales : une par personne. Export FCPXML : 2 → 8 clips. Et l'endpoint <code>/notes</code> résout maintenant sa clé via <code>find_project_user()</code> + <code>user_note_key()</code> → plus de dédoublement possible. Backup : <code>drift_club.derush.PREMERGE-BACKUP.json</code>.</div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="entry" id="audit-v036">
+  <div class="entry-header">
+    <span class="entry-date">22 MAI 2026</span>
+    <span class="entry-title">Audit sécurité/stabilité + correctifs + déploiement v0.3.6</span>
+    <span class="entry-tag tag-arch">Arch</span>
+  </div>
+
+  <p>Session de consolidation : revue structurée du code (derush_server.py ~5160 lignes, UI ~3450 lignes) → création de <code>AUDIT.md</code> avec 13 points classifiés. Tous les correctifs prioritaires appliqués dans la foulée, version montée à 0.3.6 et déployée sur les 3 machines.</p>
+
+  <h3>Correctifs stabilité</h3>
+  <ul>
+    <li><strong>Verrou par projet (<code>_project_lock</code>)</strong> — <code>RLock</code> par projet ; <code>do_POST</code> détient le verrou pendant tout le dispatch. Les jobs de fond rechargent le projet sous verrou avant d'écrire → plus de lost-update en écriture concurrente.</li>
+    <li><strong>Écriture atomique</strong> — <code>save_project</code> écrit dans un <code>.tmp</code> puis <code>os.replace()</code> → plus de fichier projet tronqué en cas de crash.</li>
+    <li><strong>Handler 500 global</strong> — <code>do_GET</code>/<code>do_POST</code> enveloppent le dispatch ; toute exception → 500 JSON propre + trace stderr au lieu d'une connexion coupée brutalement.</li>
+    <li><strong><code>except:</code> nus</strong> — ~15 occurrences passées en <code>except Exception:</code> pour ne plus avaler <code>KeyboardInterrupt</code>/<code>SystemExit</code>.</li>
+  </ul>
+
+  <h3>Correctifs sécurité</h3>
+  <ul>
+    <li><strong>SHA-256 → PBKDF2</strong> — <code>hash_password</code> produit <code>pbkdf2$&lt;iters&gt;$&lt;sel&gt;$&lt;hash&gt;</code> (200 000 iter, sel par mdp). Migration transparente au prochain login réussi.</li>
+    <li><strong>Clé sync en header HTTP</strong> — code prêt (<code>X-Sync-Key</code>) ; activation en attente du redéploiement PHP et remplacement de la clé <code>drift2026</code> par une clé aléatoire longue.</li>
+    <li><strong>Anti-brute-force login</strong> — 8 échecs en 5 min depuis une même IP → 429. Compteur remis à zéro au login réussi.</li>
+    <li><strong>Expiration liens de review</strong> — <code>expires_at</code> = création + 30 jours. Le PHP refuse HTTP 410 si périmé.</li>
+  </ul>
+
+  <h3>Correctifs performance</h3>
+  <ul>
+    <li><strong>Cache <code>load_project</code></strong> — invalidé par (mtime, taille) → plus de relecture/parsing de 400 Ko à chaque requête.</li>
+    <li><strong>Debounce indexation FTS</strong> — l'indexation FTS est debouncée 2 s → une rafale de saves ne déclenche qu'un seul réindex.</li>
+  </ul>
+
+  <h3>Qualité / maintenabilité</h3>
+  <ul>
+    <li><strong>Découpage en modules</strong> (étapes 1-2/5) : <code>derush_core.py</code> (utilitaires purs) + <code>derush_exports.py</code> (~990 lignes : FCPXML, Premiere XML, EDL, CSV, rapport HTML, sous-clips, rough-cut). <code>derush_server.py</code> réduit de ~5320 à ~4330 lignes.</li>
+    <li><strong>Tests unitaires Python</strong> — <code>tests/test_server_units.py</code>, 20 cas : hachage PBKDF2, timecodes, <code>merge_projects</code>, résolveur de chemins, clés users.</li>
+    <li><strong>Sync : propagation des suppressions</strong> — <code>merge_projects</code> ne publie que les notes du propre user (<code>_own_note_key</code>/<code>own_uid</code>), conserve la version cloud pour les autres → les suppressions de marqueurs se propagent et ne « reviennent » plus.</li>
+  </ul>
+
+  <h3>Déploiement v0.3.6</h3>
+  <p>Commit <code>dee0dff</code> — build Windows PyInstaller + Electron → <code>DerushTool-0.3.6-win.zip</code> (248 Mo). Build Mac : <code>git pull</code> sur le Mac mini + <code>./build_mac.sh</code> → <code>DerushTool-0.3.6-mac-arm64.zip</code>. Déploiement sur les 3 machines (PC Sébastien, PC Paola, Mac davebixby). Clés d'invitation drift_club : davebixby = <code>IKO3LMZ2</code>, Paola = <code>W9J3ARXG</code>.</p>
+
+  <h3>Bug résiduel — sync asymétrique : notes des autres non rafraîchies</h3>
+  <div class="box box-fail"><strong>Symptôme :</strong> Davebixby (Mac) pose un marqueur → Sébastien le voit. Sébastien pose un commentaire → Davebixby ne le voit pas malgré « Synchroniser ».</div>
+  <p>Les données sont bien dans le cloud et correctement téléchargées. Le bug est purement UI : <code>onSyncComplete</code> re-rend uniquement le propre jeu de notes de l'utilisateur, pas le panneau « Avis des autres ».</p>
+  <div class="box box-note"><strong>Contournement :</strong> quitter le projet et le rouvrir après une synchronisation. À l'ouverture, toutes les notes synchronisées sont rechargées correctement.</div>
+  <div class="box box-why"><strong>À corriger :</strong> le callback <code>onSyncComplete</code> doit déclencher un rechargement des notes des autres users dans l'UI.</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 21 mai 2026 (premier build Mac réel : fixes build_mac.sh + package.json extraResources par plateforme, contournement interception TLS npm ; diagnostic bug export FCPXML — identité de notes dédoublée)
+  Derush Tool · Journal de développement · Dernière mise à jour 22 mai 2026 (audit sécurité/stabilité : 12 correctifs, PBKDF2, verrou projet, écriture atomique, modules, tests unitaires ; déploiement v0.3.6 sur 3 machines ; bug résiduel sync asymétrique UI)
 </div>
 
 </main>

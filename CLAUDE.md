@@ -1180,3 +1180,39 @@ Diagnostic sur `projects/drift_club.derush.json`.
 - **Notes fusionnées** : merge *data-aware* de `Sebastien` dans `6714b070`. Sur le seul vrai conflit (`J02_…FS5_Clip0002`, le clip « TRES BEBBEBE ») le jeu `Sebastien` récent l'emporte ; partout ailleurs on garde le jeu qui porte des données → **aucune perte**. Les 2 notes à IDs de clip orphelins (`J02_*` ré-import) sont supprimées. Clé `Sebastien` supprimée → clés finales : `6714b070`, `Paola`, `davebixby` (une par personne ; `6714b070` = compte de Sébastien, nom affiché « Sebastien »). Backup : `projects/drift_club.derush.PREMERGE-BACKUP.json`. Export FCPXML : 2 → 8 clips.
 - **Endpoint `/notes` corrigé** : la clé de save est résolue via `find_project_user(proj, …)` + `user_note_key()` — strictement identique à ce que lit l'export. Plus de dédoublement possible (piège #11).
 - Canonique retenue = `6714b070` (l'`id` du user, ce que `user_note_key` rend) plutôt que le texte `Sebastien` : pas de modif de l'objet user (qui porte `password_hash` + `id` admin) — moins risqué, et la clé interne est invisible côté UI.
+
+# État au 22 mai 2026 — Audit + corrections sécurité/stabilité + déploiement v0.3.6
+
+## Audit technique (AUDIT.md créé)
+Revue structurée du code (derush_server.py ~5160 lignes, UI ~3450 lignes). Tous les correctifs appliqués sauf §2.3 (HTTP clair sur LAN — assumé), §5 multi-device (1 user 2 machines en parallèle — non couvert), §6 features futures. Voir `AUDIT.md` pour le tableau de suivi complet.
+
+### Correctifs appliqués (22 mai)
+- **1.1 Verrou par projet** — `_project_lock(pid)` (RLock). `do_POST` détient le verrou pendant tout le dispatch → écritures d'endpoints sérialisées. Jobs de fond (LTC, multicam, auto-détect) + `sync_project` rechargent le projet sous verrou avant d'écrire.
+- **1.2 Écriture atomique** — `save_project` écrit dans un `.tmp` puis `os.replace()`.
+- **1.3 Handler 500** — `do_GET`/`do_POST` enveloppent le dispatch ; toute exception → réponse 500 JSON + trace stderr.
+- **1.4 `except:` nus** — ~15 occurrences passées en `except Exception:`.
+- **2.1 PBKDF2** — `hash_password` produit `pbkdf2$<iters>$<sel>$<hash>` (200 000 iter, sel par mdp). `verify_password` gère les deux formats ; migration transparente au prochain login.
+- **2.2 Clé sync en header** — code prêt (`X-Sync-Key`) ; activation = redéployer `derush_sync.php`. Clé `drift2026` à remplacer par une clé aléatoire longue lors de l'activation.
+- **2.4 Anti-brute-force login** — 8 échecs en 5 min depuis la même IP → 429.
+- **2.5 Expiration liens de review** — `expires_at` = création + 30 jours. PHP refuse HTTP 410 si périmé.
+- **3.1 Cache load_project** — invalidé par (mtime, taille) du fichier.
+- **3.2 Debounce indexation FTS** — debouncée 2 s.
+- **§5 Propagation des suppressions** — `merge_projects` ne publie que les notes du propre user (`_own_note_key` + `own_uid`), conserve la version cloud pour les autres.
+- **§4 Tests unitaires Python** — `tests/test_server_units.py`, 20 cas : hachage, timecodes, `merge_projects`, résolveur de chemins, clés users.
+- **§4 Découpage modules** — étapes 1-2/5 : `derush_core.py` (utilitaires purs) + `derush_exports.py` (~990 lignes FCPXML/Premiere/EDL/CSV/HTML). `derush_server.py` réduit de ~5320 à ~4330 lignes.
+
+## Version et déploiement v0.3.6
+- `VERSION` + `electron/package.json` montés à `0.3.6`. Commit `dee0dff`.
+- Build Windows : PyInstaller + Electron → `DerushTool-0.3.6-win.zip` (248 Mo), embarquant les 3 modules Python.
+- Build Mac : `git pull` sur le Mac mini + `./build_mac.sh` → `DerushTool-0.3.6-mac-arm64.zip`.
+- Déploiement 3 machines : PC Sébastien (sources directes), PC Paola (zip), Mac davebixby (git pull + rebuild).
+- Clés d'invitation drift_club v0.3.6 : davebixby = `IKO3LMZ2`, Paola = `W9J3ARXG`.
+
+## Bug résiduel : sync asymétrique — notes des autres non rafraîchies sans rouvrir le projet
+Constaté lors du test de sync à 3. Davebixby (Mac) voit les notes de Sébastien antérieures, mais un commentaire posté pendant la session ne s'affiche pas chez davebixby malgré « Synchroniser ». Dans l'autre sens (davebixby → Sébastien) ça marche.
+
+**Diagnostic** : les données sont bien dans le cloud (`notes[6714b070]` présent). Le Mac télécharge correctement les nouvelles notes. Mais l'UI ne rafraîchit pas le panneau « Avis des autres » après une sync descendante — elle se recharge seulement à l'ouverture du projet.
+
+**Contournement** : quitter le projet et le rouvrir après une synchronisation pour voir les nouvelles notes des autres.
+
+**À corriger** : le callback `onSyncComplete` côté JS doit déclencher un rechargement des notes des autres users dans l'UI (actuellement seul le propre jeu est re-rendu).

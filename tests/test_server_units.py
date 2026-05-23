@@ -13,10 +13,18 @@ import sys
 import hashlib
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import derush_server as ds
+import derush_exports as de
+
+try:
+    import numpy as _np_probe
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 
 class TestPassword(unittest.TestCase):
@@ -153,6 +161,157 @@ class TestResolveRelpath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             self.assertIsNone(
                 ds._resolve_relpath_tolerant(Path(td), 'nexiste/pas.mxf'))
+
+
+class TestExportFcpxml(unittest.TestCase):
+    """Tests unitaires de derush_exports.export_fcpxml."""
+
+    def _clip(self, cid, **kw):
+        base = {'id': cid, 'path': f'/media/{cid}.mxf', 'fps': 25,
+                'duration_sec': 10, 'tc_in': '00:00:00:00',
+                'stem': cid, 'filename': cid + '.mxf', 'resolution': '1920x1080'}
+        base.update(kw)
+        return base
+
+    def _project(self, clips, notes_by_uid):
+        users = [{'id': uid} for uid in notes_by_uid]
+        return {'name': 'Test', 'clips': clips, 'notes': notes_by_uid, 'users': users}
+
+    def _asset_names(self, xml_str):
+        """Retourne l'ensemble des name= des éléments <asset> dans le XML."""
+        body = '\n'.join(l for l in xml_str.splitlines()
+                         if not l.startswith('<?xml') and not l.startswith('<!DOCTYPE'))
+        root = ET.fromstring(body.strip())
+        return {a.get('name') for a in root.iter('asset')}
+
+    def test_rated_clip_included(self):
+        clips = [self._clip('c1')]
+        proj = self._project(clips, {'u1': {'c1': {'rating': '3', 'markers': [], 'notes': ''}}})
+        self.assertIn('c1.mxf', self._asset_names(de.export_fcpxml(proj)))
+
+    def test_rejected_clip_excluded(self):
+        clips = [self._clip('c1')]
+        proj = self._project(clips, {'u1': {'c1': {'rating': 'X', 'markers': [], 'notes': ''}}})
+        self.assertNotIn('c1.mxf', self._asset_names(de.export_fcpxml(proj)))
+
+    def test_unannotated_clip_excluded(self):
+        clips = [self._clip('c1')]
+        proj = self._project(clips, {})
+        self.assertNotIn('c1.mxf', self._asset_names(de.export_fcpxml(proj)))
+
+    def test_filter_min_rating_2(self):
+        clips = [self._clip('c1'), self._clip('c2')]
+        proj = self._project(clips, {
+            'u1': {'c1': {'rating': '1', 'markers': [], 'notes': ''},
+                   'c2': {'rating': '2', 'markers': [], 'notes': ''}},
+        })
+        assets = self._asset_names(de.export_fcpxml(proj, filter_config={'min_rating': 2}))
+        self.assertNotIn('c1.mxf', assets)
+        self.assertIn('c2.mxf', assets)
+
+    def test_note_text_only_included(self):
+        clips = [self._clip('c1')]
+        proj = self._project(clips, {'u1': {'c1': {'rating': '', 'markers': [], 'notes': 'Beau plan'}}})
+        self.assertIn('c1.mxf', self._asset_names(de.export_fcpxml(proj)))
+
+    def test_marker_generates_element(self):
+        clips = [self._clip('c1')]
+        proj = self._project(clips, {
+            'u1': {'c1': {'rating': '2',
+                          'markers': [{'time': 1.0, 'cat': 'T', 'desc': 'détail'}],
+                          'notes': ''}}
+        })
+        xml_str = de.export_fcpxml(proj)
+        body = '\n'.join(l for l in xml_str.splitlines()
+                         if not l.startswith('<?xml') and not l.startswith('<!DOCTYPE'))
+        root = ET.fromstring(body.strip())
+        self.assertGreaterEqual(len(list(root.iter('marker'))), 1)
+
+
+@unittest.skipUnless(HAS_NUMPY, 'numpy requis pour les tests LTC')
+class TestLtcDecoder(unittest.TestCase):
+    """Tests du décodeur LTC (_ltc_decode_pcm dans derush_server.py).
+
+    Signal synthétique : biphase mark, 80 bits/trame, 25 fps, 48 kHz.
+    bit 0 → 1 intervalle ≈ bp,  bit 1 → 2 intervalles ≈ bp/2 chacun.
+    """
+
+    def _bcd(self, val, n):
+        return [(val >> i) & 1 for i in range(n)]
+
+    def _frame_bits(self, hh, mm, ss, ff, fps=25):
+        b = [0] * 80
+        b[0:4]   = self._bcd(ff % 10, 4)
+        b[8:10]  = self._bcd(ff // 10, 2)
+        b[16:20] = self._bcd(ss % 10, 4)
+        b[24:27] = self._bcd(ss // 10, 3)
+        b[32:36] = self._bcd(mm % 10, 4)
+        b[40:43] = self._bcd(mm // 10, 3)
+        b[48:52] = self._bcd(hh % 10, 4)
+        b[56:58] = self._bcd(hh // 10, 2)
+        b[64:80] = [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1]
+        return b
+
+    def _make_pcm(self, hh, mm, ss, ff, fps=25, sr=48000, num_frames=5):
+        """Signal PCM synthétique pour num_frames trames LTC à partir de hh:mm:ss:ff."""
+        import numpy as np
+        bp = sr // (80 * fps)  # ≈24 samples/bit à 48kHz/25fps
+
+        transitions = []
+        pos = 0
+        for fn in range(num_frames):
+            total_ff = ff + fn
+            cur_ss = ss + total_ff // fps
+            cur_ff = total_ff % fps
+            cur_mm = mm + cur_ss // 60
+            cur_ss = cur_ss % 60
+            cur_hh = hh + cur_mm // 60
+            cur_mm = cur_mm % 60
+            for bit in self._frame_bits(cur_hh, cur_mm, cur_ss, cur_ff, fps):
+                if bit == 0:
+                    pos += bp
+                    transitions.append(pos)
+                else:
+                    pos += bp // 2
+                    transitions.append(pos)
+                    pos += bp - bp // 2
+                    transitions.append(pos)
+
+        pcm = np.zeros(pos + bp, dtype=np.int16)
+        polarity, prev = 10000, 0
+        for t in transitions:
+            pcm[prev:t] = polarity
+            polarity = -polarity
+            prev = t
+        pcm[prev:] = polarity
+        return pcm
+
+    def test_none_returns_none(self):
+        self.assertIsNone(ds._ltc_decode_pcm(None))
+
+    def test_silence_returns_none(self):
+        import numpy as np
+        self.assertIsNone(ds._ltc_decode_pcm(np.zeros(48000, dtype=np.int16)))
+
+    def test_short_input_returns_none(self):
+        import numpy as np
+        self.assertIsNone(ds._ltc_decode_pcm(np.zeros(10, dtype=np.int16)))
+
+    def test_valid_ltc_decoded(self):
+        """01:00:00:00 doit décoder à ≈ 3600 secondes."""
+        result = ds._ltc_decode_pcm(self._make_pcm(1, 0, 0, 0),
+                                    sample_rate=48000, fps=25, min_consecutive_frames=3)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 3600.0, delta=0.1)
+
+    def test_nonzero_tc_decoded(self):
+        """01:23:45:10 doit décoder à ≈ 5025.4 secondes."""
+        hh, mm, ss, ff, fps = 1, 23, 45, 10, 25
+        expected = hh * 3600 + mm * 60 + ss + ff / fps
+        result = ds._ltc_decode_pcm(self._make_pcm(hh, mm, ss, ff),
+                                    sample_rate=48000, fps=25, min_consecutive_frames=3)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, expected, delta=0.1)
 
 
 if __name__ == '__main__':
