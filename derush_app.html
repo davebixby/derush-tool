@@ -6,6 +6,29 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #0a0a0f; --surface: #12121a; --border: rgba(255,255,255,.08); --text: #e0e0e8; --dim: #6b6b80; --accent: #a78bfa; --green: #34d399; --red: #ef4444; }
+        body.light-mode { --bg: #f0f0f5; --surface: #ffffff; --border: rgba(0,0,0,.1); --text: #1a1a2e; --dim: #5f6375; --accent: #7c3aed; --green: #059669; --red: #dc2626; }
+        body.light-mode ::-webkit-scrollbar-thumb { background: rgba(124,58,237,.22); }
+        body.light-mode ::-webkit-scrollbar-thumb:hover { background: rgba(124,58,237,.5); }
+        body.light-mode .day-header { background: var(--surface); }
+        body.light-mode button { background: rgba(124,58,237,.1); }
+        body.light-mode button:hover { background: rgba(124,58,237,.22); }
+        /* Jauge de progression par utilisateur dans la sidebar */
+        #userProgressBar { padding: 5px 0 2px; display: none; }
+        .upb-row { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; font-size: 0.71em; }
+        .upb-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .upb-name { width: 68px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .upb-bar { flex: 1; height: 5px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; }
+        body.light-mode .upb-bar { background: rgba(0,0,0,.1); }
+        .upb-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+        .upb-count { font-family: monospace; color: var(--dim); width: 34px; text-align: right; flex-shrink: 0; }
+        /* Filtres sauvegardés (smart bins) */
+        #savedFiltersRow { display: none; gap: 4px; flex-wrap: wrap; padding: 3px 0 1px; align-items: center; }
+        .saved-fchip { display: inline-flex; align-items: center; gap: 2px; background: rgba(167,139,250,.1); border: 1px dashed rgba(167,139,250,.4); border-radius: 10px; padding: 2px 9px; font-size: 0.71em; color: #c4b5fd; cursor: pointer; user-select: none; }
+        .saved-fchip:hover { background: rgba(167,139,250,.22); }
+        .saved-fchip .sfx { opacity: .4; margin-left: 3px; font-size: 0.85em; cursor: pointer; }
+        .saved-fchip .sfx:hover { opacity: 1; color: #ef4444; }
+        #saveCurFilter { font-size: 0.71em; padding: 2px 7px; border-radius: 10px; opacity: .55; border-style: dashed; }
+        #saveCurFilter:hover { opacity: 1; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         /* Scrollbars custom — fines, dark, accent purple (Chrome/Electron + Firefox) */
@@ -529,9 +552,11 @@
                 <button onclick="showUserMgmt()" title="Gestion utilisateurs">⚙️</button>
                 <button onclick="showRootPathModal(true)" title="Chemin local des rushs">📁</button>
                 <button onclick="rescanProject(this)" title="Rescanner les médias">🔄</button>
+                <button id="themeToggleBtn" onclick="toggleTheme()" title="Basculer sombre / clair">🌙</button>
                 <button onclick="doLogout()" title="Se déconnecter">🚪</button>
                 <button onclick="quitApp()" title="Fermer le logiciel" style="color:#ef4444;border-color:rgba(239,68,68,.3);">⏻</button>
             </div>
+            <div id="userProgressBar"></div>
         </div>
         <div class="filter-bar">
             <input id="clipSearch" placeholder="🔍 Rechercher (notes, markers, tags, clips…)" oninput="onSearchInput(this.value)" style="margin-bottom:6px;">
@@ -545,9 +570,10 @@
                 <button class="fchip" data-filter="disagree" onclick="setFilter('disagree')">⚡ Désaccord</button>
             </div>
             <div class="filter-selects">
-                <select id="filterCam" onchange="renderClipList()"><option value="">All</option></select>
-                <select id="filterDay" onchange="renderClipList()"><option value="">All</option></select>
+                <select id="filterCam" onchange="renderClipList();renderSavedFilters()"><option value="">All</option></select>
+                <select id="filterDay" onchange="renderClipList();renderSavedFilters()"><option value="">All</option></select>
             </div>
+            <div id="savedFiltersRow"></div>
         </div>
         <div class="clip-list" id="clipList"></div>
     </div>
@@ -1491,6 +1517,9 @@ async function enterWorkspace(pid) {
     startWebSocket();
     startNotesPolling();
     startSyncPolling();
+    _initNotifications();
+    _loadSavedFilters();
+    renderUserProgress();
     // Sync immédiate au chargement du projet
     fetch('/api/sync/now', {method:'POST'}).then(r=>r.json()).then(d=>{
         if(d.ok){ const nRes=apiFetch(`/api/project/${pid}/notes`).then(r=>r.json()).then(n=>{for(const[k,v] of Object.entries(n)) allNotes[k]=v; renderClipList();}); }
@@ -1702,6 +1731,7 @@ function setFilter(f) {
     activeFilter = f;
     document.querySelectorAll('.fchip').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
     renderClipList();
+    renderSavedFilters();
 }
 
 // FTS search via /api/search (debounced). For >=2 chars, we restrict the clip
@@ -1713,6 +1743,7 @@ function onSearchInput(v) {
         _searchHits = null;
         _searchSnippets = {};
         renderClipList();
+        renderSavedFilters();
         return;
     }
     _searchTimer = setTimeout(async () => {
@@ -1730,6 +1761,7 @@ function onSearchInput(v) {
             _searchHits = null;  // network failure → fall back to local match
         }
         renderClipList();
+        renderSavedFilters();
     }, 200);
 }
 
@@ -2400,7 +2432,7 @@ function startWebSocket() {
                     if(changed) { renderClipList(); if(activeClip) { renderMultiUser(); renderMarkers(); } showSaveStatus('↻ Live', '#60a5fa'); }
                 } else if(msg.type === 'discussion_updated') {
                     const r = await apiFetch(`/api/project/${currentProjectId}/discussions`);
-                    if(r.ok) { allDiscussions = await r.json(); if(activeClip) renderMultiUser(); }
+                    if(r.ok) { allDiscussions = await r.json(); _checkMentionNotifs(allDiscussions); if(activeClip) renderMultiUser(); }
                 } else if(msg.type === 'session_state' || msg.type === 'session_action') {
                     if(typeof handleSessionWsMessage === 'function') handleSessionWsMessage(msg);
                 }
@@ -2494,8 +2526,8 @@ async function triggerSync() {
                 }
             }
             const dRes = await apiFetch(`/api/project/${currentProjectId}/discussions`);
-            if (dRes.ok) allDiscussions = await dRes.json();
-            renderMarkers(); renderClipList(); renderMultiUser();
+            if (dRes.ok) { allDiscussions = await dRes.json(); _checkMentionNotifs(allDiscussions); }
+            renderMarkers(); renderClipList(); renderUserProgress(); renderMultiUser();
         }
     } catch(e) { dot.style.background='#ef4444'; lbl.textContent='Erreur'; }
 }
@@ -2554,8 +2586,10 @@ function startNotesPolling() {
                     }
                 } catch(e) {}
             }
+            _checkMentionNotifs(allDiscussions);
             if(changed) {
                 renderClipList();
+                renderUserProgress();
                 if(activeClip) { renderMultiUser(); renderMarkers(); }
                 showSaveStatus('↻ Sync', '#60a5fa');
             }
@@ -3342,6 +3376,156 @@ async function quitApp() {
     showToast('Fermeture du logiciel…', 'warn', 2000);
     try { await fetch('/api/shutdown', {method:'POST'}); } catch(e) {}
     document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;background:#0a0a0f;color:#6b6b80;font-family:sans-serif;font-size:1.1em;">Derush Tool fermé. Vous pouvez fermer cet onglet.</div>';
+}
+
+// ─── Thème sombre / clair ────────────────────────────────────────────────────
+function toggleTheme() {
+    const light = document.body.classList.toggle('light-mode');
+    localStorage.setItem('derush_theme', light ? 'light' : 'dark');
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.textContent = light ? '☀️' : '🌙';
+}
+(function _applyStoredTheme() {
+    if (localStorage.getItem('derush_theme') === 'light') {
+        document.body.classList.add('light-mode');
+        // Le script s'exécute après que le DOM est parsé → pas besoin de DOMContentLoaded
+        const btn = document.getElementById('themeToggleBtn');
+        if (btn) btn.textContent = '☀️';
+    }
+})();
+
+// ─── Jauge progression par utilisateur (sidebar header) ─────────────────────
+function renderUserProgress() {
+    const el = document.getElementById('userProgressBar');
+    if (!el) return;
+    if (!currentProject || !clips.length) { el.style.display = 'none'; return; }
+    const total = clips.length;
+    const uid = currentSession ? (currentSession.user_id || currentSession.username) : null;
+    const others = (currentProject.users || []).filter(u => {
+        const k = u.id || u.username || u.name;
+        return k && k !== uid;
+    });
+    if (!others.length) { el.style.display = 'none'; return; }
+    el.innerHTML = others.map(u => {
+        const key = u.id || u.username || u.name;
+        const uNotes = allNotes[key] || {};
+        const count = Object.values(uNotes).filter(n =>
+            n.rating || (n.notes || '').trim() || (n.markers || []).length
+        ).length;
+        const pct = total > 0 ? Math.round(count / total * 100) : 0;
+        const label = u.username || u.name || key;
+        return `<div class="upb-row">
+            <span class="upb-dot" style="background:${u.color||'#888'}"></span>
+            <span class="upb-name" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+            <div class="upb-bar"><div class="upb-fill" style="width:${pct}%;background:${u.color||'#888'};opacity:.7;"></div></div>
+            <span class="upb-count">${count}/${total}</span>
+        </div>`;
+    }).join('');
+    el.style.display = 'block';
+}
+
+// ─── Filtres sauvegardés (smart bins) ────────────────────────────────────────
+let _savedFilters = [];
+
+function _savedFiltersKey() { return `derush_saved_filters_${currentProjectId || ''}`; }
+
+function _loadSavedFilters() {
+    try { _savedFilters = JSON.parse(localStorage.getItem(_savedFiltersKey()) || '[]'); } catch(e) { _savedFilters = []; }
+    renderSavedFilters();
+}
+
+function renderSavedFilters() {
+    const row = document.getElementById('savedFiltersRow');
+    if (!row) return;
+    const camVal = (document.getElementById('filterCam') || {}).value || '';
+    const dayVal = (document.getElementById('filterDay') || {}).value || '';
+    const hasNonDefault = (activeFilter && activeFilter !== 'all') || camVal || dayVal || (activeSearch && activeSearch.length >= 2);
+    if (!_savedFilters.length && !hasNonDefault) { row.style.display = 'none'; return; }
+    row.style.display = 'flex';
+    const chips = _savedFilters.map((f, i) =>
+        `<span class="saved-fchip" onclick="_applySavedFilter(${i})" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}<span class="sfx" onclick="event.stopPropagation();_deleteSavedFilter(${i})">×</span></span>`
+    ).join('');
+    const saveBtn = hasNonDefault ? `<button id="saveCurFilter" onclick="_saveCurrentFilter()" title="Enregistrer le filtre actuel">+ Sauver</button>` : '';
+    row.innerHTML = chips + saveBtn;
+}
+
+function _saveCurrentFilter() {
+    const camVal = (document.getElementById('filterCam') || {}).value || '';
+    const dayVal = (document.getElementById('filterDay') || {}).value || '';
+    const labels = {all:'Tous','3':'⭐⭐⭐','2+':'⭐⭐+',markers:'📌',unseen:'Non vus',rejected:'❌',disagree:'⚡'};
+    const parts = [];
+    if (activeFilter && activeFilter !== 'all') parts.push(labels[activeFilter] || activeFilter);
+    if (camVal) parts.push('📷 ' + camVal.replace('ILME-',''));
+    if (dayVal) parts.push('📅 ' + dayVal);
+    if (activeSearch && activeSearch.length >= 2) parts.push('🔍 ' + activeSearch.slice(0, 12));
+    const name = parts.length ? parts.join(' · ') : 'Filtre ' + (_savedFilters.length + 1);
+    _savedFilters.push({ name, filter: activeFilter, cam: camVal, day: dayVal, search: activeSearch || '' });
+    try { localStorage.setItem(_savedFiltersKey(), JSON.stringify(_savedFilters)); } catch(e) {}
+    renderSavedFilters();
+    showSaveStatus('✓ Filtre enregistré', '#a78bfa');
+}
+
+function _applySavedFilter(i) {
+    const f = _savedFilters[i];
+    if (!f) return;
+    const camSel = document.getElementById('filterCam');
+    const daySel = document.getElementById('filterDay');
+    const searchEl = document.getElementById('clipSearch');
+    activeFilter = f.filter || 'all';
+    document.querySelectorAll('.fchip').forEach(b => b.classList.toggle('active', b.dataset.filter === activeFilter));
+    if (camSel) camSel.value = f.cam || '';
+    if (daySel) daySel.value = f.day || '';
+    const search = f.search || '';
+    if (searchEl) searchEl.value = search;
+    onSearchInput(search); // calls renderClipList + renderSavedFilters
+}
+
+function _deleteSavedFilter(i) {
+    _savedFilters.splice(i, 1);
+    try { localStorage.setItem(_savedFiltersKey(), JSON.stringify(_savedFilters)); } catch(e) {}
+    renderSavedFilters();
+}
+
+// ─── Notifications @mention ───────────────────────────────────────────────────
+let _notifSeen = new Set();
+let _notifSeenStorageKey = '';
+
+function _initNotifications() {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'default') Notification.requestPermission();
+    _notifSeenStorageKey = `derush_notif_seen_${currentProjectId || ''}`;
+    try { _notifSeen = new Set(JSON.parse(localStorage.getItem(_notifSeenStorageKey) || '[]')); } catch(e) { _notifSeen = new Set(); }
+}
+
+function _checkMentionNotifs(discussions) {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!currentSession || !currentProject) return;
+    const myNames = [currentSession.user_id, currentSession.username, currentSession.name]
+        .filter(Boolean).map(s => s.toLowerCase());
+    const myId = currentSession.user_id || currentSession.username;
+    let changed = false;
+    for (const [clipId, markers] of Object.entries(discussions || {})) {
+        for (const [markerId, replies] of Object.entries(markers || {})) {
+            for (const reply of (replies || [])) {
+                const key = `${clipId}/${markerId}/${reply.ts}`;
+                if (_notifSeen.has(key)) continue;
+                _notifSeen.add(key); changed = true;
+                const txt = (reply.text || '').toLowerCase();
+                const mentioned = myNames.some(n => txt.includes('@' + n));
+                if (mentioned && reply.user_id !== myId) {
+                    try {
+                        new Notification('Derush Tool — @mention', {
+                            body: `${reply.user_name || '?'} : ${reply.text.slice(0, 80)}`,
+                            tag: key, icon: '/api/icon'
+                        });
+                    } catch(e) {}
+                }
+            }
+        }
+    }
+    if (changed) {
+        try { localStorage.setItem(_notifSeenStorageKey, JSON.stringify([..._notifSeen].slice(-300))); } catch(e) {}
+    }
 }
 
 // ─── share.js : module externalisé → js/share.js ───────────

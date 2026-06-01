@@ -4,6 +4,16 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.8] — 2026-06-01
+
+### ✨ Ajouté
+- **Mode sombre / clair** : bouton 🌙/☀️ dans la sidebar header, toggle persisté en localStorage.
+- **Jauge de progression par utilisateur** : petites barres sous le badge utilisateur montrant combien de clips chaque collaborateur a annotés (ex. Paola 45/200).
+- **Filtres sauvegardés (smart bins)** : bouton "+ Sauver" qui apparaît dès qu'un filtre non-défaut est actif. Les presets sont nommés automatiquement (⭐⭐⭐ · 📷 FX6 · 📅 J04), stockés par projet en localStorage, et rappelés par un clic.
+- **Notifications @mention** : si un collaborateur écrit `@Sébastien` dans une discussion de marker, une notification desktop s'affiche (demande de permission au premier chargement d'un projet). Fonctionne via WebSocket temps réel et polling.
+
+---
+
 ## [0.3.6] — 2026-05-22
 
 ### 🔒 Stabilité & sécurité (audit technique)
