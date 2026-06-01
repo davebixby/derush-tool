@@ -5,8 +5,8 @@
     <title>DRIFT_CLUB — Dérushage Multi-Projet</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #0a0a0f; --surface: #12121a; --border: rgba(255,255,255,.08); --text: #e0e0e8; --dim: #6b6b80; --accent: #a78bfa; --green: #34d399; --red: #ef4444; }
-        body.light-mode { --bg: #f0f0f5; --surface: #ffffff; --border: rgba(0,0,0,.1); --text: #1a1a2e; --dim: #5f6375; --accent: #7c3aed; --green: #059669; --red: #dc2626; }
+        :root { --bg: #0a0a0f; --surface: #12121a; --border: rgba(255,255,255,.08); --text: #e0e0e8; --fg: #e0e0e8; --dim: #6b6b80; --accent: #a78bfa; --green: #34d399; --red: #ef4444; }
+        body.light-mode { --bg: #f0f0f5; --surface: #ffffff; --border: rgba(0,0,0,.1); --text: #1a1a2e; --fg: #1a1a2e; --dim: #5f6375; --accent: #6d28d9; --green: #059669; --red: #dc2626; }
         body.light-mode ::-webkit-scrollbar-thumb { background: rgba(124,58,237,.22); }
         body.light-mode ::-webkit-scrollbar-thumb:hover { background: rgba(124,58,237,.5); }
         body.light-mode .day-header { background: var(--surface); }
@@ -22,6 +22,17 @@
         body.light-mode textarea { background: #f5f5f8; color: var(--text); border-color: rgba(0,0,0,.15); }
         body.light-mode .spd-btn { color: var(--dim); }
         body.light-mode .timeline-tc-start, body.light-mode .timeline-tc-end { color: var(--dim); }
+        /* Chips et textes qui utilisent des couleurs lavande (#c4b5fd/#a78bfa) invisibles sur blanc */
+        body.light-mode .tag-chip { color: #5b21b6; background: rgba(109,40,217,.12); border-color: rgba(109,40,217,.3); }
+        body.light-mode .saved-fchip { color: #5b21b6; border-color: rgba(109,40,217,.4); }
+        body.light-mode .fchip { color: var(--text); }
+        body.light-mode .fchip.active { background: rgba(109,40,217,.15); }
+        body.light-mode .mu-note { background: rgba(0,0,0,.04); color: var(--text); }
+        body.light-mode .mu-marker { border-top-color: rgba(0,0,0,.07); }
+        body.light-mode .mu-reply { background: rgba(0,0,0,.04); }
+        body.light-mode .marker-row:hover { background: rgba(109,40,217,.07); }
+        body.light-mode h1, body.light-mode h2 { color: #5b21b6; }
+        body.light-mode .clip-item.active { background: rgba(109,40,217,.1); border-left-color: #6d28d9; }
         /* Jauge de progression par utilisateur dans la sidebar */
         #userProgressBar { padding: 5px 0 2px; display: none; }
         .upb-row { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; font-size: 0.71em; }
