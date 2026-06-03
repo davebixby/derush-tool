@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!--
+  ⚠️ RÈGLE DE DOCUMENTATION (pour Claude) :
+  À chaque modification du code ou d'une fonctionnalité, mettre à jour les TROIS fichiers de doc :
+  claude.md (référence technique), guide.html (notice utilisateur) et journal.html (ce carnet — ajouter une entrée datée).
+  Ne jamais livrer un changement sans synchroniser ces trois fichiers.
+-->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -189,6 +195,9 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 23 mai 2026 (v0.3.7)</div>
   <a href="#v037">Fix sync UI, snippets recherche, sécurité PHP, tests</a>
+
+  <div class="nav-section">Session 4 juin 2026 (cadrage)</div>
+  <a href="#aspect-frame">Cadre / format d'image</a>
 </nav>
 
 <main>
@@ -2074,8 +2083,39 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="aspect-frame">
+  <div class="entry-header">
+    <span class="entry-date">4 juin 2026</span>
+    <span class="entry-title">Cadre / format d'image — overlay des formats ciné</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Sébastien voulait pouvoir prévisualiser un plan dans les formats cinéma les plus répandus (Scope, 16:9, 4:3, vertical…) sans toucher au fichier ni à l'export. Réponse : un overlay de cadrage qui dessine des caches letterbox/pillarbox par-dessus la vidéo.</p>
+
+  <div class="box box-why"><strong>Pourquoi :</strong> le réalisateur cadre souvent « large » pour se garder le choix du format au montage. Pouvoir basculer entre 2.39:1 et 16:9 directement dans l'outil de dérushage aide à valider qu'un plan « tient » dans le format cible avant même DaVinci.</div>
+
+  <h3>Le piège du <code>object-fit: contain</code></h3>
+  <p>La vidéo est affichée en <code>object-fit: contain</code> : selon le ratio natif du fichier, il y a déjà des bandes noires que le navigateur ajoute lui-même. Impossible donc de poser les caches sur tout le <code>#videoWrapper</code> — il fallait d'abord calculer le <strong>rectangle réellement occupé par l'image</strong>.</p>
+  <div class="box box-ok"><strong>Solution :</strong> <code>_videoDisplayRect()</code> refait le calcul de <code>contain</code> (scale = min(W/vw, H/vh), puis offsets centrés). À partir de ce rectangle, <code>updateAspectOverlay()</code> pose soit des bandes haut/bas (si le format cible est plus large que la vidéo), soit gauche/droite (pillarbox), et trace une fine ligne de cadre + un label.</p></div>
+
+  <h3>Recalcul au bon moment</h3>
+  <p>L'overlay doit se repositionner à chaque changement de taille du rendu. Plutôt que multiplier les listeners, on a accroché <code>updateAspectOverlay()</code> en fin de <code>resizeCanvas()</code> (déjà appelé sur <code>window resize</code>, <code>loadedmetadata</code> et l'event <code>resize</code> du player), plus un listener <code>fullscreenchange</code> dédié car la taille du wrapper change en plein écran.</p>
+
+  <h3>UX & persistance</h3>
+  <ul>
+    <li>Bouton <code>🎞 Cadre</code> → menu déroulant généré depuis le tableau <code>ASPECT_FORMATS</code> (label + sous-titre d'usage).</li>
+    <li>Le bouton affiche le format actif (<code>🎞 2.39:1</code>) au lieu du mot « Cadre », avec un état visuel <code>.asp-on</code>.</li>
+    <li>Le format choisi est mémorisé dans <code>localStorage</code> (clé <code>derush_aspect</code>) et restauré à l'ouverture par l'IIFE <code>initAspectMenu()</code>. Il persiste aussi d'un clip à l'autre.</li>
+    <li><code>pointer-events: none</code> sur l'overlay → aucune interférence avec la lecture, le dessin ou les markers.</li>
+  </ul>
+
+  <div class="box box-note"><strong>Doc :</strong> à l'occasion de cette feature, une règle a été inscrite en tête de <code>claude.md</code>, <code>guide.html</code> et <code>journal.html</code> : Claude doit mettre à jour ces trois fichiers à chaque changement. Build régénéré (PyInstaller + electron-builder) → <code>DerushTool-0.3.8-win.zip</code>.</div>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 23 mai 2026 (v0.3.7 : fix sync UI, snippets recherche FTS, slider volume, sécurité PHP sync, 11 nouveaux tests unitaires)
+  Derush Tool · Journal de développement · Dernière mise à jour 4 juin 2026 (cadre / format d'image : overlay des formats ciné letterbox/pillarbox, mémorisé)
 </div>
 
 </main>

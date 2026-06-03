@@ -223,6 +223,17 @@
         /* LUT canvas overlay */
         #lutCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; z-index: 1; }
         #lutBadge { display: none; position: absolute; top: 8px; right: 8px; background: rgba(99,102,241,.9); color: #fff; font-size: 0.7em; font-weight: 700; padding: 2px 8px; border-radius: 4px; z-index: 2; pointer-events: none; }
+        /* Overlay cadrage : masques + ligne de cadre + label */
+        #aspectOverlay .aspect-bar { position: absolute; background: rgba(0,0,0,0.78); }
+        #aspFrameLine { position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.4); pointer-events: none; }
+        #aspLabel { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; font-size: 0.68em; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
+        #aspectBtn.asp-on { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; box-shadow: 0 0 8px rgba(167,139,250,.5); }
+        #aspectMenu { background: rgba(15,15,22,.97); border: 1px solid var(--border); border-radius: 8px; padding: 6px; min-width: 215px; box-shadow: 0 8px 24px rgba(0,0,0,.6); backdrop-filter: blur(8px); }
+        #aspectMenu .asp-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 6px 10px; background: none; border: none; color: var(--text); font-size: 0.8em; border-radius: 5px; cursor: pointer; }
+        #aspectMenu .asp-item:hover { background: rgba(167,139,250,.15); }
+        #aspectMenu .asp-item.active { background: var(--accent); color: #000; font-weight: 700; }
+        #aspectMenu .asp-item .asp-sub { font-size: 0.82em; color: var(--dim); white-space: nowrap; }
+        #aspectMenu .asp-item.active .asp-sub { color: #000; }
         /* LUT toggle visuel : éclatant si actif, barré si désactivé */
         #lutBtn.lut-on { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; box-shadow: 0 0 8px rgba(167,139,250,.5); }
         #lutBtn.lut-off { opacity: 0.55; text-decoration: line-through; text-decoration-thickness: 1.5px; }
@@ -875,6 +886,15 @@
                 <canvas id="drawCanvas"></canvas>
                 <canvas id="lutCanvas"></canvas>
                 <span id="lutBadge">LUT</span>
+                <!-- Overlay de cadrage (masques letterbox/pillarbox pour prévisualiser un format ciné) -->
+                <div id="aspectOverlay" style="display:none;position:absolute;inset:0;pointer-events:none;z-index:2;">
+                    <div class="aspect-bar" id="aspBarTop"></div>
+                    <div class="aspect-bar" id="aspBarBottom"></div>
+                    <div class="aspect-bar" id="aspBarLeft"></div>
+                    <div class="aspect-bar" id="aspBarRight"></div>
+                    <div id="aspFrameLine"></div>
+                    <span id="aspLabel"></span>
+                </div>
                 <div id="lutSettingsPanel" style="display:none;position:absolute;top:36px;right:8px;z-index:3;background:rgba(15,15,22,.96);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:240px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.6);">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                         <strong style="font-size:0.82em;color:var(--accent);">🎚️ Réglages LUT</strong>
@@ -924,6 +944,10 @@
                 <button class="spd-btn" id="spd20" onclick="setSpeed(2)">2×</button>
             </div>
             <button onclick="openCompare()" title="Comparer deux clips">⚡ Comparer</button>
+            <div style="position:relative;display:inline-block;">
+                <button id="aspectBtn" onclick="toggleAspectMenu(event)" title="Cadre / format d'image">🎞 Cadre</button>
+                <div id="aspectMenu" style="display:none;position:absolute;bottom:36px;right:0;z-index:60;"></div>
+            </div>
             <button id="lutBtn" onclick="toggleLUT()" title="Activer/désactiver la LUT" style="display:none;">🎨 LUT</button>
             <input type="file" id="lutFileInput" accept=".cube" style="display:none;" onchange="onLUTFileSelected(event)">
             <button onclick="document.getElementById('lutFileInput').click()" title="Charger une LUT .cube">📂 LUT</button>
@@ -2780,6 +2804,108 @@ function toggleFullscreen() {
     }
 }
 
+// --- CADRAGE / FORMAT D'IMAGE (overlay letterbox/pillarbox) ---
+// Formats ciné les plus répandus. ratio = largeur/hauteur ; null = désactivé.
+const ASPECT_FORMATS = [
+    { label: 'Désactivé', ratio: null,  sub: '' },
+    { label: '2.39:1',    ratio: 2.39,  sub: 'Cinémascope' },
+    { label: '2.35:1',    ratio: 2.35,  sub: 'Scope' },
+    { label: '2.40:1',    ratio: 2.40,  sub: '' },
+    { label: '2:1',       ratio: 2.0,   sub: 'Univisium' },
+    { label: '1.85:1',    ratio: 1.85,  sub: 'Flat ciné' },
+    { label: '16:9',      ratio: 16/9,  sub: '1.78 — HD' },
+    { label: '1.66:1',    ratio: 5/3,   sub: 'Super 16' },
+    { label: '4:3',       ratio: 4/3,   sub: '1.33 — classique' },
+    { label: '9:16',      ratio: 9/16,  sub: 'Vertical / réseaux' },
+];
+let _aspectRatio = null; // null = overlay masqué
+
+(function initAspectMenu() {
+    const menu = document.getElementById('aspectMenu');
+    if (!menu) return;
+    let saved = null;
+    try { saved = localStorage.getItem('derush_aspect'); } catch (e) {}
+    ASPECT_FORMATS.forEach(f => {
+        const b = document.createElement('button');
+        b.className = 'asp-item';
+        b.innerHTML = `<span>${f.label}</span><span class="asp-sub">${f.sub}</span>`;
+        b.onclick = () => setAspectFrame(f.ratio, f.ratio ? f.label : '', b);
+        menu.appendChild(b);
+        // Restaure le format mémorisé (sinon « Désactivé » par défaut)
+        if ((saved && f.label === saved) || (!saved && f.ratio === null)) {
+            setAspectFrame(f.ratio, f.ratio ? f.label : '', b);
+        }
+    });
+})();
+
+function toggleAspectMenu(e) {
+    if (e) e.stopPropagation();
+    const m = document.getElementById('aspectMenu');
+    m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none';
+}
+// Ferme le menu au clic en dehors
+document.addEventListener('click', (e) => {
+    const m = document.getElementById('aspectMenu');
+    if (!m || m.style.display !== 'block') return;
+    if (!e.target.closest('#aspectMenu') && !e.target.closest('#aspectBtn')) m.style.display = 'none';
+});
+
+function setAspectFrame(ratio, label, el) {
+    _aspectRatio = ratio;
+    const lbl = document.getElementById('aspLabel');
+    lbl.textContent = label || '';
+    lbl.style.display = ratio ? 'block' : 'none';
+    const btn = document.getElementById('aspectBtn');
+    btn.textContent = ratio ? '🎞 ' + label : '🎞 Cadre';
+    btn.classList.toggle('asp-on', !!ratio);
+    document.querySelectorAll('#aspectMenu .asp-item').forEach(b => b.classList.toggle('active', b === el));
+    document.getElementById('aspectMenu').style.display = 'none';
+    try { localStorage.setItem('derush_aspect', label || ''); } catch (e) {}
+    updateAspectOverlay();
+}
+
+// Calcule le rectangle réellement affiché de la vidéo (object-fit: contain)
+function _videoDisplayRect() {
+    const v = document.getElementById('player');
+    const wrap = document.getElementById('videoWrapper');
+    if (!v || !v.videoWidth || !v.videoHeight) return null;
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    const scale = Math.min(W / v.videoWidth, H / v.videoHeight);
+    const dispW = v.videoWidth * scale, dispH = v.videoHeight * scale;
+    return { offX: (W - dispW) / 2, offY: (H - dispH) / 2, dispW, dispH, vr: v.videoWidth / v.videoHeight };
+}
+
+function updateAspectOverlay() {
+    const ov = document.getElementById('aspectOverlay');
+    if (!ov) return;
+    const r = _videoDisplayRect();
+    if (!_aspectRatio || !r) { ov.style.display = 'none'; return; }
+    const bars = { top: 'aspBarTop', bot: 'aspBarBottom', left: 'aspBarLeft', right: 'aspBarRight' };
+    const rect = (id, x, y, w, h) =>
+        document.getElementById(id).style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${Math.max(0, w)}px;height:${Math.max(0, h)}px;`;
+    Object.values(bars).forEach(id => document.getElementById(id).style.cssText = 'position:absolute;width:0;height:0;');
+    let fx, fy, fw, fh; // rectangle du cadre cible
+    if (_aspectRatio >= r.vr) {
+        // Cible plus large que la vidéo → bandes haut/bas (letterbox)
+        fw = r.dispW; fh = r.dispW / _aspectRatio;
+        fx = r.offX;  fy = r.offY + (r.dispH - fh) / 2;
+        rect(bars.top, r.offX, r.offY, r.dispW, fy - r.offY);
+        rect(bars.bot, r.offX, fy + fh, r.dispW, r.offY + r.dispH - (fy + fh));
+    } else {
+        // Cible plus étroite → bandes gauche/droite (pillarbox)
+        fh = r.dispH; fw = r.dispH * _aspectRatio;
+        fy = r.offY;  fx = r.offX + (r.dispW - fw) / 2;
+        rect(bars.left, r.offX, r.offY, fx - r.offX, r.dispH);
+        rect(bars.right, fx + fw, r.offY, r.offX + r.dispW - (fx + fw), r.dispH);
+    }
+    document.getElementById('aspFrameLine').style.cssText =
+        `position:absolute;box-sizing:border-box;left:${fx}px;top:${fy}px;width:${fw}px;height:${fh}px;`;
+    ov.style.display = 'block';
+}
+// Recadrage en plein écran (la taille du wrapper change)
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+    document.addEventListener(ev, () => setTimeout(resizeCanvas, 60)));
+
 // --- CANVAS ANNOTATIONS ---
 const canvas = document.getElementById('drawCanvas');
 const ctx = canvas.getContext('2d');
@@ -2795,6 +2921,7 @@ function resizeCanvas() {
         canvas.width = v.offsetWidth;
         canvas.height = v.offsetHeight;
     }
+    if (typeof updateAspectOverlay === 'function') updateAspectOverlay();
 }
 window.addEventListener('resize', resizeCanvas);
 document.getElementById('player').addEventListener('loadedmetadata', () => {

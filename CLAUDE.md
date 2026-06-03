@@ -2,6 +2,9 @@
 
 Outil de dérushage vidéo multi-utilisateurs. Serveur Python + UI HTML monofichier.
 
+> **⚠️ Règle de documentation (à respecter à chaque changement)**
+> À chaque modification du code ou d'une fonctionnalité, Claude **doit** mettre à jour les trois fichiers de documentation : `claude.md` (ce fichier — référence technique), `guide.html` (notice utilisateur) et `journal.html` (carnet de bord, ajouter une entrée datée). Ne jamais livrer un changement sans synchroniser ces trois fichiers.
+
 ## Fichiers
 - `derush_server.py` — serveur HTTP Python (~1850 lignes)
 - `derush_app.html` — UI web complète CSS+HTML+JS (~2000 lignes)
@@ -592,6 +595,28 @@ let _lut = null, _lutEnabled = false, _lutRaf = null, _lutCtx = null;
 1. `📂 LUT` → `<input type="file" accept=".cube">` → `onLUTFileSelected`
 2. `🎨 LUT` → `toggleLUT()` → `enableLUT(on)` — toggle on/off
 3. Badge `LUT` affiché sur la vidéo quand actif
+
+### Cadrage / format d'image (overlay letterbox/pillarbox)
+
+Overlay de prévisualisation des formats ciné les plus répandus. Affiche des masques semi-transparents (bandes noires) + une fine ligne de cadre + un label, par-dessus la vidéo, sans rien modifier au fichier ni à l'export.
+
+**UI** : bouton `🎞 Cadre` dans `.player-controls` (à côté de ⚡ Comparer) → menu déroulant `#aspectMenu` généré depuis `ASPECT_FORMATS`. Le bouton affiche le format choisi (`🎞 2.39:1`) au lieu du mot « Cadre » quand un format est actif (classe `.asp-on`).
+
+**Formats** (`ASPECT_FORMATS`, ratio = largeur/hauteur) : Désactivé, 2.39:1 (Cinémascope), 2.35:1 (Scope), 2.40:1, 2:1 (Univisium), 1.85:1 (Flat ciné), 16:9 (1.78), 1.66:1 (Super 16), 4:3 (1.33), 9:16 (vertical).
+
+**Markup** : `#aspectOverlay` dans `#videoWrapper` (z-index 2, `pointer-events:none`) contient 4 `.aspect-bar` (top/bottom/left/right), `#aspFrameLine` et `#aspLabel`.
+
+| Fonction JS | Rôle |
+|-------------|------|
+| `initAspectMenu()` (IIFE) | construit le menu + restaure le format mémorisé (`localStorage` clé `derush_aspect`) |
+| `toggleAspectMenu(e)` | ouvre/ferme le menu (fermeture au clic extérieur via listener document) |
+| `setAspectFrame(ratio,label,el)` | applique le format, met à jour bouton/label/état actif, persiste dans `localStorage`, appelle `updateAspectOverlay()` |
+| `_videoDisplayRect()` | calcule le rectangle réellement affiché de la vidéo (math `object-fit: contain`) — gère le letterbox natif selon le ratio source |
+| `updateAspectOverlay()` | positionne les bandes : letterbox haut/bas si cible plus large que la vidéo, pillarbox gauche/droite sinon |
+
+**Hooks de recalcul** : `updateAspectOverlay()` est appelé en fin de `resizeCanvas()` (donc sur `window resize`, `loadedmetadata`, `player resize`) + sur `fullscreenchange`/`webkitfullscreenchange`. Le cadre choisi persiste entre les clips et entre les sessions.
+
+**Globals JS** : `let _aspectRatio = null;` (null = overlay masqué).
 
 ## CSS — compare-timeline layout
 

@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!--
+  ⚠️ RÈGLE DE DOCUMENTATION (pour Claude) :
+  À chaque modification du code ou d'une fonctionnalité, mettre à jour les TROIS fichiers de doc :
+  claude.md (référence technique), guide.html (cette notice utilisateur) et journal.html (carnet de bord).
+  Ne jamais livrer un changement sans synchroniser ces trois fichiers.
+-->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -72,6 +78,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <a href="#compare">Comparaison clips</a>
   <a href="#multicam">Multi-cam &amp; son ingé</a>
   <a href="#lut">Preview LUT</a>
+  <a href="#aspect-frame">Cadre / format d'image</a>
   <a href="#auto-detect">Auto-détection plans</a>
   <a href="#collaboration">Collaboration temps réel</a>
   <a href="#session-live">Session live</a>
@@ -316,6 +323,27 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
 <p>Le bouton <strong>🎨 LUT</strong> a 3 états : <strong>actif</strong> (fond accent + glow), <strong>désactivé</strong> (barré + dim), <strong>hors scope</strong> (dim avec label « hors scope » — la LUT est chargée mais ce clip n'est pas dans le périmètre choisi).</p>
 <div class="tip"><strong>Fichiers Sony :</strong> Les LUTs Sony FX6 (format <code>.cube</code> ASCII) situées dans <code>XDROOT/General/LUT/</code> sont directement compatibles.</div>
 <div class="tip"><strong>Qualité pro :</strong> rendu WebGL2 avec interpolation trilinéaire hardware + dithering anti-banding. Pleine résolution vidéo, pas de pixelisation.</div>
+
+<h2 id="aspect-frame">Cadre / format d'image</h2>
+<p>Permet de prévisualiser un plan dans un <strong>format cinéma</strong> précis, en affichant des caches (bandes noires semi-transparentes) et une ligne de cadre par-dessus la vidéo. C'est purement visuel : ni le fichier ni l'export ne sont modifiés.</p>
+<h3>Choisir un format</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>🎞 Cadre</strong> dans la barre de contrôle du lecteur (à côté de ⚡ Comparer).</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Choisissez un format dans le menu. Les caches s'affichent immédiatement et le bouton prend le nom du format (ex. <strong>🎞 2.39:1</strong>).</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Pour revenir à l'image plein cadre, choisissez <strong>Désactivé</strong>.</div></div>
+<h3>Formats disponibles</h3>
+<table>
+  <tr><th>Format</th><th>Usage courant</th></tr>
+  <tr><td>2.39:1</td><td>Cinémascope (films larges)</td></tr>
+  <tr><td>2.35:1</td><td>Scope</td></tr>
+  <tr><td>2.40:1</td><td>Variante scope</td></tr>
+  <tr><td>2:1</td><td>Univisium (séries, Netflix)</td></tr>
+  <tr><td>1.85:1</td><td>Flat — cinéma US</td></tr>
+  <tr><td>16:9 (1.78:1)</td><td>HD / TV / web</td></tr>
+  <tr><td>1.66:1</td><td>Super 16 / européen</td></tr>
+  <tr><td>4:3 (1.33:1)</td><td>Classique / archives</td></tr>
+  <tr><td>9:16</td><td>Vertical — réseaux sociaux</td></tr>
+</table>
+<div class="tip"><strong>Mémorisé :</strong> le format choisi est conservé d'un clip à l'autre et reste actif à la réouverture du logiciel (préférence par machine). Le cadre fonctionne aussi en plein écran.</div>
 
 <h2 id="auto-detect">Auto-détection des plans</h2>
 <p>Pour les longs takes avec coupes embarquées (multi-prises continues), Derush peut auto-suggérer les moments de changement de plan.</p>
