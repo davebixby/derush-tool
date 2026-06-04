@@ -310,6 +310,7 @@ GET  /api/project/<id>/thumbnail/<clip_id>         (cache thumbnails/)
 GET  /api/project/<id>/thumbnail/<clip_id>?t=N     (thumbnail à offset N secondes)
 GET  /api/project/<id>/strip/<clip_id>?n=12        (contact strip N frames)
 GET  /api/project/<id>/waveform/<clip_id>          (cache waveforms/)
+GET  /api/project/<id>/letterbox/<clip_id>         (bandes noires incrustées → {top,bottom,left,right})
 GET  /api/sync/status                              (configured/online/last_sync/error)
 GET  /api/setup/status                             (état config : ffmpeg, LAN IP, dirs)
 GET  /setup                                        (sert derush_setup.html)
@@ -326,6 +327,7 @@ POST /api/project/<id>/reply                       (ajouter reply sur marker)
 POST /api/project/<id>/config
 POST /api/project/<id>/import                      (importer EDL)
 POST /api/sync/now                                 (sync immédiate tous les projets → {ok, results})
+POST /api/sync/pull                                (pull-only d'un projet, body {project_id} — poll auto)
 ```
 
 ### Réponse /api/project/<id>/health
@@ -462,6 +464,7 @@ GET  /api/project/<id>/export/fcpxml|edl|markers_edl|csv|subclips_fcpxml|report_
 GET  /api/project/<id>/thumbnail/<clip_id>
 GET  /api/project/<id>/strip/<clip_id>?n=12
 GET  /api/project/<id>/waveform/<clip_id>
+GET  /api/project/<id>/letterbox/<clip_id>
 GET  /api/project/<id>/invite_key/<username>       (admin: récupère la clé d'invitation)
 GET  /api/sync/status
 GET  /api/setup/status
@@ -484,6 +487,7 @@ POST /api/project/<id>/reply
 POST /api/project/<id>/config
 POST /api/project/<id>/import
 POST /api/sync/now
+POST /api/sync/pull                                (pull-only d'un projet, body {project_id})
 POST /api/sync/join_with_key                       (collaborateur: rejoindre via invite_key)
 WS   /ws?token=<session_token>                     (WebSocket collaboration temps réel)
 ```
@@ -596,11 +600,23 @@ let _lut = null, _lutEnabled = false, _lutRaf = null, _lutCtx = null;
 2. `🎨 LUT` → `toggleLUT()` → `enableLUT(on)` — toggle on/off
 3. Badge `LUT` affiché sur la vidéo quand actif
 
+### Disposition des contrôles du lecteur (refonte juin 2026)
+
+Deux zones distinctes :
+- **Barre du bas `.player-controls`** (sous la vidéo, au-dessus de la timeline) = transport + lecture uniquement : TC `#tcDisplay`, ◀5s/◀1s/⏯/1s▶/5s▶, 📌 Marker, 🖌 Dessin, ⤢ plein écran, 🔊 Son ingé (`#bwfBtn`), volume (`#volIcon`+`#volSlider`), spacer flex, groupe vitesses `1×/1.25×/1.5×/2×`, puis `#saveStatus` (flash de sauvegarde).
+- **Barre flottante verticale `.player-toolbar`** (`#playerToolbar`) = tous les **outils/actions**, en colonne d'**icônes seules** (tooltips `title`), overlay en haut-droite de `.player-area` (`position:absolute; top:8px; right:8px; z-index:20`, fond translucide + blur) : ⚡ Comparer, 🎞 Cadre (+`#aspectMenu`), 🎨 LUT (`#lutBtn`), 📂 LUT, 🎥 Multi-cam, 🎬 Session (`#sessionBtn`), 📤 Exporter, 🔗 Partager, 🩺 Health, 📊 Stats, ⌨️ raccourcis, ☁️ Sync (`#syncBtn`, dot couleur uniquement — `#syncLabel` masqué), 💾 Sauver.
+
+**Points techniques** :
+- Boutons à état dynamique passés en icône seule : `setAspectFrame` → `🎞` (format dans `title`/badge), `_updateSessionUI` (`js/session-live.js`) → `🛑`/`👁`/`🎬` (état via couleur + `title`), `_updateSyncUI` → dot coloré (label masqué, statut dans `title`).
+- `#aspectMenu` s'ouvre vers la gauche (`right: calc(100% + 8px); top:0`) ; `#lutSettingsPanel` décalé à `right:56px` pour ne pas passer sous la barre.
+- La barre est **masquée pendant le mode dessin** (`startDrawing`/`cancelDrawing` togglent `#playerToolbar`) pour ne pas intercepter les clics du canvas dans le coin.
+- `applyRoleUI` cible `button[onclick="saveNotes()"]` → le bouton 💾 garde son `onclick` (rôle viewer le masque toujours).
+
 ### Cadrage / format d'image (overlay letterbox/pillarbox)
 
 Overlay de prévisualisation des formats ciné les plus répandus. Affiche des masques semi-transparents (bandes noires) + une fine ligne de cadre + un label, par-dessus la vidéo, sans rien modifier au fichier ni à l'export.
 
-**UI** : bouton `🎞 Cadre` dans `.player-controls` (à côté de ⚡ Comparer) → menu déroulant `#aspectMenu` généré depuis `ASPECT_FORMATS`. Le bouton affiche le format choisi (`🎞 2.39:1`) au lieu du mot « Cadre » quand un format est actif (classe `.asp-on`).
+**UI** : bouton `🎞` dans la **barre flottante** `.player-toolbar` (cf. section Disposition) → menu déroulant `#aspectMenu` qui s'ouvre **à gauche** du bouton (`right: calc(100% + 8px)`, z-index 60). Le bouton reste en icône seule ; le format actif est repris dans le `title` + le badge `#aspLabel` sur la vidéo + la classe `.asp-on` (fond accent).
 
 **Formats** (`ASPECT_FORMATS`, ratio = largeur/hauteur) : Désactivé, 2.39:1 (Cinémascope), 2.35:1 (Scope), 2.40:1, 2:1 (Univisium), 1.85:1 (Flat ciné), 16:9 (1.78), 1.66:1 (Super 16), 4:3 (1.33), 9:16 (vertical).
 
@@ -611,12 +627,38 @@ Overlay de prévisualisation des formats ciné les plus répandus. Affiche des m
 | `initAspectMenu()` (IIFE) | construit le menu + restaure le format mémorisé (`localStorage` clé `derush_aspect`) |
 | `toggleAspectMenu(e)` | ouvre/ferme le menu (fermeture au clic extérieur via listener document) |
 | `setAspectFrame(ratio,label,el)` | applique le format, met à jour bouton/label/état actif, persiste dans `localStorage`, appelle `updateAspectOverlay()` |
-| `_videoDisplayRect()` | calcule le rectangle réellement affiché de la vidéo (math `object-fit: contain`) — gère le letterbox natif selon le ratio source |
-| `updateAspectOverlay()` | positionne les bandes : letterbox haut/bas si cible plus large que la vidéo, pillarbox gauche/droite sinon |
+| `_videoDisplayRect()` | rect de l'image RÉELLE dans le LECTEUR : rect `object-fit:contain` de la vidéo brute **amputé des insets** `_contentInsets` (la vidéo du lecteur n'est PAS recadrée, elle montre ses bandes → le cadre se cale sur le contenu à l'intérieur). PAS le ratio-du-contenu en contain (faux quand la vidéo affiche encore ses bandes) |
+| `updateAspectOverlay()` | positionne le cadre sur le rect de `_videoDisplayRect()` : letterbox haut/bas si cible plus large que le contenu, pillarbox gauche/droite sinon |
 
-**Hooks de recalcul** : `updateAspectOverlay()` est appelé en fin de `resizeCanvas()` (donc sur `window resize`, `loadedmetadata`, `player resize`) + sur `fullscreenchange`/`webkitfullscreenchange`. Le cadre choisi persiste entre les clips et entre les sessions.
+### Bandes noires INCRUSTÉES — détection serveur + crop object-view-box (juin 2026)
 
-**Globals JS** : `let _aspectRatio = null;` (null = overlay masqué).
+Certains rushs ont des bandes noires *bakées* dans le fichier (matte cinéma au tournage — ex. FX6 J01 de DRIFT : matte 1.9:1, `1920×1012` dans du 1920×1080, ~34px de noir haut/bas). Deux conséquences corrigées : (1) le cadre 4:3 calait son haut/bas dans le noir ; (2) en comparaison/multicam, l'image bakée paraissait plus basse qu'un clip plein cadre (FS5).
+
+**Détection : côté SERVEUR (fiable), pas client.** L'ancienne détection JS sur une frame isolée était trompée par les plans sombres (bug du comparateur). Désormais :
+- `detect_letterbox(file_path)` (derush_server.py) : `ffmpeg cropdetect=24:2:0` sur 80 frames (`-ss 3`) → `{top,bottom,left,right}` (fractions) **+ `cw,ch`** (dims du contenu après filtrage). Ignore le bruit (<1.5%) et l'aberrant (>35%). Multi-frames = robuste au plan sombre.
+- `get_letterbox(proj, clip)` : cache disque `letterbox_cache.json` (chargé au boot par `_load_letterbox_cache()`), détection à la demande.
+- `GET /api/project/<pid>/letterbox/<clip_id>` → insets + cw/ch.
+
+**Crop côté client : box 16:9 + ZOOM (transform:scale).** Tentatives ratées : `object-view-box` (non supporté Vivaldi → `false`, ignoré) ; `aspect-ratio` sur le `<video>` (non respecté → `object-fit:cover` sur-croppait) ; `aspect-ratio` = ratio contenu (dans une zone plus haute que 16:9, le contenu plus large devient plus court → mismatch).
+Solution retenue (indépendante de la forme de la zone) : la vidéo compare est dans une box `.cmp-vbox` **16:9** (= ratio du fichier, identique pour les 2 clips → même taille/hauteur). Pour un clip baké on **zoome la vidéo** juste assez pour faire sortir les bandes, `overflow:hidden` les masque.
+- `.cmp-vbox { aspect-ratio:16/9; max-width/max-height:100%; overflow:hidden; }` ; `.cmp-vbox video { width/height:100%; object-fit:contain; transform-origin:center; }`. Les deux `<video>` du comparateur sont enveloppées dans un `.cmp-vbox`.
+- `_setVideoCrop(videoEl, ins)` : `z = max(1/(1-top-bottom), 1/(1-left-right))` ; `videoEl.style.transform = scale(z)` si `z>1.002`. Les boîtes restant 16:9 identiques → clips alignés en hauteur.
+- `_applyLetterbox(videoEl, clipId, doCrop)` : fetch `/letterbox`, stocke `_letterbox` + `_contentInsets`. Si `doCrop` → `_setVideoCrop`.
+- **Portée : COMPARATEUR seulement** (`doCrop=true`). Lecteur (`selectClip`) et multicam → `doCrop=false` (juste `_contentInsets` pour le cadre ; player = canvas dessin/LUT calés dessus, mc = cellules 16:9). À étendre.
+- `_drawAspOn` (cadre) : en comparateur (`.cmp-vbox`) mesure la box (non transformée) → cadre 16:9 plein (vidéo zoomée = bandes hors cadre) ; en mc (non recadré) → rect contain de la vidéo amputé des insets (bandes visibles, cadre dans le contenu).
+- Premier affichage d'un clip baké : ~1-2 s (cropdetect serveur) puis caché.
+
+**Cohérence cadre ↔ crop** : `_contentInsets` est désormais alimenté UNIQUEMENT par le serveur (source unique). `updateAspectOverlay`/`_drawAspOn` calculent le cadre sur le **ratio du contenu** (contain), donc le cadre se pose exactement sur la vidéo recadrée. (Anciennes fonctions client `_detectContentInsets`/`_refreshContentInsets`/`_mergeContentInsets` conservées mais **plus appelées**.)
+
+**Cadre appliqué partout** : le même `_aspectRatio` s'applique au player + comparateur + multicam.
+- `_ensureAspOverlay(container, videoEl)` : crée (1×) un overlay (4 `.aspect-bar` + ligne) dans un conteneur `position:relative`, **inséré juste après la vidéo** (labels/badges restent au-dessus). Réf sur `container._aspOv`.
+- `_drawAspOn(videoEl, container, clipId)` : contain du ratio contenu dans la box de l'élément (via `getBoundingClientRect`), insets depuis le cache serveur. Player / `.compare-video-area` / `a.wrapEl`.
+- `refreshAllAspectOverlays()` : player + 2 slots compare (si `#compareOverlay` visible) + angles `_mcView.angles`. Appelé par `setAspectFrame`, `window resize`, et après `_applyLetterbox`.
+- Hooks dessin : compare → `loadedmetadata` de `cmpVidN` ; multicam → `loadedmetadata` de chaque `mcVid_i` + fin de `_buildMcLayout` (rAF).
+
+**Globals JS** : `let _aspectRatio = null;` · `let _contentInsets = {};` (insets bandes par clip.id, alimenté serveur) · `let _letterbox = {};` (cache fetch /letterbox).
+
+**Hooks de recalcul du cadre** : `updateAspectOverlay()` en fin de `resizeCanvas()` (`window resize`, `loadedmetadata`, `player resize`) + `fullscreenchange`. Le cadre choisi persiste entre clips et sessions.
 
 ## CSS — compare-timeline layout
 
@@ -627,6 +669,27 @@ Overlay de prévisualisation des formats ciné les plus répandus. Affiche des m
 .compare-timeline .cmp-pin::before { top: 6px; width: 13px; height: 13px; }
 /* hover: dot grossit 13→16px + anneau blanc */
 .compare-info { height: 90px; overflow-y: auto; } /* fixe pour aligner les vidéos */
+/* Vidéos compare : object-fit:contain (comme le lecteur principal). La vidéo remplit
+   la zone en préservant son ratio. Deux clips de MÊME ratio (FS5 1280×720 et FX6
+   1920×1080 = tous deux 16:9) s'affichent à l'identique → mêmes hauteurs, AUCUN
+   rognage. La zone compare étant plus HAUTE que du 16:9, l'image est letterboxée
+   (noir haut/bas) — normal.
+   PIÈGES (essais ratés) : (1) max-width/max-height → identique pour du même ratio,
+   ok ; (2) height:100%+width:auto → sur un flex item, les clips se résolvaient mal et
+   disparaissaient ; (3) height:100% absolu → la zone étant plus haute que 16:9, ça
+   forçait une largeur énorme → rognage massif des côtés. object-fit:contain est la
+   bonne réponse. */
+.compare-video-area { overflow: hidden; position: relative; }
+.compare-video-area video { width: 100%; height: 100%; object-fit: contain; }
+
+/* VRAIE cause du « hauteurs différentes » (FS5 vs FX6, pourtant tous deux 16:9, proxys
+   1280×720 et 1920×1080 SAR 1:1 vérifiés à l'ffprobe) : la grille .compare-grid en
+   `1fr 1fr` n'était PAS à colonnes égales. Les items grid ont min-width:auto par défaut
+   → la colonne dont le <select> contient un nom de fichier long et insécable
+   (DRIFT_avril0001S03.MP4) prenait plus de largeur → sa vidéo object-fit:contain (zone
+   plus haute que 16:9 → limitée par la largeur) devenait plus haute. Fix : */
+.compare-slot { min-width: 0; }
+.compare-slot-header select { flex: 1; min-width: 0; }
 ```
 
 ---
@@ -1233,11 +1296,15 @@ Revue structurée du code (derush_server.py ~5160 lignes, UI ~3450 lignes). Tous
 - Déploiement 3 machines : PC Sébastien (sources directes), PC Paola (zip), Mac davebixby (git pull + rebuild).
 - Clés d'invitation drift_club v0.3.6 : davebixby = `IKO3LMZ2`, Paola = `W9J3ARXG`.
 
-## Bug résiduel : sync asymétrique — notes des autres non rafraîchies sans rouvrir le projet
-Constaté lors du test de sync à 3. Davebixby (Mac) voit les notes de Sébastien antérieures, mais un commentaire posté pendant la session ne s'affiche pas chez davebixby malgré « Synchroniser ». Dans l'autre sens (davebixby → Sébastien) ça marche.
+## Sync asymétrique — notes des autres rafraîchies en cours de session (RÉSOLU)
+Constaté lors du test de sync à 3 : un commentaire posté pendant la session ne s'affichait pas chez les autres sans rouvrir le projet.
 
-**Diagnostic** : les données sont bien dans le cloud (`notes[6714b070]` présent). Le Mac télécharge correctement les nouvelles notes. Mais l'UI ne rafraîchit pas le panneau « Avis des autres » après une sync descendante — elle se recharge seulement à l'ouverture du projet.
+**Historique du fix** :
+- **0.3.7** : le bouton manuel « Synchroniser » (`triggerSync`) recharge désormais `allNotes`/`allDiscussions` des autres users puis re-render (`renderMarkers`/`renderClipList`/`renderMultiUser`), indépendamment du succès du push.
+- **0.3.9** : le **poll automatique** (`startNotesPolling`, 60 s) déclenche d'abord un **pull-only cloud** avant de relire `/notes`. Avant ça, le poll ne relisait que le fichier local, qui n'était rafraîchi que par le thread serveur (~10 min) → latence jusqu'à 10 min sans clic manuel. Maintenant les notes des autres apparaissent en ≤ 60 s sans aucune action.
 
-**Contournement** : quitter le projet et le rouvrir après une synchronisation pour voir les nouvelles notes des autres.
-
-**À corriger** : le callback `onSyncComplete` côté JS doit déclencher un rechargement des notes des autres users dans l'UI (actuellement seul le propre jeu est re-rendu).
+**Implémentation 0.3.9** :
+- `sync_project(pid, push=True)` : `push=False` → pull + merge + save local **sans** renvoi cloud (léger). N'écrit le fichier (et ne crée un backup versionné) **que si le merge change réellement quelque chose** (`merged != local_now`) → pas de rotation des backups locaux à chaque pull.
+- Endpoint `POST /api/sync/pull` (body `{project_id}`) : pull-only du projet courant. Valide le `pid` (regex `^[a-zA-Z0-9_\-]+$`), renvoie `{ok, message}`. No-op si sync non configurée.
+- Frontend `startNotesPolling` : `fetch('/api/sync/pull', {project_id})` best-effort en tête de chaque tick, puis logique de relecture `/notes` + `/discussions` existante.
+- Les push locaux restent gérés par le timer debounced sur save (`_schedule_sync_push`) — le pull-only n'introduit aucun push supplémentaire.

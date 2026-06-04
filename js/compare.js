@@ -166,7 +166,13 @@ function loadCmpClip(slot) {
     }
     const proxyUrl = clip.proxy_url || `/proxy/${encodeURIComponent(clip.rel_path).replace(/%2F/g, '/')}`;
     vid.src = proxyUrl; vid.load();
-    vid.addEventListener('loadedmetadata', () => { renderCmpMarkers(slot); _detectCmpMulticam(); }, { once: true });
+    // Recadre les bandes noires incrustées (matte baké) pour ce clip
+    if (typeof _applyLetterbox === 'function') _applyLetterbox(vid, clip.id, true);
+    vid.addEventListener('loadedmetadata', () => {
+        renderCmpMarkers(slot); _detectCmpMulticam();
+        // Applique le format de cadre sélectionné à ce slot
+        if (typeof _drawAspOn === 'function') _drawAspOn(vid, vid.closest('.compare-video-area'), clip.id);
+    }, { once: true });
     // Routing WebAudio : supprime le LTC (canal gauche) sur les clips FS5
     _attachCmpSlotAudio(slot);
     _setCmpMonoR(slot, clip.ltc_tc_in_sec != null);

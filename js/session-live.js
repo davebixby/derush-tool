@@ -29,28 +29,29 @@ async function loadSessionState() {
 function _updateSessionUI() {
     const btn = document.getElementById('sessionBtn');
     if (!btn) return;
+    // Barre flottante = icônes seules ; l'état passe par la couleur + le tooltip.
     if (_sessionIsLeading) {
-        btn.textContent = '🛑 Arrêter de diriger';
-        btn.title = "Tu diriges la session — tes actions sont diffusées aux autres";
+        btn.textContent = '🛑';
+        btn.title = "Tu diriges la session — tes actions sont diffusées aux autres (clic pour arrêter)";
         btn.style.background = 'rgba(52,211,153,.2)';
         btn.style.color = '#34d399';
         btn.style.borderColor = 'rgba(52,211,153,.5)';
     } else if (_sessionLeader) {
         if (_sessionFollowing) {
-            btn.textContent = `✓ Suit ${_sessionLeader}`;
+            btn.textContent = '👁';
             btn.title = `Tu suis ${_sessionLeader} — clic pour arrêter`;
             btn.style.background = 'rgba(167,139,250,.2)';
             btn.style.color = '#a78bfa';
             btn.style.borderColor = 'rgba(167,139,250,.5)';
         } else {
-            btn.textContent = `👁 Suivre ${_sessionLeader}`;
+            btn.textContent = '👁';
             btn.title = `${_sessionLeader} dirige — clic pour suivre`;
             btn.style.background = '';
             btn.style.color = '';
             btn.style.borderColor = '';
         }
     } else {
-        btn.textContent = '🎬 Diriger la session';
+        btn.textContent = '🎬';
         btn.title = "Personne ne dirige — clic pour devenir leader (tes actions seront diffusées)";
         btn.style.background = '';
         btn.style.color = '';

@@ -28,6 +28,7 @@ thumbnails/
 sync_fingerprints/
 derush_config.json
 derush_profile.json
+letterbox_cache.json
 # derush_sync.php contient SECRET_KEY hardcodée → utiliser derush_sync.example.php comme template
 derush_sync.php
 index.db

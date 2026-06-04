@@ -198,6 +198,13 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 4 juin 2026 (cadrage)</div>
   <a href="#aspect-frame">Cadre / format d'image</a>
+
+  <div class="nav-section">Session 4 juin 2026 (v0.3.9)</div>
+  <a href="#sync-pull-live">Sync auto des notes des autres</a>
+  <a href="#cadre-image-reelle">Cadre calé sur l'image réelle</a>
+  <a href="#toolbar-flottante">Barre d'outils flottante</a>
+  <a href="#cadre-partout">Cadre dans compare + multicam</a>
+  <a href="#letterbox-serveur">Bandes incrustées : crop auto</a>
 </nav>
 
 <main>
@@ -2112,10 +2119,126 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-note"><strong>Doc :</strong> à l'occasion de cette feature, une règle a été inscrite en tête de <code>claude.md</code>, <code>guide.html</code> et <code>journal.html</code> : Claude doit mettre à jour ces trois fichiers à chaque changement. Build régénéré (PyInstaller + electron-builder) → <code>DerushTool-0.3.8-win.zip</code>.</div>
 </div>
 
+<div class="entry" id="sync-pull-live">
+  <div class="entry-header">
+    <span class="entry-date">4 juin 2026 · v0.3.9</span>
+    <span class="entry-title">Les notes des autres apparaissent enfin toutes seules</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Bug traîné depuis les tests de sync à trois : un commentaire posté par un collaborateur ne s'affichait pas chez les autres tant qu'on ne quittait/rouvrait pas le projet — ou qu'on ne cliquait pas sur « Synchroniser ».</p>
+
+  <div class="box box-why"><strong>Pourquoi :</strong> deux étages de rafraîchissement existaient mais ne se parlaient pas. Le bouton manuel (corrigé en 0.3.7) rechargeait bien les notes des autres. Mais le <strong>poll automatique de 60 s</strong> se contentait de <em>relire le fichier projet local</em> — or ce fichier n'était rafraîchi depuis le cloud que par le thread serveur, toutes les 10 min. Résultat : jusqu'à 10 min de latence si personne ne cliquait.</p></div>
+
+  <h3>Le correctif</h3>
+  <p>On a séparé le <em>pull</em> du <em>push</em>. <code>sync_project(pid, push=False)</code> ramène et fusionne les notes du cloud dans le fichier local <strong>sans rien renvoyer</strong>. Le poll frontend (<code>startNotesPolling</code>) déclenche ce pull léger en tête de chaque tick, juste avant de relire <code>/notes</code> — la logique de rendu existante fait le reste. Les notes des autres apparaissent maintenant en ≤ 60 s, sans aucune action.</p>
+
+  <div class="box box-ok"><strong>Détail anti-régression :</strong> le pull-only n'écrit le fichier (et ne crée donc un backup versionné) que si la fusion change réellement quelque chose. Sans ce garde, un pull toutes les 60 s aurait fait tourner les 10 backups locaux en ~10 min, détruisant le filet de sécurité. Les push restent gérés par le timer debounced sur save — aucun trafic d'écriture supplémentaire.</div>
+
+  <h3>Côté serveur</h3>
+  <ul>
+    <li>Nouvel endpoint <code>POST /api/sync/pull</code> (body <code>{project_id}</code>), valide le pid et renvoie <code>{ok, message}</code>.</li>
+    <li>No-op silencieux si la sync n'est pas configurée → aucun bruit côté installations mono-poste.</li>
+  </ul>
+
+  <div class="box box-note"><strong>Doc :</strong> <code>claude.md</code> (section « bug résiduel » repassée en RÉSOLU), <code>CHANGELOG.md</code>, <code>guide.html</code> et ce journal mis à jour. Version <code>0.3.9</code>. Les 31 tests unitaires Python passent.</div>
+</div>
+
+<div class="entry" id="cadre-image-reelle">
+  <div class="entry-header">
+    <span class="entry-date">4 juin 2026 · v0.3.9</span>
+    <span class="entry-title">Le cadre se cale sur l'image réelle, pas sur le fichier brut</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour de Sébastien sur l'overlay de cadrage : il aime le guide semi-transparent, mais certains rushs ont des <strong>bandes noires incrustées dans le fichier</strong> (master letterboxé). Quand il choisissait 4:3, le cadre rognait correctement à gauche/droite dans l'image réelle… mais en haut/bas il calait ses bords sur la bande noire, pas sur l'image.</p>
+
+  <div class="box box-why"><strong>Pourquoi :</strong> <code>_videoDisplayRect()</code> raisonnait sur la résolution brute de la vidéo (<code>videoWidth × videoHeight</code>), bandes noires comprises. Le rectangle de référence du cadre incluait donc le letterbox baké.</div>
+
+  <h3>La détection des bandes</h3>
+  <p>Nouvelle fonction <code>_detectContentInsets()</code> : on dessine la frame brute sur un petit canvas (200px), et on scanne depuis chaque bord la <strong>luminance MAX</strong> de chaque ligne/colonne. Une ligne dont le pixel le plus clair reste sous le seuil (24/255) est considérée comme une bande noire. Le « max » plutôt que la moyenne évite de prendre un objet sombre traversant une vraie ligne d'image pour une bande.</p>
+
+  <div class="box box-ok"><strong>Convergence par le minimum :</strong> une seule frame peut tromper (fondu au noir, plan nuit). On accumule donc le <em>minimum</em> des insets vus au fil des frames (sur <code>loadeddata</code>, chaque <code>seeked</code>, et à l'activation d'un format). Les bandes ne peuvent que <strong>rétrécir</strong> quand une frame plus lumineuse révèle l'image — jamais grandir faussement. Le scrubbing fait converger vers la vraie taille des bandes.</div>
+
+  <h3>Application</h3>
+  <p><code>updateAspectOverlay()</code> restreint d'abord son rectangle de référence à l'image réelle (insets retirés), puis pose les bandes letterbox/pillarbox comme avant. Résultat : un 4:3 sur un rush 2.39 baké délimite son haut/bas sur le bord interne des bandes noires — l'image réelle. Guide semi-transparent inchangé, détection 100 % client-side (aucun readback serveur, aucun job par clip).</p>
+
+  <div class="box box-note"><strong>Garde-fou :</strong> seuil à 24 = quasi pur noir. Un ciel sombre réel a presque toujours un pixel au-dessus de 24 sur sa ligne → pas pris pour une bande. Frame quasi entièrement noire → détection ignorée (fallback image pleine).</div>
+</div>
+
+<div class="entry" id="toolbar-flottante">
+  <div class="entry-header">
+    <span class="entry-date">4 juin 2026 · v0.3.9</span>
+    <span class="entry-title">Barre d'outils flottante : lecture en bas, outils à droite</span>
+    <span class="entry-tag tag-ui">UI</span>
+  </div>
+
+  <p>La barre de contrôle sous la vidéo était devenue un fourre-tout : transport, vitesses, et une douzaine de boutons d'outils/actions sur une seule ligne qui débordait (flex-wrap). Sébastien voulait séparer les deux usages.</p>
+
+  <div class="box box-why"><strong>Choix retenu :</strong> la barre du bas ne garde que la <strong>lecture</strong> (timer, sauts ◀5s…5s▶, ⏯, vitesses 1×→2×). Tout le reste part dans une <strong>colonne verticale d'icônes flottante</strong> en haut à droite de la vidéo (fond translucide + blur), confirmé en overlay sur l'image plutôt qu'en barre latérale qui aurait rétréci la vidéo.</div>
+
+  <h3>Icônes seules pour les boutons à état</h3>
+  <p>Trois boutons changeaient leur libellé dynamiquement et auraient fait gonfler la colonne : <strong>Cadre</strong> (nom du format), <strong>Session</strong> (« Suit Léa »…), <strong>Sync</strong> (« Synced 10:30 »). Passés en icône seule : l'état est porté par la couleur + le <code>title</code> (et, pour Sync, le point coloré ; pour Cadre, le badge sur la vidéo). <code>setAspectFrame</code>, <code>_updateSessionUI</code> et <code>_updateSyncUI</code> adaptés.</p>
+
+  <h3>Détails d'intégration</h3>
+  <ul>
+    <li>Le menu Cadre s'ouvre désormais <strong>vers la gauche</strong> du bouton (<code>right: calc(100% + 8px)</code>) puisqu'il est collé au bord droit.</li>
+    <li>Le panneau de réglages LUT est décalé (<code>right:56px</code>) pour ne pas passer sous la colonne.</li>
+    <li>La colonne est <strong>masquée en mode dessin</strong> : sinon elle interceptait les clics du canvas dans le coin haut-droite.</li>
+    <li>Le bouton 💾 garde son <code>onclick="saveNotes()"</code> — c'est par lui que <code>applyRoleUI</code> le masque pour le rôle viewer.</li>
+  </ul>
+</div>
+
+<div class="entry" id="cadre-partout">
+  <div class="entry-header">
+    <span class="entry-date">4 juin 2026 · v0.3.9</span>
+    <span class="entry-title">Le cadre s'applique au comparateur et au multicam</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>L'overlay de cadrage ne vivait que sur le lecteur principal. Quand Sébastien choisissait un 4:3 puis ouvrait le comparateur ou le viewer de groupe multi-cam, les vidéos repassaient en plein format. Il voulait que le format sélectionné suive partout.</p>
+
+  <h3>Un overlay générique</h3>
+  <p>Le dessin du cadre, jusque-là câblé en dur sur les IDs du player (<code>#aspectOverlay</code>, <code>#videoWrapper</code>…), a été extrait en fonctions réutilisables : <code>_ensureAspOverlay(container, videoEl)</code> crée à la volée un overlay (4 bandes + ligne) dans n'importe quel conteneur, et <code>_drawAspOn(videoEl, container, clipId)</code> le positionne en calculant le rectangle image réel de la vidéo via <code>getBoundingClientRect</code> (object-fit contain dans la box de l'élément) + les mêmes insets de bandes incrustées que le player.</p>
+
+  <div class="box box-ok"><strong>Astuce de superposition :</strong> l'overlay est inséré <em>juste après</em> l'élément vidéo (et non en dernier enfant), pour que les labels et badges des angles multicam restent lisibles par-dessus les bandes.</div>
+
+  <h3>Branchements</h3>
+  <ul>
+    <li><code>refreshAllAspectOverlays()</code> rafraîchit player + 2 slots compare + tous les angles multicam ; appelé par <code>setAspectFrame</code> (changement de format) et sur <code>window resize</code>.</li>
+    <li>Compare : dessin sur le <code>loadedmetadata</code> de chaque <code>cmpVidN</code> (dans <code>loadCmpClip</code>).</li>
+    <li>Multicam : dessin sur le <code>loadedmetadata</code> de chaque angle + en fin de <code>_buildMcLayout</code> (rAF) — couvre l'ouverture, le basculement grille/primaire et le changement de primaire.</li>
+  </ul>
+
+  <div class="box box-note"><strong>Insets partagés :</strong> la détection des bandes incrustées (accumulation du minimum) est factorisée dans <code>_mergeContentInsets(clipId, det)</code>, utilisée par le player et par le cadre générique → un clip déjà vu en grand garde ses insets dans le comparateur.</div>
+
+  <div class="box box-why"><strong>Correctif (constaté en test, même jour) :</strong> sur un plan <em>sombre</em> dans le comparateur, le cadre débordait dans le noir. Cause : la détection de bandes lancée sur une <strong>frame isolée</strong> prenait les zones sombres (côté gauche dans l'ombre, haut noir) pour des bandes. Deux corrections : (1) la détection ne regarde plus que le <strong>haut/bas symétrique</strong> (<code>min(top,bottom)</code>, gauche/droite abandonnés) → un seul côté sombre est rejeté ; (2) dans le comparateur et le multicam on n'utilise QUE le cache accumulé sur le player principal (fiable car moyenné sur plusieurs frames), jamais une détection sur frame isolée.</div>
+</div>
+
+<div class="entry" id="letterbox-serveur">
+  <div class="entry-header">
+    <span class="entry-date">4 juin 2026 · v0.3.9</span>
+    <span class="entry-title">Bandes noires incrustées : détection serveur + crop auto</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Longue enquête : dans le comparateur, les FX6 du J01 (avril0001-0009) semblaient « plus basses » que les FS5. Après avoir éliminé une à une les fausses pistes (ratio, colonnes inégales — corrigées via <code>min-width:0</code> —, cache navigateur), j'ai <strong>mesuré</strong> au lieu de deviner.</p>
+
+  <div class="box box-ok"><strong>Méthode :</strong> un one-liner console envoyé à l'utilisateur a prouvé que les boîtes vidéo étaient au pixel près identiques (image 591 = 591). Donc le décalage n'était pas l'affichage. Un <code>ffmpeg cropdetect</code> a tranché : <code>avril0005 → 1920×1012</code> (34px de noir haut + bas, matte 1.9:1 baké au tournage) ; <code>Clip0003 (FS5) → 1280×720</code> plein cadre. Les FX6 du J01 ont un cache cinéma incrusté dans le fichier, pas les FS5 ni les FX6 du J02.</div>
+
+  <h3>Détection FIABLE = côté serveur</h3>
+  <p>La détection JS précédente (sur une frame isolée) était trompée par les plans sombres — c'est ce qui faisait déborder le cadre. Remplacée par <code>detect_letterbox()</code> : <code>ffmpeg cropdetect</code> sur 80 frames (s'accumule, robuste au plan sombre), résultat caché par clip (<code>letterbox_cache.json</code>), exposé via <code>GET /letterbox/&lt;clip_id&gt;</code>.</p>
+
+  <h3>Crop via object-view-box</h3>
+  <p>Côté client, <code>_applyLetterbox()</code> récupère les insets et pose <code>video.style.objectViewBox = inset(…)</code> : la propriété CSS recadre la <em>source</em> sur la zone non-noire, puis <code>object-fit:contain</code> l'ajuste → l'image remplit la boîte sans les bandes. Appliqué au lecteur, au comparateur et au multi-cam. Résultat : une FX6 mattée s'affiche à la même hauteur qu'une FS5 plein cadre.</p>
+
+  <div class="box box-note"><strong>Cohérence :</strong> <code>_contentInsets</code> est maintenant alimenté uniquement par le serveur (source unique fiable), et le cadre/format calcule sur le <em>ratio du contenu</em> (contain) → il se pose exactement sur la vidéo recadrée. Leçon retenue : sur un doute géométrique, <strong>mesurer</strong> (ffprobe/cropdetect/getBoundingClientRect) avant de toucher au CSS.</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 4 juin 2026 (cadre / format d'image : overlay des formats ciné letterbox/pillarbox, mémorisé)
+  Derush Tool · Journal de développement · Dernière mise à jour 4 juin 2026 (v0.3.9 — sync auto, barre flottante, cadre partout, bandes incrustées rognées auto)
 </div>
 
 </main>

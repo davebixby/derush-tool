@@ -304,7 +304,7 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
 <h2 id="lut">Preview LUT</h2>
 <p>Derush Tool peut appliquer une LUT 3D (Look-Up Table) sur la preview vidéo pour visualiser l'étalonnage prévu sans quitter l'interface.</p>
 <h3>Charger une LUT</h3>
-<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>📂 LUT</strong> dans la barre de contrôle du lecteur.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>📂</strong> dans la barre d'outils verticale en haut à droite du lecteur.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un fichier <code>.cube</code> (format ASCII standard).</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">La LUT s'applique immédiatement sur la vidéo en cours. Un badge <strong>LUT</strong> apparaît sur l'image.</div></div>
 <h3>Scope par caméra</h3>
@@ -327,7 +327,7 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
 <h2 id="aspect-frame">Cadre / format d'image</h2>
 <p>Permet de prévisualiser un plan dans un <strong>format cinéma</strong> précis, en affichant des caches (bandes noires semi-transparentes) et une ligne de cadre par-dessus la vidéo. C'est purement visuel : ni le fichier ni l'export ne sont modifiés.</p>
 <h3>Choisir un format</h3>
-<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>🎞 Cadre</strong> dans la barre de contrôle du lecteur (à côté de ⚡ Comparer).</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>🎞</strong> dans la barre d'outils verticale en haut à droite du lecteur.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Choisissez un format dans le menu. Les caches s'affichent immédiatement et le bouton prend le nom du format (ex. <strong>🎞 2.39:1</strong>).</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">Pour revenir à l'image plein cadre, choisissez <strong>Désactivé</strong>.</div></div>
 <h3>Formats disponibles</h3>
@@ -344,6 +344,8 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
   <tr><td>9:16</td><td>Vertical — réseaux sociaux</td></tr>
 </table>
 <div class="tip"><strong>Mémorisé :</strong> le format choisi est conservé d'un clip à l'autre et reste actif à la réouverture du logiciel (préférence par machine). Le cadre fonctionne aussi en plein écran.</div>
+<div class="tip"><strong>Bandes noires incrustées :</strong> si un rush a déjà des bandes noires « cuites » dans l'image (master letterboxé), le cadre se cale sur l'<strong>image réelle</strong> et non sur ces bandes. La détection s'affine pendant la lecture / le scrubbing.</div>
+<div class="tip"><strong>Partout :</strong> le format choisi s'applique aussi dans le <strong>comparateur</strong> (les deux clips) et dans le <strong>viewer multi-caméra</strong> (tous les angles), pas seulement sur le lecteur principal.</div>
 
 <h2 id="auto-detect">Auto-détection des plans</h2>
 <p>Pour les longs takes avec coupes embarquées (multi-prises continues), Derush peut auto-suggérer les moments de changement de plan.</p>
@@ -413,6 +415,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 <h2 id="sync">Synchronisation cloud</h2>
 <p>Le dot ☁️ en haut du workspace indique l'état : 🟢 synchronisé, 🔴 erreur, ⚫ non configuré.</p>
 <p>La sync est automatique au démarrage et toutes les 10 minutes. Cliquez sur le bouton Sync pour la déclencher manuellement.</p>
+<div class="tip"><strong>Notes des autres en direct :</strong> quand un projet est ouvert, les annotations et commentaires de vos collaborateurs apparaissent automatiquement (en moins d'une minute), sans avoir à cliquer sur Sync ni à rouvrir le projet.</div>
 <div class="tip"><strong>Merge sans conflit :</strong> chaque utilisateur n'écrit que ses propres annotations. Il n'y a pas de risque d'écraser le travail d'un collègue.</div>
 
 <h2 id="updates">Mises à jour automatiques + journal des nouveautés</h2>

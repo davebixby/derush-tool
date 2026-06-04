@@ -227,6 +227,9 @@ function selectClip(c) {
         player.src = c.proxy_url;
         player.style.display = 'block';
         msg.style.display = 'none';
+        // Renseigne les insets de bandes pour le cadre (pas de crop du player : les
+        // canvas dessin/LUT se calent sur la vidéo qui doit garder sa boîte).
+        if (typeof _applyLetterbox === 'function') _applyLetterbox(player, c.id, false);
     } else {
         player.style.display = 'none';
         msg.style.display = 'block';

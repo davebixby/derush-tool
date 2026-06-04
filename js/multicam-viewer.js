@@ -186,6 +186,11 @@ function _buildMcLayout(isInitial) {
             vid.controls = false;
             vid.muted = true;
             wrap.appendChild(vid);
+            // Renseigne les insets pour le cadre (crop multicam à étendre après
+            // validation du comparateur — cellules 16:9, layout différent).
+            if (typeof _applyLetterbox === 'function') _applyLetterbox(vid, a.cid, false);
+            // Applique le format de cadre sélectionné à cet angle dès qu'il est prêt
+            vid.addEventListener('loadedmetadata', () => { if (typeof _drawAspOn === 'function') _drawAspOn(vid, wrap, a.cid); }, { once: true });
             const numBadge = document.createElement('div');
             numBadge.className = 'mc-thumb-num';
             wrap.appendChild(numBadge);
@@ -231,6 +236,11 @@ function _buildMcLayout(isInitial) {
         pri.addEventListener('loadedmetadata', () => _mcSeekGroup(v.angles[v.primaryIdx].normOff), {once: true});
     }
     _mcRenderTimelineMarks();
+    // Repositionne le cadre sur chaque angle après que le layout est en place
+    // (taille des cellules connue) — couvre aussi le basculement grille/primaire.
+    if (typeof _drawAspOn === 'function') {
+        requestAnimationFrame(() => v.angles.forEach(a => { if (a.vidEl && a.wrapEl) _drawAspOn(a.vidEl, a.wrapEl, a.cid); }));
+    }
 }
 
 function _mcToggleLayout() {

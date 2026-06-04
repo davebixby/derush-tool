@@ -184,6 +184,10 @@
         .player-controls > .tc-display { font-size: clamp(0.78em, 0.9vw + 0.6em, 0.95em); }
         @media (max-width: 1200px) { .player-controls > button { padding: 3px 7px; font-size: 0.78em; } }
         @media (max-width: 900px)  { .player-controls > button { padding: 3px 6px; font-size: 0.72em; } }
+        /* Barre d'outils flottante verticale (haut-droite du lecteur) */
+        .player-toolbar { position: absolute; top: 8px; right: 8px; z-index: 20; display: flex; flex-direction: column; gap: 5px; background: rgba(15,15,22,.6); backdrop-filter: blur(6px); border: 1px solid var(--border); border-radius: 10px; padding: 6px; }
+        .player-toolbar button { width: 38px; height: 32px; min-height: 32px; padding: 0; font-size: 1.02em; line-height: 1; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+        body.light-mode .player-toolbar { background: rgba(255,255,255,.72); }
         .tc-display { font-family: monospace; color: var(--accent); font-size: 0.9em; min-width: 90px; }
 
         /* Timeline */
@@ -224,7 +228,9 @@
         #lutCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; z-index: 1; }
         #lutBadge { display: none; position: absolute; top: 8px; right: 8px; background: rgba(99,102,241,.9); color: #fff; font-size: 0.7em; font-weight: 700; padding: 2px 8px; border-radius: 4px; z-index: 2; pointer-events: none; }
         /* Overlay cadrage : masques + ligne de cadre + label */
-        #aspectOverlay .aspect-bar { position: absolute; background: rgba(0,0,0,0.78); }
+        /* Global (pas seulement #aspectOverlay) : les overlays cadre du comparateur et du
+           multicam sont créés dynamiquement hors de #aspectOverlay et ont besoin du fond. */
+        .aspect-bar { position: absolute; background: rgba(0,0,0,0.78); }
         #aspFrameLine { position: absolute; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.4); pointer-events: none; }
         #aspLabel { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #fff; font-size: 0.68em; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
         #aspectBtn.asp-on { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; box-shadow: 0 0 8px rgba(167,139,250,.5); }
@@ -249,12 +255,21 @@
         #compareOverlay.active { display: flex; }
         .compare-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
         .compare-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--border); overflow: hidden; min-height: 0; }
-        .compare-slot { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; cursor: default; }
+        /* min-width:0 → force les 2 colonnes grid à des largeurs RÉELLEMENT égales.
+           Sans ça, le min-content du <select> (nom de fichier long et insécable)
+           élargissait une colonne → sa vidéo object-fit:contain devenait plus haute. */
+        .compare-slot { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; cursor: default; min-width: 0; }
         .compare-slot-header { padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; transition: box-shadow .15s; }
         .compare-slot.cmp-active .compare-slot-header { box-shadow: inset 3px 0 0 var(--accent); background: rgba(167,139,250,.07); }
-        .compare-slot-header select { flex: 1; font-size: 0.82em; }
-        .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; }
-        .compare-video-area video { max-width: 100%; max-height: 100%; display: block; }
+        .compare-slot-header select { flex: 1; font-size: 0.82em; min-width: 0; }
+        .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; position: relative; }
+        /* Box 16:9 (= ratio du fichier, identique pour les deux clips) → MÊME taille et
+           MÊME hauteur dans la zone, quelle que soit la forme de la zone. Pour un clip
+           avec bandes incrustées, _setVideoCrop ZOOME la vidéo (transform:scale) pour
+           faire sortir les bandes du cadre ; overflow:hidden les masque. Les boîtes
+           restent identiques → alignées. */
+        .cmp-vbox { max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; overflow: hidden; display: flex; }
+        .cmp-vbox video { width: 100%; height: 100%; object-fit: contain; display: block; transform-origin: center; }
         .compare-info { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 0.8em; height: 90px; overflow-y: auto; flex-shrink: 0; }
         .cmp-rating { font-size: 0.85em; margin-bottom: 4px; }
         .cmp-marker { color: var(--dim); font-size: 0.78em; padding: 1px 0; cursor: pointer; }
@@ -895,7 +910,7 @@
                     <div id="aspFrameLine"></div>
                     <span id="aspLabel"></span>
                 </div>
-                <div id="lutSettingsPanel" style="display:none;position:absolute;top:36px;right:8px;z-index:3;background:rgba(15,15,22,.96);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:240px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.6);">
+                <div id="lutSettingsPanel" style="display:none;position:absolute;top:8px;right:56px;z-index:3;background:rgba(15,15,22,.96);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:240px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.6);">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                         <strong style="font-size:0.82em;color:var(--accent);">🎚️ Réglages LUT</strong>
                         <button onclick="resetLutSettings()" style="font-size:0.7em;padding:1px 6px;background:none;border:1px solid var(--border);color:var(--dim);">Reset</button>
@@ -918,8 +933,32 @@
                 <button onclick="saveDrawing()" class="btn-primary">✅ Valider</button>
                 <button onclick="cancelDrawing()">❌</button>
             </div>
+
+            <!-- Barre d'outils flottante verticale (haut-droite du lecteur) -->
+            <div class="player-toolbar" id="playerToolbar">
+                <button onclick="openCompare()" title="Comparer deux clips">⚡</button>
+                <div style="position:relative;display:inline-block;">
+                    <button id="aspectBtn" onclick="toggleAspectMenu(event)" title="Cadre / format d'image">🎞</button>
+                    <div id="aspectMenu" style="display:none;position:absolute;top:0;right:calc(100% + 8px);z-index:60;"></div>
+                </div>
+                <button id="lutBtn" onclick="toggleLUT()" title="Activer/désactiver la LUT" style="display:none;">🎨</button>
+                <input type="file" id="lutFileInput" accept=".cube" style="display:none;" onchange="onLUTFileSelected(event)">
+                <button onclick="document.getElementById('lutFileInput').click()" title="Charger une LUT .cube">📂</button>
+                <button onclick="openMulticamModal()" title="Détecter et gérer les groupes multi-caméra">🎥</button>
+                <!-- Auto-détection désactivée (résultats trop approximatifs) — code conservé dans js/auto-detect.js, modal #autoDetectModal et backend pour réactivation future. -->
+                <button id="sessionBtn" onclick="toggleSession()" title="Session live : diriger ou suivre">🎬</button>
+                <button onclick="openExportModal()" title="Exporter vers DaVinci Resolve">📤</button>
+                <button onclick="openShareModal()" title="Créer un lien de review public">🔗</button>
+                <button onclick="openHealthModal()" title="Project Health Check">🩺</button>
+                <button onclick="openStatsModal()" title="Statistiques du projet">📊</button>
+                <button onclick="document.getElementById('kbdModal').style.display='flex'" title="Raccourcis clavier">⌨️</button>
+                <button id="syncBtn" onclick="triggerSync()" title="Synchroniser maintenant" style="display:none;">
+                    <span id="syncDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6b7280;vertical-align:middle;"></span><span id="syncLabel" style="display:none;"></span>
+                </button>
+                <button onclick="saveNotes()" class="btn-primary" title="Sauvegarder (Ctrl+S)">💾</button>
+            </div>
         </div>
-        
+
         <div class="player-controls">
             <span class="tc-display" id="tcDisplay">00:00:00:00</span>
             <button onclick="skip(-5)" title="-5s">◀5s</button>
@@ -943,28 +982,7 @@
                 <button class="spd-btn" id="spd15" onclick="setSpeed(1.5)">1.5×</button>
                 <button class="spd-btn" id="spd20" onclick="setSpeed(2)">2×</button>
             </div>
-            <button onclick="openCompare()" title="Comparer deux clips">⚡ Comparer</button>
-            <div style="position:relative;display:inline-block;">
-                <button id="aspectBtn" onclick="toggleAspectMenu(event)" title="Cadre / format d'image">🎞 Cadre</button>
-                <div id="aspectMenu" style="display:none;position:absolute;bottom:36px;right:0;z-index:60;"></div>
-            </div>
-            <button id="lutBtn" onclick="toggleLUT()" title="Activer/désactiver la LUT" style="display:none;">🎨 LUT</button>
-            <input type="file" id="lutFileInput" accept=".cube" style="display:none;" onchange="onLUTFileSelected(event)">
-            <button onclick="document.getElementById('lutFileInput').click()" title="Charger une LUT .cube">📂 LUT</button>
-            <button onclick="openMulticamModal()" title="Détecter et gérer les groupes multi-caméra">🎥 Multi-cam</button>
-            <!-- Auto-détection désactivée (résultats trop approximatifs) — code conservé dans js/auto-detect.js, modal #autoDetectModal et backend pour réactivation future. -->
-            <!-- <button onclick="openAutoDetectModal()" title="Auto-détection des plans (scene change ffmpeg)">🔍 Auto-plans</button> -->
-            <button id="sessionBtn" onclick="toggleSession()" title="Session live : diriger ou suivre">🎬 Diriger la session</button>
-            <button onclick="openExportModal()" title="Exporter vers DaVinci Resolve">📤 Exporter</button>
-            <button onclick="openShareModal()" title="Créer un lien de review public">🔗 Partager</button>
-            <button onclick="openHealthModal()" title="Project Health Check">🩺</button>
-            <button onclick="openStatsModal()" title="Statistiques du projet">📊</button>
-            <button onclick="document.getElementById('kbdModal').style.display='flex'" title="Raccourcis clavier">⌨️</button>
-            <button id="syncBtn" onclick="triggerSync()" title="Synchroniser maintenant" style="display:none;">
-                <span id="syncDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6b7280;margin-right:4px;vertical-align:middle;"></span><span id="syncLabel">Sync</span>
-            </button>
             <span id="saveStatus" style="font-size:0.75em;color:#34d399;opacity:0;transition:opacity .6s;"></span>
-            <button onclick="saveNotes()" class="btn-primary" title="Sauvegarder (Ctrl+S)">💾 Sauver</button>
         </div>
 
         <!-- Timeline -->
@@ -2591,6 +2609,17 @@ function startNotesPolling() {
         try {
             const uid = currentSession.user_id;
             let changed = false;
+            // Pull-only cloud (best-effort) : ramène les notes des autres dans le
+            // fichier local AVANT de relire /notes, sinon le panneau « Avis des
+            // autres » reste figé jusqu'à la prochaine sync serveur (~10 min) ou
+            // un clic manuel. Échoue silencieusement si la sync n'est pas configurée.
+            try {
+                await fetch('/api/sync/pull', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({project_id: currentProjectId}),
+                });
+            } catch(e) {}
             const nRes = await apiFetch(`/api/project/${currentProjectId}/notes`);
             if(nRes.ok) {
                 const fresh = await nRes.json();
@@ -2819,6 +2848,74 @@ const ASPECT_FORMATS = [
     { label: '9:16',      ratio: 9/16,  sub: 'Vertical / réseaux' },
 ];
 let _aspectRatio = null; // null = overlay masqué
+// Insets (fractions 0-1) des bandes noires INCRUSTÉES dans l'image source, par
+// clip : {top,bottom,left,right}. Le cadre se délimite sur l'image réelle (hors
+// bandes), pas sur la résolution brute de la vidéo. On accumule le MINIMUM vu au
+// fil des frames → converge vers la vraie taille des bandes (une frame sombre
+// sur-détecte, une frame plus lumineuse corrige à la baisse, jamais à la hausse).
+let _contentInsets = {};
+const _CONTENT_BLACK_THRESH = 24; // luma 0-255 en dessous duquel une ligne est « noire »
+let _contentDetectCanvas = null;
+let _lastContentDetect = 0;
+
+// Détecte les bandes noires incrustées sur la frame courante. Retourne des
+// fractions {top,bottom,left,right} ou null si la frame n'est pas exploitable.
+function _detectContentInsets(v) {
+    try {
+        if (!v || !v.videoWidth || !v.videoHeight || v.readyState < 2) return null;
+        const vw = v.videoWidth, vh = v.videoHeight;
+        const cw = 200, ch = Math.max(2, Math.round(200 * vh / vw));
+        if (!_contentDetectCanvas) _contentDetectCanvas = document.createElement('canvas');
+        const cv = _contentDetectCanvas; cv.width = cw; cv.height = ch;
+        const cx = cv.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(v, 0, 0, cw, ch); // dessine la frame BRUTE (bandes incluses)
+        const data = cx.getImageData(0, 0, cw, ch).data;
+        // Luma MAX d'une ligne : robuste à un objet sombre traversant une ligne
+        // d'image réelle (un seul pixel clair suffit à la déclarer non-noire).
+        const rowMax = (y) => {
+            let m = 0; const base = y * cw * 4;
+            for (let x = 0; x < cw; x++) { const i = base + x * 4; const l = data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114; if (l > m) m = l; }
+            return m;
+        };
+        let top = 0;    while (top < ch && rowMax(top) < _CONTENT_BLACK_THRESH) top++;
+        let bottom = 0; while (bottom < ch && rowMax(ch - 1 - bottom) < _CONTENT_BLACK_THRESH) bottom++;
+        // Bandes incrustées = letterbox cinéma : on ne détecte QUE le haut/bas, et de
+        // façon SYMÉTRIQUE via min(top,bottom). Un seul côté sombre (ciel noir, mur dans
+        // l'ombre, plan latéral sombre) ≠ une bande → rejeté. On ne scanne plus
+        // gauche/droite : le pillarbox baké n'existe quasi jamais et provoquait des faux
+        // positifs sur les plans sombres latéraux.
+        const band = Math.min(top, bottom);
+        if (band * 2 >= ch - 2) return null; // frame quasi entièrement noire → inexploitable
+        return { top: band / ch, bottom: band / ch, left: 0, right: 0 };
+    } catch (e) { return null; }
+}
+
+// Fusionne une détection dans le cache d'insets d'un clip (accumulation du
+// minimum : les bandes ne peuvent que rétrécir quand une frame plus claire
+// révèle l'image). Bande < 1.2% ignorée (bruit d'encodage).
+function _mergeContentInsets(clipId, det) {
+    if (!clipId || !det) return;
+    const clean = (f) => (f < 0.012 ? 0 : f);
+    const next = { top: clean(det.top), bottom: clean(det.bottom), left: clean(det.left), right: clean(det.right) };
+    const cur = _contentInsets[clipId];
+    _contentInsets[clipId] = cur ? {
+        top: Math.min(cur.top, next.top), bottom: Math.min(cur.bottom, next.bottom),
+        left: Math.min(cur.left, next.left), right: Math.min(cur.right, next.right),
+    } : next;
+}
+
+// Détecte sur la frame courante du player principal et rafraîchit l'overlay.
+function _refreshContentInsets() {
+    const v = document.getElementById('player');
+    if (!v || !activeClip) return;
+    const now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (now - _lastContentDetect < 120) return; // throttle scrubbing
+    _lastContentDetect = now;
+    const det = _detectContentInsets(v);
+    if (!det) return;
+    _mergeContentInsets(activeClip.id, det);
+    if (_aspectRatio) updateAspectOverlay();
+}
 
 (function initAspectMenu() {
     const menu = document.getElementById('aspectMenu');
@@ -2856,23 +2953,33 @@ function setAspectFrame(ratio, label, el) {
     lbl.textContent = label || '';
     lbl.style.display = ratio ? 'block' : 'none';
     const btn = document.getElementById('aspectBtn');
-    btn.textContent = ratio ? '🎞 ' + label : '🎞 Cadre';
+    btn.textContent = '🎞'; // icône seule (le format actif est repris dans le titre + le badge sur la vidéo)
+    btn.title = ratio ? 'Cadre : ' + label : 'Cadre / format d\'image';
     btn.classList.toggle('asp-on', !!ratio);
     document.querySelectorAll('#aspectMenu .asp-item').forEach(b => b.classList.toggle('active', b === el));
     document.getElementById('aspectMenu').style.display = 'none';
     try { localStorage.setItem('derush_aspect', label || ''); } catch (e) {}
-    updateAspectOverlay();
+    refreshAllAspectOverlays(); // player + comparateur + multicam
 }
 
-// Calcule le rectangle réellement affiché de la vidéo (object-fit: contain)
+// Rectangle de l'image RÉELLE dans le LECTEUR. Ici la vidéo n'est PAS recadrée (elle
+// montre encore ses bandes incrustées) → le cadre se cale sur le CONTENU à l'intérieur
+// de l'image affichée : on prend le rect object-fit:contain de la vidéo brute, puis on
+// l'ampute des insets de bandes (cache serveur). Sinon le cadre déborde dans les bandes.
 function _videoDisplayRect() {
     const v = document.getElementById('player');
     const wrap = document.getElementById('videoWrapper');
     if (!v || !v.videoWidth || !v.videoHeight) return null;
     const W = wrap.clientWidth, H = wrap.clientHeight;
     const scale = Math.min(W / v.videoWidth, H / v.videoHeight);
-    const dispW = v.videoWidth * scale, dispH = v.videoHeight * scale;
-    return { offX: (W - dispW) / 2, offY: (H - dispH) / 2, dispW, dispH, vr: v.videoWidth / v.videoHeight };
+    const fw = v.videoWidth * scale, fh = v.videoHeight * scale;
+    const ins = (activeClip && _contentInsets[activeClip.id]) || { top: 0, bottom: 0, left: 0, right: 0 };
+    const dispW = fw * (1 - ins.left - ins.right), dispH = fh * (1 - ins.top - ins.bottom);
+    return {
+        offX: (W - fw) / 2 + ins.left * fw,
+        offY: (H - fh) / 2 + ins.top * fh,
+        dispW, dispH, vr: dispW / dispH,
+    };
 }
 
 function updateAspectOverlay() {
@@ -2902,6 +3009,121 @@ function updateAspectOverlay() {
         `position:absolute;box-sizing:border-box;left:${fx}px;top:${fy}px;width:${fw}px;height:${fh}px;`;
     ov.style.display = 'block';
 }
+
+// ─── Cadre générique (comparateur + viewer multicam) ─────────────────────────
+// Le même format _aspectRatio s'applique à toutes les vidéos affichées. Overlay
+// créé à la volée dans un conteneur position:relative, par-dessus l'élément vidéo.
+function _ensureAspOverlay(container, videoEl) {
+    let ov = container._aspOv;
+    if (ov && ov.parentNode === container) return ov;
+    ov = document.createElement('div');
+    ov.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:1;display:none;';
+    for (let i = 0; i < 4; i++) { const b = document.createElement('div'); b.className = 'aspect-bar'; ov.appendChild(b); }
+    const line = document.createElement('div');
+    line.style.cssText = 'position:absolute;box-sizing:border-box;border:1px solid rgba(255,255,255,.55);';
+    ov.appendChild(line);
+    // Inséré juste après la vidéo (avant labels/badges) → ceux-ci restent visibles
+    if (videoEl && videoEl.parentNode === container) container.insertBefore(ov, videoEl.nextSibling);
+    else container.appendChild(ov);
+    container._aspOv = ov;
+    return ov;
+}
+
+function _drawAspOn(videoEl, container, clipId) {
+    if (!container) return;
+    const ov = _ensureAspOverlay(container, videoEl);
+    if (!_aspectRatio || !videoEl || !videoEl.videoWidth || !videoEl.videoHeight) { ov.style.display = 'none'; return; }
+    // Comparateur (.cmp-vbox) : vidéo zoomée pour remplir une box 16:9 → on mesure la BOX
+    // (non transformée) et le contenu visible = le cadre 16:9 plein (pas d'insets).
+    // Multicam (pas de crop) : la vidéo montre ses bandes → cadre dans le contenu, donc
+    // rect object-fit:contain de la vidéo brute amputé des insets (cache serveur).
+    const box = videoEl.closest('.cmp-vbox');
+    const measEl = box || videoEl;
+    const elem = measEl.getBoundingClientRect();
+    const cont = container.getBoundingClientRect();
+    if (!elem.width || !elem.height) { ov.style.display = 'none'; return; }
+    const scale = Math.min(elem.width / videoEl.videoWidth, elem.height / videoEl.videoHeight);
+    let dW = videoEl.videoWidth * scale, dH = videoEl.videoHeight * scale;
+    let oX = (elem.left - cont.left) + (elem.width - dW) / 2;
+    let oY = (elem.top - cont.top) + (elem.height - dH) / 2;
+    if (!box) {
+        const ins = (clipId && _contentInsets[clipId]) || { top: 0, bottom: 0, left: 0, right: 0 };
+        oX += ins.left * dW; oY += ins.top * dH;
+        dW *= (1 - ins.left - ins.right); dH *= (1 - ins.top - ins.bottom);
+    }
+    const vr = dW / dH;
+    const bars = ov.children, line = ov.children[4];
+    const set = (el, x, y, w, h) => { el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = Math.max(0, w) + 'px'; el.style.height = Math.max(0, h) + 'px'; };
+    for (let i = 0; i < 4; i++) { bars[i].style.width = '0'; bars[i].style.height = '0'; }
+    let fx, fy, fw, fh;
+    if (_aspectRatio >= vr) {
+        fw = dW; fh = dW / _aspectRatio; fx = oX; fy = oY + (dH - fh) / 2;
+        set(bars[0], oX, oY, dW, fy - oY);
+        set(bars[1], oX, fy + fh, dW, oY + dH - (fy + fh));
+    } else {
+        fh = dH; fw = dH * _aspectRatio; fy = oY; fx = oX + (dW - fw) / 2;
+        set(bars[2], oX, oY, fx - oX, dH);
+        set(bars[3], fx + fw, oY, oX + dW - (fx + fw), dH);
+    }
+    line.style.left = fx + 'px'; line.style.top = fy + 'px'; line.style.width = fw + 'px'; line.style.height = fh + 'px';
+    ov.style.display = 'block';
+}
+
+// Rafraîchit le cadre sur TOUTES les vidéos affichées (player + comparateur + multicam).
+function refreshAllAspectOverlays() {
+    try { updateAspectOverlay(); } catch (e) {}
+    const co = document.getElementById('compareOverlay');
+    if (co && getComputedStyle(co).display !== 'none') {
+        for (let s = 0; s < 2; s++) {
+            const vid = document.getElementById('cmpVid' + s);
+            const area = vid && vid.closest('.compare-video-area');
+            const sel = document.getElementById('cmpSel' + s);
+            if (area) _drawAspOn(vid, area, sel ? sel.value : null);
+        }
+    }
+    if (typeof _mcView !== 'undefined' && _mcView && _mcView.angles) {
+        _mcView.angles.forEach(a => { if (a.vidEl && a.wrapEl) _drawAspOn(a.vidEl, a.wrapEl, a.cid); });
+    }
+}
+window.addEventListener('resize', refreshAllAspectOverlays);
+
+// ─── Bandes noires INCRUSTÉES : crop via object-view-box ─────────────────────
+// Détection fiable côté serveur (ffmpeg cropdetect, cf. /letterbox). On retire les
+// bandes de l'affichage avec object-view-box → l'image visible remplit la boîte
+// (ex. FX6 J01 matte 1.9:1 affichée à la même hauteur qu'une FS5 plein cadre).
+let _letterbox = {}; // clipId -> {top,bottom,left,right,cw,ch}
+
+// Recadre les bandes incrustées : la box reste 16:9 (même taille que l'autre clip) et
+// on ZOOME la vidéo juste assez pour faire sortir les bandes du cadre (overflow:hidden
+// les masque). Z = facteur pour que le contenu remplisse le cadre. Indépendant de la
+// forme de la zone → les deux clips gardent la même hauteur.
+function _setVideoCrop(videoEl, ins) {
+    if (!videoEl) return;
+    const t = ins.top || 0, b = ins.bottom || 0, l = ins.left || 0, r = ins.right || 0;
+    const z = Math.max(1 / (1 - t - b), 1 / (1 - l - r));
+    videoEl.style.transform = (z > 1.002) ? `scale(${z.toFixed(4)})` : '';
+}
+
+// doCrop : recadre réellement la vidéo (comparateur). false = on ne touche pas à
+// l'affichage (lecteur principal : des canvas dessin/LUT se calent dessus), on
+// renseigne juste _contentInsets pour le cadre.
+async function _applyLetterbox(videoEl, clipId, doCrop) {
+    if (!videoEl || !clipId || !currentProjectId) return;
+    let ins = _letterbox[clipId];
+    if (!ins) {
+        try {
+            const res = await apiFetch(`/api/project/${currentProjectId}/letterbox/${encodeURIComponent(clipId)}`);
+            if (!res.ok) return;
+            ins = await res.json();
+            _letterbox[clipId] = ins;
+        } catch (e) { return; }
+    }
+    // Source unique et fiable (serveur) pour le cadre/format aussi.
+    _contentInsets[clipId] = { top: ins.top || 0, bottom: ins.bottom || 0, left: ins.left || 0, right: ins.right || 0 };
+    if (doCrop) _setVideoCrop(videoEl, ins);
+    if (_aspectRatio) refreshAllAspectOverlays();
+}
+
 // Recadrage en plein écran (la taille du wrapper change)
 ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
     document.addEventListener(ev, () => setTimeout(resizeCanvas, 60)));
@@ -2934,6 +3156,8 @@ document.getElementById('player').addEventListener('loadedmetadata', () => {
     renderMarkers(); // refresh pins now that duration is known
 });
 document.getElementById('player').addEventListener('resize', resizeCanvas);
+// (Détection des bandes incrustées : désormais côté serveur via /letterbox +
+//  _applyLetterbox, plus fiable qu'un échantillonnage sur frame isolée.)
 
 function startDrawing() {
     const v = document.getElementById('player');
@@ -2942,6 +3166,9 @@ function startDrawing() {
     isDrawingMode = true;
     canvas.classList.add('drawing');
     document.getElementById('drawTools').style.display = 'flex';
+    // Masque la barre flottante : sinon elle intercepterait les clics de dessin
+    // dans le coin haut-droite de la vidéo.
+    const tb = document.getElementById('playerToolbar'); if (tb) tb.style.display = 'none';
     currentShapes = [];
     clearCanvas();
 }
@@ -2950,6 +3177,7 @@ function cancelDrawing() {
     isDrawingMode = false;
     canvas.classList.remove('drawing');
     document.getElementById('drawTools').style.display = 'none';
+    const tb = document.getElementById('playerToolbar'); if (tb) tb.style.display = '';
     clearCanvas();
 }
 
@@ -3725,7 +3953,7 @@ _loadVersionAndChangelog();
                 <button id="cmpBwfBtn0" onclick="event.stopPropagation(); toggleCmpBwf(0)" style="display:none;padding:2px 8px;" title="Son ingé">🔊 Son ingé</button>
                 <button onclick="event.stopPropagation(); _setCmpActiveSlot(0); cmpTogglePlay()" style="padding:2px 8px;" title="Play/Pause (ou Espace)">⏯</button>
             </div>
-            <div class="compare-video-area" onclick="event.stopPropagation(); _setCmpActiveSlot(0); cmpTogglePlay()"><video id="cmpVid0" ontimeupdate="updateCmpTc(0)"></video></div>
+            <div class="compare-video-area" onclick="event.stopPropagation(); _setCmpActiveSlot(0); cmpTogglePlay()"><div class="cmp-vbox"><video id="cmpVid0" ontimeupdate="updateCmpTc(0)"></video></div></div>
             <div class="compare-timeline" id="cmpTimeline0" onmousedown="cmpSeek(0,event)" onclick="event.stopPropagation()">
                 <div class="cmp-tl-progress" id="cmpProg0" style="width:0%"></div>
                 <div class="cmp-tl-head" id="cmpHead0" style="left:0%"></div>
@@ -3739,7 +3967,7 @@ _loadVersionAndChangelog();
                 <button id="cmpBwfBtn1" onclick="event.stopPropagation(); toggleCmpBwf(1)" style="display:none;padding:2px 8px;" title="Son ingé">🔊 Son ingé</button>
                 <button onclick="event.stopPropagation(); _setCmpActiveSlot(1); cmpTogglePlay()" style="padding:2px 8px;" title="Play/Pause (ou Espace)">⏯</button>
             </div>
-            <div class="compare-video-area" onclick="event.stopPropagation(); _setCmpActiveSlot(1); cmpTogglePlay()"><video id="cmpVid1" ontimeupdate="updateCmpTc(1)"></video></div>
+            <div class="compare-video-area" onclick="event.stopPropagation(); _setCmpActiveSlot(1); cmpTogglePlay()"><div class="cmp-vbox"><video id="cmpVid1" ontimeupdate="updateCmpTc(1)"></video></div></div>
             <div class="compare-timeline" id="cmpTimeline1" onmousedown="cmpSeek(1,event)" onclick="event.stopPropagation()">
                 <div class="cmp-tl-progress" id="cmpProg1" style="width:0%"></div>
                 <div class="cmp-tl-head" id="cmpHead1" style="left:0%"></div>

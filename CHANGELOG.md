@@ -4,6 +4,25 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.9] — 2026-06-04
+
+### 🎨 Interface
+- **Réorganisation des contrôles du lecteur** : la barre du bas ne garde plus que la lecture (timer, sauts, ⏯, vitesses 1×→2×). Tous les outils (Comparer, Cadre, LUT, Multi-cam, Session, Exporter, Partager, Santé, Stats, Sync, Sauver) passent dans une **barre d'icônes verticale flottante** en haut à droite de la vidéo.
+- **Cadre / format appliqué partout** : le format choisi (4:3, 2.39:1…) s'applique maintenant aussi dans le **comparateur** (les deux clips) et dans le **viewer multi-cam** (tous les angles), pas seulement sur le lecteur principal.
+- **Comparateur — hauteurs égales** : les deux clips s'affichent désormais exactement à la même taille (colonnes forcées égales via `min-width: 0`, affichage `object-fit: contain`).
+- **Bandes noires incrustées rognées automatiquement** : les rushs tournés avec un cache cinéma baké dans l'image (ex. matte 1.9:1 des FX6 du J01) sont détectés (ffmpeg côté serveur) et affichés **sans les bandes**, dans le lecteur, le comparateur et le multi-cam. Une FX6 mattée s'aligne donc en hauteur avec une FS5 plein cadre. Le cadre/format (4:3, 2.39:1…) se cale aussi sur l'image réelle.
+
+### 🐛 Corrigé
+- **Sync en cours de session** : les notes et commentaires des autres collaborateurs apparaissent maintenant automatiquement (en ≤ 60 s) sans avoir à cliquer sur « Synchroniser » ni à rouvrir le projet. Le rafraîchissement automatique faisait jusqu'ici une simple relecture locale ; il déclenche désormais un *pull* léger depuis le cloud.
+- **Cadre / format d'image** : le cadre se délimite désormais sur l'**image réelle**. Si un rush a des bandes noires incrustées (master letterboxé), un format comme 4:3 ne calera plus son haut/bas dans ces bandes — il les détecte et s'aligne sur l'image visible.
+
+### 🏗️ Interne
+- `sync_project(pid, push=False)` : mode *pull-only* (ramène + fusionne sans renvoyer vers le cloud), n'écrit le fichier projet que si la fusion change réellement quelque chose (plus de rotation inutile des backups locaux).
+- Nouvel endpoint `POST /api/sync/pull`.
+- Détection client-side des bandes noires incrustées (`_detectContentInsets` / `_contentInsets` par clip, accumulation du minimum, seuil luma 24).
+
+---
+
 ## [0.3.8] — 2026-06-01
 
 ### ✨ Ajouté

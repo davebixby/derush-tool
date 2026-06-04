@@ -2880,6 +2880,18 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             self._json_response(result)
             return
 
+        m = re.match(r'^/api/project/([^/]+)/letterbox/(.+)$', path)
+        if m:
+            pid, clip_id = m.group(1), m.group(2)
+            proj = load_project(pid)
+            if not proj:
+                self.send_error(404); return
+            clip = next((c for c in proj.get('clips', []) if c.get('id') == clip_id), None)
+            if not clip:
+                self._json_response({'top': 0.0, 'bottom': 0.0, 'left': 0.0, 'right': 0.0, 'cw': 0, 'ch': 0}); return
+            self._json_response(get_letterbox(proj, clip))
+            return
+
         if path.startswith('/proxy/'):
             rel = unquote(path[7:]).replace('\\', '/')
             # Use logged-in user's root_path if available, else try all projects
@@ -3692,6 +3704,21 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             self._json_response({'ok': all_ok, 'results': results, 'message': ' | '.join(msgs)})
             return
 
+        if path == '/api/sync/pull':
+            # Pull-only léger : ramène les notes des autres sans pousser.
+            # Appelé par le poll frontend pour rafraîchir « Avis des autres »
+            # pendant la session sans rouvrir le projet.
+            if not (SYNC_URL and SYNC_KEY):
+                self._json_response({'ok': False, 'message': 'Sync non configurée'})
+                return
+            pid = body.get('project_id') or ''
+            if pid and not re.match(r'^[a-zA-Z0-9_\-]+$', pid):
+                self._json_response({'ok': False, 'message': 'ID projet invalide'})
+                return
+            res = sync_project(pid, push=False) if pid else {'ok': False, 'message': 'Aucun projet'}
+            self._json_response(res)
+            return
+
         if path == '/api/setup':
             projects_dir = body.get('projects_dir', str(APP_DIR / 'projects'))
             waveforms_dir = body.get('waveforms_dir', str(APP_DIR / 'waveforms'))
@@ -3758,6 +3785,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
         if filepath.exists():
             self.send_response(200)
             self.send_header('Content-Type', f'{mime}; charset=utf-8')
+            # HTML/JS de l'app : jamais mis en cache, sinon un relancement du serveur
+            # ne suffit pas à charger le nouveau code (le navigateur garde l'ancien).
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
             self.end_headers()
             self.wfile.write(filepath.read_bytes())
         else:
@@ -3949,8 +3979,13 @@ def _schedule_sync_push(pid, delay=3.0):
         _sync_push_timers[pid] = t
         t.start()
 
-def sync_project(pid):
-    """Pull remote, merge, push. Retourne {'ok': bool, 'message': str}"""
+def sync_project(pid, push=True):
+    """Pull remote, merge, (optionnellement) push. Retourne {'ok': bool, 'message': str}.
+
+    push=False → pull-only : on ramène et fusionne les notes du cloud dans le
+    fichier local sans rien renvoyer. Utilisé par le poll frontend pour faire
+    apparaître les notes des autres pendant la session (les push locaux sont
+    gérés par le timer debounced sur save)."""
     global _sync_status
     url = _sync_url_for(pid)
 
@@ -3984,7 +4019,18 @@ def sync_project(pid):
         local_now = load_project(pid) or proj
         own = _own_note_key(local_now)
         merged = merge_projects(local_now, remote, own_uid=own) if remote else local_now
-        save_project(pid, merged)
+        # N'écrit (et ne crée un backup versionné) que si le merge change vraiment
+        # quelque chose. Évite la rotation des backups locaux à chaque pull (60s).
+        changed = (merged != local_now)
+        if changed:
+            save_project(pid, merged)
+
+    # Pull-only : on s'arrête après le merge local (pas de renvoi vers le cloud)
+    if not push:
+        ts = datetime.now().strftime('%H:%M')
+        with _sync_lock:
+            _sync_status.update({'online': True, 'last_sync': datetime.now().isoformat(), 'error': None})
+        return {'ok': True, 'message': f'Pull {ts}'}
 
     # Push du résultat fusionné vers le cloud
     try:
@@ -4028,6 +4074,77 @@ def _resolve_clip_local_path(proj, clip):
     if cp.exists():
         return cp
     return None
+
+# ─── Détection des bandes noires INCRUSTÉES (letterbox baké au tournage) ──────
+# ffmpeg cropdetect sur plusieurs frames = fiable (contrairement à une détection
+# JS sur une frame isolée, trompée par un plan sombre). Résultat caché par clip_id.
+_letterbox_cache = {}
+_letterbox_lock = threading.Lock()
+
+def _letterbox_cache_file():
+    return APP_DIR / 'letterbox_cache.json'
+
+def _load_letterbox_cache():
+    global _letterbox_cache
+    try:
+        p = _letterbox_cache_file()
+        if p.exists():
+            _letterbox_cache = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        _letterbox_cache = {}
+
+def _persist_letterbox_cache():
+    try:
+        _letterbox_cache_file().write_text(json.dumps(_letterbox_cache), encoding='utf-8')
+    except Exception:
+        pass
+
+def detect_letterbox(file_path):
+    """Retourne {top,bottom,left,right} en fractions 0-1 des bandes noires
+    incrustées (0 = aucune bande de ce côté). Utilise ffmpeg cropdetect."""
+    zero = {'top': 0.0, 'bottom': 0.0, 'left': 0.0, 'right': 0.0, 'cw': 0, 'ch': 0}
+    try:
+        pr = _ffmpeg_run([FFPROBE, '-v', 'error', '-select_streams', 'v:0',
+                          '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x',
+                          str(file_path)], timeout=15, text=True)
+        W, H = (int(x) for x in pr.stdout.strip().split('x'))
+        zero = {'top': 0.0, 'bottom': 0.0, 'left': 0.0, 'right': 0.0, 'cw': W, 'ch': H}
+        # -ss 3 : saute un éventuel noir d'amorce ; 80 frames : cropdetect accumule
+        # et se stabilise sur la vraie zone non-noire.
+        cd = _ffmpeg_run([FFMPEG, '-hide_banner', '-ss', '3', '-i', str(file_path),
+                          '-vf', 'cropdetect=24:2:0', '-frames:v', '80', '-an',
+                          '-f', 'null', '-'], timeout=45, text=True)
+        crops = re.findall(r'crop=(\d+):(\d+):(\d+):(\d+)', cd.stderr or '')
+        if not crops:
+            return zero
+        w, h, x, y = (int(v) for v in crops[-1])
+        ins = {'top': max(0, y) / H, 'bottom': max(0, H - h - y) / H,
+               'left': max(0, x) / W, 'right': max(0, W - w - x) / W}
+        # Ignore le bruit (<1.5%) et les valeurs aberrantes (>35% = probable plan noir)
+        for k in list(ins):
+            if ins[k] < 0.015 or ins[k] > 0.35:
+                ins[k] = 0.0
+        # Dimensions du CONTENU (après filtrage des insets) — sert au ratio côté client
+        ins['cw'] = round(W * (1 - ins['left'] - ins['right']))
+        ins['ch'] = round(H * (1 - ins['top'] - ins['bottom']))
+        return ins
+    except Exception:
+        return zero
+
+def get_letterbox(proj, clip):
+    """Insets de bandes pour un clip, avec cache disque. Détecte à la demande."""
+    cid = clip.get('id')
+    if not cid:
+        return {'top': 0.0, 'bottom': 0.0, 'left': 0.0, 'right': 0.0, 'cw': 0, 'ch': 0}
+    with _letterbox_lock:
+        if cid in _letterbox_cache:
+            return _letterbox_cache[cid]
+    path = _resolve_clip_local_path(proj, clip)
+    ins = detect_letterbox(path) if path else {'top': 0.0, 'bottom': 0.0, 'left': 0.0, 'right': 0.0, 'cw': 0, 'ch': 0}
+    with _letterbox_lock:
+        _letterbox_cache[cid] = ins
+        _persist_letterbox_cache()
+    return ins
 
 def compute_share_previews(file_path, clip_id, duration_sec, n=4, W=640, H=360):
     """Génère n previews HD pour le viewer share. Frames répartis équitablement,
@@ -4306,6 +4423,7 @@ def run(open_browser=False):
     print(f"  LAN   : http://{lan_ip}:{PORT}")
     print(f"  Projets : {PROJECTS_DIR}")
     print("=========================================")
+    _load_letterbox_cache()
     server = ThreadedHTTPServer(('0.0.0.0', PORT), DerushHandler)
     threading.Thread(target=_sync_background_thread, daemon=True).start()
     threading.Thread(target=_rebuild_index_full, daemon=True).start()
