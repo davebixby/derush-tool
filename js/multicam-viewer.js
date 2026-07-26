@@ -6,6 +6,7 @@
 // stays in sync. Only the "primary" angle is unmuted. Hotkeys 1/2/3/4 swap
 // which angle is large + audible. Drift correction every second.
 let _mcView = null;
+let _mcGroupResumeTime = {};  // group.id -> secondes (position groupe au dernier closeMcViewer)
 
 function openMcViewer() {
     if (!activeClip) return;
@@ -231,9 +232,11 @@ function _buildMcLayout(isInitial) {
 
     if (isInitial) {
         const pri = v.angles[v.primaryIdx].vidEl;
-        // Start at the primary clip's own beginning (= its normOff in group time)
-        // so the primary always shows content right away
-        pri.addEventListener('loadedmetadata', () => _mcSeekGroup(v.angles[v.primaryIdx].normOff), {once: true});
+        // Reprend là où on avait laissé ce groupe (si déjà ouvert cette session),
+        // sinon démarre au début du clip primaire (= son normOff en temps groupe).
+        const savedT = v.group ? _mcGroupResumeTime[v.group.id] : null;
+        const startT = (savedT != null) ? Math.max(0, Math.min(savedT, v.groupDur)) : v.angles[v.primaryIdx].normOff;
+        pri.addEventListener('loadedmetadata', () => _mcSeekGroup(startT), {once: true});
     }
     _mcRenderTimelineMarks();
     // Repositionne le cadre sur chaque angle après que le layout est en place
@@ -578,6 +581,7 @@ function _mcKeydown(e) {
 function closeMcViewer() {
     const v = _mcView;
     if (!v) return;
+    if (v.group) _mcGroupResumeTime[v.group.id] = _mcCurrentGroupTime();
     if (v.raf) cancelAnimationFrame(v.raf);
     if (v.drift) clearInterval(v.drift);
 

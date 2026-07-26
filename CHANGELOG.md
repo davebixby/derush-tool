@@ -4,6 +4,24 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.13] — 2026-07-26
+
+### 🐛 Corrigé
+- **Comparateur — reprise sur une position obsolète** : ouvrir ⚡ Comparer chargeait le slot gauche avec la dernière position mémorisée d'une session comparateur précédente sur ce clip (ex. 3/4 de la timeline), au lieu de la position réelle en cours dans le lecteur principal. Ouvrir Comparer synchronise désormais le slot 0 sur l'endroit exact où était le lecteur principal.
+- **Comparateur — barre de progression figée** : charger un nouveau clip dans un slot pouvait laisser la barre de progression affichée à la position du clip précédent tant qu'aucun `timeupdate` n'avait refiré (typiquement un clip qui démarre à 0 et reste en pause). La barre et le TC sont désormais réinitialisés immédiatement au chargement.
+
+### ✨ Ajouté
+- **Miniatures dans le sélecteur de clips du comparateur** : le menu déroulant de chaque slot affiche désormais une vignette devant chaque nom de fichier pour repérer les clips plus facilement. Remplace le `<select>` natif par un combo custom (le `<select>` est gardé caché comme source de vérité pour le reste du code).
+
+---
+
+## [0.3.12] — 2026-07-26
+
+### ✨ Ajouté
+- **Reprise de la position de lecture par clip** : quitter un clip en cours de lecture (dans le lecteur principal, un slot du comparateur, ou le viewer multicam) puis y revenir replace la tête de lecture là où elle avait été laissée, au lieu de repartir du début. Mémorisation en mémoire pour la session en cours (`_clipResumeTime` par `clip.id`, `_mcGroupResumeTime` par groupe multicam) — pas de persistance entre relances de l'app.
+
+---
+
 ## [0.3.11] — 2026-07-26
 
 ### 🐛 Corrigé

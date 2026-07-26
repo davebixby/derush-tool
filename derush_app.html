@@ -267,6 +267,20 @@
         .compare-slot-header { padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; transition: box-shadow .15s; }
         .compare-slot.cmp-active .compare-slot-header { box-shadow: inset 3px 0 0 var(--accent); background: rgba(167,139,250,.07); }
         .compare-slot-header select { flex: 1; font-size: 0.82em; min-width: 0; }
+        /* Combo custom avec miniatures — remplace visuellement le <select> (gardé
+           caché comme source de vérité pour .value, lu ailleurs dans le code). */
+        .cmp-combo { position: relative; flex: 1; min-width: 0; }
+        .cmp-combo-btn { display: flex; align-items: center; gap: 6px; width: 100%; font-size: 0.82em; padding: 3px 8px; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--fg); }
+        .cmp-combo-btn:hover { border-color: var(--accent); }
+        .cmp-combo-thumb { width: 32px; height: 18px; object-fit: cover; border-radius: 2px; background: #000; flex-shrink: 0; }
+        .cmp-combo-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cmp-combo-list { display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 100%; width: max-content; max-width: 360px; max-height: 320px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 60; padding: 4px; }
+        .cmp-combo.open .cmp-combo-list { display: block; }
+        .cmp-combo-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 0.82em; }
+        .cmp-combo-item:hover { background: rgba(167,139,250,.15); }
+        .cmp-combo-item.cmp-combo-selected { background: rgba(167,139,250,.22); }
+        .cmp-combo-item img { width: 44px; height: 25px; object-fit: cover; border-radius: 2px; background: #000; flex-shrink: 0; }
+        .cmp-combo-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; position: relative; }
         /* Box 16:9 (= ratio du fichier, identique pour les deux clips) → MÊME taille et
            MÊME hauteur dans la zone, quelle que soit la forme de la zone. Pour un clip
@@ -3972,7 +3986,14 @@ _loadVersionAndChangelog();
     <div class="compare-grid">
         <div class="compare-slot cmp-active" id="cmpSlot0" onclick="_setCmpActiveSlot(0)">
             <div class="compare-slot-header">
-                <select id="cmpSel0" onchange="loadCmpClip(0)" onclick="event.stopPropagation()"><option value="">— Sélectionner un clip —</option></select>
+                <div class="cmp-combo" id="cmpCombo0">
+                    <button type="button" class="cmp-combo-btn" id="cmpComboBtn0" onclick="event.stopPropagation(); _cmpToggleCombo(0)">
+                        <img class="cmp-combo-thumb" id="cmpComboThumb0" style="display:none;">
+                        <span class="cmp-combo-label" id="cmpComboLabel0">— Sélectionner un clip —</span>
+                    </button>
+                    <div class="cmp-combo-list" id="cmpComboList0" onclick="event.stopPropagation()"></div>
+                </div>
+                <select id="cmpSel0" style="display:none;"><option value="">— Sélectionner un clip —</option></select>
                 <span id="cmpTc0" class="cmp-tc">--:--:--:--</span>
                 <button id="cmpBwfBtn0" onclick="event.stopPropagation(); toggleCmpBwf(0)" style="display:none;padding:2px 8px;" title="Son ingé">🔊 Son ingé</button>
                 <button onclick="event.stopPropagation(); _setCmpActiveSlot(0); cmpTogglePlay()" style="padding:2px 8px;" title="Play/Pause (ou Espace)">⏯</button>
@@ -3986,7 +4007,14 @@ _loadVersionAndChangelog();
         </div>
         <div class="compare-slot" id="cmpSlot1" onclick="_setCmpActiveSlot(1)">
             <div class="compare-slot-header">
-                <select id="cmpSel1" onchange="loadCmpClip(1)" onclick="event.stopPropagation()"><option value="">— Sélectionner un clip —</option></select>
+                <div class="cmp-combo" id="cmpCombo1">
+                    <button type="button" class="cmp-combo-btn" id="cmpComboBtn1" onclick="event.stopPropagation(); _cmpToggleCombo(1)">
+                        <img class="cmp-combo-thumb" id="cmpComboThumb1" style="display:none;">
+                        <span class="cmp-combo-label" id="cmpComboLabel1">— Sélectionner un clip —</span>
+                    </button>
+                    <div class="cmp-combo-list" id="cmpComboList1" onclick="event.stopPropagation()"></div>
+                </div>
+                <select id="cmpSel1" style="display:none;"><option value="">— Sélectionner un clip —</option></select>
                 <span id="cmpTc1" class="cmp-tc">--:--:--:--</span>
                 <button id="cmpBwfBtn1" onclick="event.stopPropagation(); toggleCmpBwf(1)" style="display:none;padding:2px 8px;" title="Son ingé">🔊 Son ingé</button>
                 <button onclick="event.stopPropagation(); _setCmpActiveSlot(1); cmpTogglePlay()" style="padding:2px 8px;" title="Play/Pause (ou Espace)">⏯</button>

@@ -1,6 +1,12 @@
 // ─── Son ingé sur player principal + BWF multichannel routing ───────────────────────────────────────────
 // Module externalisé depuis derush_app.html.
 
+// ─── Mémorisation de la position de lecture par clip ───────────────────────
+// Partagée par le lecteur principal (selectClip), le comparateur (loadCmpClip)
+// et le viewer multicam (_mcGroupResumeTime, dans multicam-viewer.js) : quand on
+// quitte un clip pour un autre puis qu'on y revient, on retombe où on l'avait laissé.
+let _clipResumeTime = {};  // clip.id -> secondes
+
 // ─── Volume control (HTML5 video.volume + mute toggle) ────────────────────
 let _playerVolume = parseFloat(localStorage.getItem('derush_volume') || '1');
 let _playerMutedBefore = _playerVolume;
@@ -212,6 +218,8 @@ function toggleSingleBwf() {
 }
 
 function selectClip(c) {
+    const _prevPlayer = document.getElementById('player');
+    if (activeClip && _prevPlayer) _clipResumeTime[activeClip.id] = _prevPlayer.currentTime || 0;
     if(activeClip) saveClipNotes();
     activeClip = c;
     renderClipList();
@@ -235,7 +243,13 @@ function selectClip(c) {
         msg.style.display = 'block';
         msg.textContent = 'Pas de proxy trouvé';
     }
-    player.addEventListener('loadedmetadata', () => { player.playbackRate = currentSpeed; }, {once: true});
+    player.addEventListener('loadedmetadata', () => {
+        player.playbackRate = currentSpeed;
+        const resumeT = _clipResumeTime[c.id];
+        if (resumeT && resumeT > 0.1) {
+            try { player.currentTime = Math.min(resumeT, (player.duration || resumeT) - 0.04); } catch(e) {}
+        }
+    }, {once: true});
 
     // Audio routing: les FS5 (ltc_tc_in_sec !== null) ont le LTC sur le canal L
     // de leur proxy. On force mono R pour ne pas entendre le BZZZZ.

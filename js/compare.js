@@ -129,10 +129,87 @@ function openCompare() {
             opt.textContent = `${c.day ? c.day + ' · ' : ''}${c.filename}`;
             s.appendChild(opt);
         });
+        _cmpBuildComboList(slot);
     });
-    if (activeClip) { document.getElementById('cmpSel0').value = activeClip.id; loadCmpClip(0); }
+    if (activeClip) {
+        document.getElementById('cmpSel0').value = activeClip.id;
+        // Le slot 0 doit refléter l'endroit où on est VRAIMENT dans le lecteur
+        // principal, pas une position mémorisée d'une session compare antérieure
+        // sur ce même clip (sinon rouvrir Comparer peut ressusciter un ancien 3/4
+        // de timeline qui n'a plus rien à voir avec la lecture en cours).
+        const mainPlayer = document.getElementById('player');
+        if (mainPlayer) _clipResumeTime[activeClip.id] = mainPlayer.currentTime || 0;
+        loadCmpClip(0);
+    }
     _setCmpActiveSlot(0);
     document.addEventListener('keydown', _cmpKeydown, true);
+}
+
+// ─── Combo custom avec miniatures (remplace le <select> natif, gardé caché) ──
+function _cmpBuildComboList(slot) {
+    const list = document.getElementById(`cmpComboList${slot}`);
+    if (!list) return;
+    list.innerHTML = '';
+    clips.forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'cmp-combo-item';
+        item.dataset.clipId = c.id;
+        const label = `${c.day ? c.day + ' · ' : ''}${c.filename}`;
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.src = `/api/project/${currentProjectId}/thumbnail/${c.id}`;
+        img.onerror = () => { img.style.visibility = 'hidden'; };
+        const span = document.createElement('span');
+        span.textContent = label;
+        item.appendChild(img);
+        item.appendChild(span);
+        item.onclick = () => _cmpPickClip(slot, c.id);
+        list.appendChild(item);
+    });
+}
+
+function _cmpToggleCombo(slot) {
+    const combo = document.getElementById(`cmpCombo${slot}`);
+    const other = document.getElementById(`cmpCombo${1 - slot}`);
+    if (!combo) return;
+    const willOpen = !combo.classList.contains('open');
+    if (other) other.classList.remove('open');
+    combo.classList.toggle('open', willOpen);
+    if (willOpen) document.addEventListener('click', _cmpComboOutsideClick, { capture: true, once: true });
+}
+
+function _cmpComboOutsideClick() {
+    [0, 1].forEach(s => { const c = document.getElementById(`cmpCombo${s}`); if (c) c.classList.remove('open'); });
+}
+
+function _cmpPickClip(slot, clipId) {
+    const sel = document.getElementById(`cmpSel${slot}`);
+    if (sel) sel.value = clipId;
+    const combo = document.getElementById(`cmpCombo${slot}`);
+    if (combo) combo.classList.remove('open');
+    loadCmpClip(slot);
+}
+
+function _cmpUpdateComboLabel(slot, clip) {
+    const thumb = document.getElementById(`cmpComboThumb${slot}`);
+    const label = document.getElementById(`cmpComboLabel${slot}`);
+    const list = document.getElementById(`cmpComboList${slot}`);
+    if (label) label.textContent = clip ? `${clip.day ? clip.day + ' · ' : ''}${clip.filename}` : '— Sélectionner un clip —';
+    if (thumb) {
+        if (clip) {
+            thumb.src = `/api/project/${currentProjectId}/thumbnail/${clip.id}`;
+            thumb.style.display = '';
+            thumb.onerror = () => { thumb.style.display = 'none'; };
+        } else {
+            thumb.removeAttribute('src');
+            thumb.style.display = 'none';
+        }
+    }
+    if (list) {
+        list.querySelectorAll('.cmp-combo-item').forEach(it => {
+            it.classList.toggle('cmp-combo-selected', !!clip && it.dataset.clipId === clip.id);
+        });
+    }
 }
 
 function closeCompare() {
@@ -140,13 +217,18 @@ function closeCompare() {
     document.removeEventListener('keydown', _cmpKeydown, true);
     [0, 1].forEach(slot => {
         _cleanupCmpBwf(slot);
+        const clip = _cmpClips[slot];
         const v = document.getElementById(`cmpVid${slot}`);
+        if (clip && v) _clipResumeTime[clip.id] = v.currentTime || 0;
         if (v) try { v.pause(); v.removeAttribute('src'); v.load(); } catch(e) {}
     });
     _cmpClips = [null, null];
     [0, 1].forEach(i => {
         const el = document.getElementById(`cmpSlot${i}`);
         if (el) el.classList.remove('cmp-active');
+        const combo = document.getElementById(`cmpCombo${i}`);
+        if (combo) combo.classList.remove('open');
+        _cmpUpdateComboLabel(i, null);
     });
 }
 
@@ -154,10 +236,22 @@ function closeCompare() {
 function loadCmpClip(slot) {
     const clipId = document.getElementById(`cmpSel${slot}`).value;
     const clip = clips.find(c => c.id === clipId);
+    // Mémorise la position du clip qu'on quitte dans ce slot avant de le remplacer
+    const _prevClip = _cmpClips[slot];
+    const _prevVid = document.getElementById(`cmpVid${slot}`);
+    if (_prevClip && _prevVid) _clipResumeTime[_prevClip.id] = _prevVid.currentTime || 0;
     _cmpClips[slot] = clip || null;
     const vid = document.getElementById(`cmpVid${slot}`);
     const info = document.getElementById(`cmpInfo${slot}`);
     _cleanupCmpBwf(slot);
+    _cmpUpdateComboLabel(slot, clip);
+    // Reset immédiat de la barre visuelle : sans ça elle reste affichée à la position
+    // du clip précédent tant que 'timeupdate' n'a pas refiré sur la nouvelle vidéo.
+    const prog0 = document.getElementById(`cmpProg${slot}`);
+    const head0 = document.getElementById(`cmpHead${slot}`);
+    if (prog0) prog0.style.width = '0%';
+    if (head0) head0.style.left = '0%';
+    document.getElementById(`cmpTc${slot}`).textContent = '--:--:--:--';
     if (!clip) {
         vid.src = '';
         info.innerHTML = '<span style="color:var(--dim);">Sélectionnez un clip</span>';
@@ -169,6 +263,13 @@ function loadCmpClip(slot) {
     // Recadre les bandes noires incrustées (matte baké) pour ce clip
     if (typeof _applyLetterbox === 'function') _applyLetterbox(vid, clip.id, true);
     vid.addEventListener('loadedmetadata', () => {
+        const resumeT = _clipResumeTime[clip.id];
+        if (resumeT && resumeT > 0.1) {
+            try { vid.currentTime = Math.min(resumeT, (vid.duration || resumeT) - 0.04); } catch(e) {}
+        }
+        // La ligne au-dessus ne garantit pas un 'timeupdate' immédiat (pas de seek si
+        // resumeT est absent/0) → force la synchro visuelle TC/barre tout de suite.
+        updateCmpTc(slot);
         renderCmpMarkers(slot); _detectCmpMulticam();
         // Applique le format de cadre sélectionné à ce slot
         if (typeof _drawAspOn === 'function') _drawAspOn(vid, vid.closest('.compare-video-area'), clip.id);

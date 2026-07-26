@@ -173,6 +173,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <li><strong>Panneau d'annotation</strong> (droite) — rating, statut, note globale, tags, marqueurs, avis équipe</li>
 </ul>
 <div class="tip"><strong>Sauvegarde automatique :</strong> vos annotations sont sauvegardées toutes les 30 secondes sur le serveur local — que la machine soit connectée à Internet ou non, tant que Derush Tool tourne. Pas besoin de cliquer sur 💾 pour ne pas perdre votre travail. La synchronisation cloud (partage avec les autres collaborateurs) est séparée : elle se fait en tâche de fond dès que la connexion revient, sans bloquer votre sauvegarde locale.</div>
+<div class="tip"><strong>Reprise de la position :</strong> si vous quittez un clip en cours de lecture pour en consulter un autre, puis revenez dessus, la lecture reprend là où vous l'aviez laissée au lieu de repartir du début. Valable aussi dans le comparateur et le viewer multi-cam. Cette mémoire ne survit pas à un redémarrage de l'app (elle est remise à zéro à chaque relance).</div>
 
 <h2 id="rating">Rating &amp; Statut</h2>
 <h3>Rating</h3>
@@ -246,8 +247,8 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <h2 id="compare">Comparaison de clips</h2>
 <p>Le bouton <strong>⚡ Comparer</strong> ouvre une vue côte à côte de deux clips pour comparer des prises, des angles de caméra ou des performances.</p>
 <h3>Utilisation</h3>
-<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>⚡ Comparer</strong>. Le clip actif est automatiquement chargé dans le slot gauche.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un second clip dans le menu déroulant du slot droit.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>⚡ Comparer</strong>. Le clip actif est automatiquement chargé dans le slot gauche, à l'endroit exact où vous étiez dans le lecteur principal.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un second clip dans le menu déroulant du slot droit — chaque clip est précédé d'une miniature pour le repérer plus facilement.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">Utilisez les boutons ⏯ de chaque slot pour contrôler la lecture indépendamment.</div></div>
 <h3>Timeline &amp; Marqueurs</h3>
 <p>Chaque slot dispose d'une timeline scrubable avec les marqueurs de tous les annotateurs. Cliquez sur un marqueur (point coloré) pour sauter directement à ce moment. Les marqueurs de l'info panel sont également cliquables.</p>

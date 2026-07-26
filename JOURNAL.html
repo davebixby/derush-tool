@@ -212,6 +212,12 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#mac-audio-check">Son TC sur Mac : build à jour ?</a>
   <a href="#autosave-offline">Sauvegarde auto hors-ligne</a>
   <a href="#scan-data-loss">428 clips perdus au rescan (incident réel)</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.12)</div>
+  <a href="#resume-position">Reprise de la position par clip</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.13)</div>
+  <a href="#compare-fixes">Comparateur : bugs de reprise + miniatures</a>
 </nav>
 
 <main>
@@ -2319,8 +2325,48 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="resume-position">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.12</span>
+    <span class="entry-title">Reprise de la position de lecture par clip</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande de Sébastien : quand on est à un endroit précis de la timeline d'un clip, qu'on va voir un autre clip, puis qu'on revient sur le premier, il voulait retomber pile où il avait laissé la lecture — au lieu de repartir de 0 à chaque fois. Et le même comportement dans le comparateur et pour les clips synchronisés (groupes multicam).</p>
+
+  <div class="box box-ok"><strong>Implémentation :</strong> une mémoire en RAM par <code>clip.id</code> (<code>_clipResumeTime</code>, déclarée dans <code>js/audio-bwf.js</code> — accessible partout grâce au scope global partagé entre les modules JS). <code>selectClip()</code> sauvegarde la position avant de changer de clip et la restaure au <code>loadedmetadata</code> du suivant. Même principe dans <code>loadCmpClip()</code> (comparateur, par slot). Pour le viewer multicam, comme un « groupe » n'a pas d'identité de clip unique, une seconde map <code>_mcGroupResumeTime</code> retient le temps-groupe (<code>group.id → secondes</code>), sauvegardée à la fermeture du viewer et réappliquée à la réouverture.</div>
+
+  <div class="box box-note"><strong>Cas particulier — bascule d'angle (<code>swapToAngle</code>) :</strong> ce mécanisme existait déjà et calcule explicitement le nouvel instant via les offsets du groupe (pour rester sur le même moment, pas la dernière position vue sur cet angle précis). Il continue de gagner sur la reprise générique — l'ordre d'attache des listeners <code>loadedmetadata</code> fait que son propre calcul s'applique en dernier.</p></div>
+
+  <p>Pas de persistance disque : la mémoire repart de zéro à chaque relance de l'app, ce qui correspond à la demande initiale (navigation dans une même session de travail).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="compare-fixes">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.13</span>
+    <span class="entry-title">Comparateur : deux bugs de reprise + miniatures dans le sélecteur</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour de Sébastien après test de la reprise de position (v0.3.12) : « ça fonctionne, mais dans Comparer si je bouge à un endroit de la timeline et que je quitte, ça mémorise bien — par contre si je rouvre Comparer avec d'autres clips qui commencent au début, la timeline retient l'endroit précédent (par exemple 3/4 du clip). » Deux bugs distincts derrière ce symptôme, plus une demande de confort.</p>
+
+  <div class="box box-fail"><strong>Bug 1 — mauvaise source de vérité à l'ouverture :</strong> <code>openCompare()</code> charge le slot gauche avec le clip actif du lecteur principal, mais lisait sa position dans <code>_clipResumeTime[activeClip.id]</code> — qui ne contient la valeur à jour que si on a quitté ce clip récemment via <code>selectClip()</code>. Si on est resté sur le même clip en scrubant dans le lecteur principal, l'entrée de la map n'a jamais été rafraîchie : Comparer rouvre alors sur une <em>ancienne</em> position (celle d'une session Comparer précédente), pas sur la position réelle actuelle.</div>
+
+  <div class="box box-ok"><strong>Fix :</strong> juste avant de charger le slot 0, <code>openCompare()</code> écrase explicitement l'entrée avec <code>mainPlayer.currentTime</code> — le comparateur reflète maintenant toujours l'instant réel du lecteur principal à l'ouverture, quel que soit l'historique.</div>
+
+  <div class="box box-fail"><strong>Bug 2 — barre de progression figée :</strong> indépendant du premier, purement visuel. La barre <code>#cmpProgN</code>/le TC <code>#cmpTcN</code> ne se mettent à jour que sur l'event <code>timeupdate</code> de la <code>&lt;video&gt;</code> — qui ne refire pas forcément immédiatement si le nouveau clip démarre à 0 sans seek. Résultat : la barre restait visuellement à la position du clip précédent jusqu'à ce qu'on appuie sur play.</div>
+  <div class="box box-ok"><strong>Fix :</strong> reset explicite de la barre/TC au chargement + appel direct à <code>updateCmpTc()</code> après le <code>loadedmetadata</code>, sans dépendre uniquement de l'event natif.</div>
+
+  <h3>Miniatures dans le sélecteur de clips</h3>
+  <p>Demande complémentaire : identifier les clips plus vite dans les menus déroulants du comparateur. Un <code>&lt;select&gt;</code> HTML natif ne peut pas afficher d'image dans ses options (limitation de tous les navigateurs, pas seulement Chromium) — remplacé par un combo custom (bouton + liste stylée) qui affiche une miniature par clip via l'endpoint déjà utilisé pour le panneau Angles. Le <code>&lt;select&gt;</code> d'origine reste dans le DOM, juste caché, pour ne rien casser du code existant qui lit sa <code>.value</code>.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 26 juillet 2026 (v0.3.11 — garde-fou anti-perte de clips au rescan)
+  Derush Tool · Journal de développement · Dernière mise à jour 26 juillet 2026 (v0.3.13 — correctifs comparateur + miniatures)
 </div>
 
 </main>
