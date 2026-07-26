@@ -4,6 +4,23 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.11] — 2026-07-26
+
+### 🐛 Corrigé
+- **Perte de clips au rescan** (grave) : un scan lancé avec un chemin de rushs momentanément invalide (ex. lettre de lecteur d'un disque externe qui a changé) ne trouvait aucun fichier et **écrasait silencieusement** la liste de clips existante du projet — 428 clips perdus en un clic dans un cas réel. `POST /api/project/<pid>/scan` refuse désormais d'appliquer un résultat qui contiendrait moins de la moitié des clips existants (HTTP 409, rien n'est modifié) ; il faut relancer explicitement avec `force:true` pour confirmer un vidage volontaire. Le bouton 🔄 Rescanner du frontend affiche l'avertissement en toast et permet de forcer en recliquant dans les 15 secondes — aucun `confirm()` natif utilisé (cf. bug focus Electron déjà connu).
+
+---
+
+## [0.3.10] — 2026-07-26
+
+### 🐛 Corrigé
+- **Timeline invisible en plein écran** : `⤢ Plein écran` ne mettait en fullscreen que la vidéo elle-même (`#videoWrapper`) — la barre de transport et la timeline (avec les marqueurs) restaient en dehors et disparaissaient. Un nouveau conteneur (`#playerFsWrap`) englobe désormais la vidéo + la barre de contrôle + la timeline, donc les marqueurs restent visibles et cliquables en plein écran. Le comparateur avait déjà ses marqueurs sur la timeline de chaque slot (`renderCmpMarkers`) — si un exécutable installé ne les affiche pas, c'est probablement un build antérieur à cette fonctionnalité, pas un bug du code actuel : redéployer depuis les sources courantes.
+
+### 🎨 Interface
+- **Bouton 💾 Sauver** déplacé de la barre d'outils flottante vers la barre du bas (`player-controls`), à côté du statut de sauvegarde — toujours visible sans ouvrir la colonne d'icônes.
+
+---
+
 ## [0.3.9] — 2026-06-04
 
 ### 🎨 Interface

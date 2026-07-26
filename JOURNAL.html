@@ -205,6 +205,13 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#toolbar-flottante">Barre d'outils flottante</a>
   <a href="#cadre-partout">Cadre dans compare + multicam</a>
   <a href="#letterbox-serveur">Bandes incrustées : crop auto</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.10)</div>
+  <a href="#fullscreen-timeline">Timeline visible en plein écran</a>
+  <a href="#save-button-move">Bouton Sauver déplacé</a>
+  <a href="#mac-audio-check">Son TC sur Mac : build à jour ?</a>
+  <a href="#autosave-offline">Sauvegarde auto hors-ligne</a>
+  <a href="#scan-data-loss">428 clips perdus au rescan (incident réel)</a>
 </nav>
 
 <main>
@@ -2235,10 +2242,85 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-note"><strong>Cohérence :</strong> <code>_contentInsets</code> est maintenant alimenté uniquement par le serveur (source unique fiable), et le cadre/format calcule sur le <em>ratio du contenu</em> (contain) → il se pose exactement sur la vidéo recadrée. Leçon retenue : sur un doute géométrique, <strong>mesurer</strong> (ffprobe/cropdetect/getBoundingClientRect) avant de toucher au CSS.</div>
 </div>
 
+<div class="entry" id="fullscreen-timeline">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.10</span>
+    <span class="entry-title">Timeline + marqueurs visibles en plein écran</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>En plein écran (bouton ⤢), la timeline et ses marqueurs disparaissaient complètement — on ne voyait plus que la vidéo brute, sans aucun repère.</p>
+
+  <div class="box box-fail"><strong>Cause :</strong> <code>toggleFullscreen()</code> appelait <code>requestFullscreen()</code> sur <code>#videoWrapper</code>, qui ne contient que la vidéo et ses canvases (dessin, LUT, cadre). La barre de transport <code>.player-controls</code> et la <code>.timeline-bar</code> sont des <em>siblings</em> en dehors de cet élément dans le DOM — le navigateur ne fullscreen que l'élément ciblé et ses descendants, donc elles restaient hors-champ.</p></div>
+
+  <div class="box box-ok"><strong>Fix :</strong> nouveau conteneur <code>.player-fs-wrap</code> (<code>#playerFsWrap</code>) qui englobe <code>.player-area</code> + <code>.player-controls</code> + <code>.timeline-bar</code> (mais pas <code>.notes-panel</code>, qui reste hors du plein écran — pas utile ici). <code>toggleFullscreen()</code> cible ce nouveau wrapper. La vidéo garde son <code>flex:1</code> donc elle occupe tout l'espace restant au-dessus des contrôles et de la timeline.</div>
+
+  <p>Au passage, le raccourci <code>F</code> pour le plein écran était déjà documenté dans le guide utilisateur mais jamais câblé dans le code — ajouté au handler clavier global.</p>
+</div>
+
+<div class="entry" id="save-button-move">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.10</span>
+    <span class="entry-title">Bouton 💾 Sauver déplacé vers la barre du bas</span>
+    <span class="entry-tag tag-ui">UI</span>
+  </div>
+
+  <p>Depuis la refonte de juin (barre de transport en bas / outils dans la colonne flottante), le bouton 💾 Sauver vivait dans la colonne d'icônes en haut à droite — moins visible que les autres actions de sauvegarde vu sa fréquence d'usage. Sébastien a demandé de le sortir de là.</p>
+
+  <p>Déplacé dans <code>.player-controls</code>, juste avant <code>#saveStatus</code> (le flash de confirmation) — toujours à portée sans ouvrir la barre flottante. <code>applyRoleUI</code> continue de le masquer pour le rôle viewer via le même sélecteur <code>button[onclick="saveNotes()"]</code>, désormais sans ambiguïté puisqu'il n'existe plus qu'un seul bouton avec cet attribut dans le DOM.</p>
+</div>
+
+<div class="entry" id="mac-audio-check">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026</span>
+    <span class="entry-title">Son TC sur Mac et flèches qui ne bougent pas : build obsolète, pas un bug</span>
+    <span class="entry-tag tag-doc">Investigation</span>
+  </div>
+
+  <p>Signalé par Sébastien : sur l'exécutable Mac, le son entendu est la piste TC (le BZZZZ du LTC) au lieu du micro, et les flèches ◄/► ne permettent pas de se déplacer dans la timeline.</p>
+
+  <div class="box box-note"><strong>Relecture du code source actuel :</strong> le routage WebAudio mono-R (silence le LTC, garde le micro) et les raccourcis ◄/► (seek frame-accurate, joueur principal <em>et</em> comparateur) sont bien présents, corrects, et sans la moindre branche spécifique à une plateforme — Electron embarque le même moteur Chromium sur Mac que sur Windows. Aucune des deux fonctionnalités n'est un ajout récent.</div>
+
+  <p>Le dernier rebuild Mac documenté dans ce journal date de la v0.3.6 (22 mai), soit trois versions en retard sur le HEAD actuel (v0.3.10). Conclusion la plus probable : l'exécutable installé sur cette machine n'a simplement pas été reconstruit depuis longtemps. Recommandation donnée : <code>git pull</code> + <code>./build_mac.sh</code> puis retester avant d'creuser plus loin côté code — pas de piste de correctif identifiée en l'absence d'une machine Mac pour reproduire.</p>
+</div>
+
+<div class="entry" id="autosave-offline">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026</span>
+    <span class="entry-title">La sauvegarde auto fonctionne-t-elle hors-ligne ?</span>
+    <span class="entry-tag tag-doc">Doc</span>
+  </div>
+
+  <p>Question posée par Sébastien, sans certitude évidente vu qu'il y a deux mécanismes de sauvegarde distincts dans Derush Tool (local + cloud).</p>
+
+  <div class="box box-ok"><strong>Réponse : oui pour la sauvegarde locale.</strong> <code>setInterval(() => saveNotes(true), 30000)</code> écrit les annotations toutes les 30 secondes sur le <strong>serveur Python local</strong> (<code>localhost:8765</code>), qui persiste sur disque de façon atomique — ça ne dépend d'aucune connexion Internet, uniquement du serveur Derush qui tourne. La <strong>sync cloud</strong> (partage avec les autres collaborateurs via <code>derush_sync.php</code>) est un mécanisme séparé, débounced et retenté automatiquement à la reconnexion : son échec hors-ligne ne bloque jamais la sauvegarde locale, il retarde seulement la propagation aux autres.</div>
+</div>
+
+<div class="entry" id="scan-data-loss">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.11</span>
+    <span class="entry-title">428 clips perdus en un clic — incident réel + garde-fou</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Sébastien a rebranché son disque externe de rushs, qui a changé de lettre (<code>D:</code> → <code>E:</code>). Il a mis à jour le chemin dans l'app puis relancé un scan — et la liste de clips du projet est passée de 428 à <strong>0</strong>, alors que les fichiers étaient bien là.</p>
+
+  <div class="box box-fail"><strong>Diagnostic (mesuré, pas deviné) :</strong> les backups versionnés du projet montrent 428 clips à 10:29:31, puis 0 à 10:29:34 — trois secondes plus tard. Un vrai scan de ce dossier prend <strong>64 secondes</strong> (mesuré en relançant <code>scan_media_folder()</code> directement). Trois secondes = un scan qui a échoué instantanément sur un chemin invalide, quasi certainement l'ancien <code>D:\DRIFT_CLUB</code> resté dans <code>proj['root_path']</code> (un champ distinct du <code>root_path</code> par utilisateur, jamais mis à jour par le flow de changement de chemin).</div>
+
+  <div class="box box-ok"><strong>Bonne nouvelle en creusant :</strong> les notes, marqueurs, groupes multicam et clips audio référencent les clips par <code>id</code> mais vivent dans des dicts séparés de <code>clips[]</code> — vider <code>clips[]</code> ne détruit aucune annotation, ça les rend juste invisibles (plus rien dans la sidebar). Récupération : restauration de <code>clips[]</code> depuis le dernier backup versionné d'avant l'incident, correction de <code>root_path</code> sur la lettre réelle actuelle.</div>
+
+  <h3>La vraie faille : aucun garde-fou côté serveur</h3>
+  <p><code>POST /api/project/&lt;pid&gt;/scan</code> faisait <code>proj['clips'] = scan_media_folder(...)</code> sans jamais vérifier si le résultat avait un sens. Un chemin momentanément invalide (disque pas encore monté, lettre changée, faute de frappe) écrase silencieusement une liste de clips partagée par toute l'équipe — ce n'est même pas un champ per-user, une erreur d'un seul admin efface tout le monde.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> si le projet a déjà des clips et que le nouveau scan en trouve moins de la moitié, le serveur refuse (HTTP 409, rien n'est sauvegardé) avec un message explicite. Un flag <code>force:true</code> permet de confirmer un vidage volontaire assumé. Le bouton 🔄 affiche l'avertissement en toast et transforme un second clic dans les 15 secondes en confirmation — délibérément <strong>pas de <code>confirm()</code> natif</strong>, pour ne pas retomber dans le bug de focus Electron déjà réglé ailleurs (voir la saga textarea plus haut dans ce journal).</p></div>
+
+  <div class="box box-note"><strong>Question ouverte :</strong> pourquoi le <code>root_path</code> de la session n'était-il pas à jour au moment précis de ce scan ? Plusieurs chemins de mise à jour existent (modale dédiée, édition admin) sans garantie qu'ils synchronisent tous <code>SESSIONS[token]['root_path']</code> de la même façon. Le garde-fou protège contre la conséquence quel que soit le déclencheur exact — mais la cause précise mériterait d'être creusée si l'avertissement se redéclenche sans raison apparente.</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 4 juin 2026 (v0.3.9 — sync auto, barre flottante, cadre partout, bandes incrustées rognées auto)
+  Derush Tool · Journal de développement · Dernière mise à jour 26 juillet 2026 (v0.3.11 — garde-fou anti-perte de clips au rescan)
 </div>
 
 </main>

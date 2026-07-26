@@ -138,6 +138,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <div class="step"><div class="step-num">3</div><div class="step-body">Cliquez sur <strong>Autoriser</strong>. Une <strong>clé d'invitation</strong> à 8 caractères s'affiche — transmettez-la avec l'<strong>ID du projet</strong> au collaborateur.</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body">Cliquez sur <strong>☁️ Sync</strong> pour pousser le projet mis à jour vers le cloud avant que le collaborateur tente de le rejoindre.</div></div>
 <div class="warn"><strong>Important :</strong> La clé d'invitation est à usage unique. Si le collaborateur la perd, vous devrez en générer une nouvelle depuis ⚙️.</div>
+<div class="tip"><strong>Badge « En attente » :</strong> dans la liste des utilisateurs (⚙️), un collaborateur autorisé mais qui n'a pas encore rejoint le projet sur sa machine (clé d'invitation pas encore utilisée) reste marqué <strong>En attente</strong>. C'est normal tant qu'il n'a pas fait l'étape « Rejoindre un projet » ci-dessous <em>et</em> synchronisé au moins une fois — s'il a travaillé hors-ligne juste après avoir rejoint, le badge peut rester affiché ici jusqu'à ce que sa machine se reconnecte et pousse la mise à jour.</div>
 
 <h2 id="join-project">Rejoindre un projet (collaborateur)</h2>
 <p>Sur votre propre PC, après avoir installé Derush Tool et créé votre profil :</p>
@@ -154,6 +155,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 </ul>
 <p>Pour modifier ce chemin ultérieurement, cliquez sur le bouton <strong>📁</strong> dans la barre latérale du workspace.</p>
 <div class="tip"><strong>Exemple :</strong> L'admin a ses rushs dans <code>D:\Tournages\DRIFT_CLUB\</code>, Paola les a dans <code>E:\RUSHS\Drift\</code>. Chacun configure son propre chemin, indépendamment.</div>
+<div class="warn"><strong>Lettre de lecteur qui change (disque externe) :</strong> si votre disque de rushs se rebranche sous une autre lettre (ex. passe de <code>D:</code> à <code>E:</code>), mettez à jour le chemin ici <strong>avant</strong> de cliquer sur <strong>🔄 Rescanner</strong>. Un scan avec un chemin invalide ne trouve aucun clip — depuis la version 0.3.11, Derush refuse automatiquement d'écraser une liste de clips existante si le nouveau scan en trouve beaucoup moins qu'avant (message d'avertissement affiché, rien n'est perdu). Si le dossier a réellement changé de contenu, recliquez sur 🔄 dans les 15 secondes pour confirmer.</div>
 
 <h2 id="interface">L'interface du workspace</h2>
 <h3>Barre latérale gauche</h3>
@@ -165,9 +167,12 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <h3>Zone principale</h3>
 <ul>
   <li><strong>Lecteur vidéo</strong> — lecture du fichier source ou proxy</li>
-  <li><strong>Timeline</strong> — barre de progression avec marqueurs colorés et forme d'onde audio</li>
+  <li><strong>Barre de transport</strong> (sous la vidéo) — sauts, lecture, vitesses, et le bouton <strong>💾 Sauver</strong></li>
+  <li><strong>Timeline</strong> — barre de progression avec marqueurs colorés et forme d'onde audio. Reste visible (avec les marqueurs) en plein écran <code>⤢</code>/<code>F</code></li>
+  <li><strong>Barre d'outils flottante</strong> (icônes en haut à droite de la vidéo) — Comparer, Cadre, LUT, Multi-cam, Session live, Export, Partage, Health, Stats, Sync</li>
   <li><strong>Panneau d'annotation</strong> (droite) — rating, statut, note globale, tags, marqueurs, avis équipe</li>
 </ul>
+<div class="tip"><strong>Sauvegarde automatique :</strong> vos annotations sont sauvegardées toutes les 30 secondes sur le serveur local — que la machine soit connectée à Internet ou non, tant que Derush Tool tourne. Pas besoin de cliquer sur 💾 pour ne pas perdre votre travail. La synchronisation cloud (partage avec les autres collaborateurs) est séparée : elle se fait en tâche de fond dès que la connexion revient, sans bloquer votre sauvegarde locale.</div>
 
 <h2 id="rating">Rating &amp; Statut</h2>
 <h3>Rating</h3>
@@ -417,6 +422,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 <p>La sync est automatique au démarrage et toutes les 10 minutes. Cliquez sur le bouton Sync pour la déclencher manuellement.</p>
 <div class="tip"><strong>Notes des autres en direct :</strong> quand un projet est ouvert, les annotations et commentaires de vos collaborateurs apparaissent automatiquement (en moins d'une minute), sans avoir à cliquer sur Sync ni à rouvrir le projet.</div>
 <div class="tip"><strong>Merge sans conflit :</strong> chaque utilisateur n'écrit que ses propres annotations. Il n'y a pas de risque d'écraser le travail d'un collègue.</div>
+<div class="tip"><strong>Annoter hors-ligne :</strong> vous pouvez annoter normalement sans connexion Internet — les annotations sont sauvegardées en local (voir plus haut). Dès que la machine retrouve une connexion, la synchronisation se déclenche automatiquement (détection de reconnexion + toutes les 10 minutes) sans aucune action nécessaire : les annotations faites hors-ligne sont poussées vers le cloud et arrivent chez les autres collaborateurs au sync suivant chez eux (≤ 1 minute).</div>
 
 <h2 id="updates">Mises à jour automatiques + journal des nouveautés</h2>
 <h3>Auto-update</h3>
@@ -454,8 +460,8 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
   <tr><td><code>L</code></td><td>Lecture en avant (1× → 2× → 4× à chaque appui)</td></tr>
   <tr><td><code>K</code></td><td>Pause (remet la vitesse à 1×)</td></tr>
   <tr><td><code>J</code></td><td>Lecture en arrière (1× → 2× → 4× à chaque appui)</td></tr>
-  <tr><td><code>← →</code></td><td>Reculer / Avancer d'1 frame (+ Maj = 5s)</td></tr>
-  <tr><td><code>F</code></td><td>Plein écran</td></tr>
+  <tr><td><code>← →</code></td><td>Reculer / Avancer d'1 frame (+ Maj = 5s) — marche aussi dans l'outil Comparer, sur le clip actif</td></tr>
+  <tr><td><code>F</code></td><td>Plein écran (la timeline et les marqueurs restent visibles)</td></tr>
 </table>
 <h3>Annotation</h3>
 <table>

@@ -167,14 +167,19 @@
         .clip-item .meta { font-size: 0.7em; color: var(--dim); margin-top: 4px; display: flex; gap: 8px; }
         
         .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        /* Conteneur du plein écran : englobe la vidéo ET la barre de contrôle + la timeline,
+           pour qu'elles restent visibles (avec les marqueurs) une fois en fullscreen.
+           Sans ce wrapper, requestFullscreen() ne portait que sur .video-wrapper et la
+           timeline (siblings en dehors) disparaissait complètement. */
+        .player-fs-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
         .player-area { background: #000; flex: 1; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .video-wrapper { position: relative; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
         video { display: block; width: 100%; height: 100%; object-fit: contain; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         canvas.drawing { pointer-events: auto; cursor: crosshair; }
-        
-        .video-wrapper:fullscreen { background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-        .video-wrapper:-webkit-full-screen { background: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+
+        .player-fs-wrap:fullscreen { background: #000; width: 100%; height: 100%; }
+        .player-fs-wrap:-webkit-full-screen { background: #000; width: 100%; height: 100%; }
 
         /* Toolbar player : flex-wrap pour permettre aux boutons de passer à la ligne quand la fenêtre est étroite.
            Font-size en clamp() pour rester lisible sur grand écran et s'adapter sur petit écran (descend jusqu'à 0.72em).
@@ -888,6 +893,7 @@
     </div>
 
     <div class="main">
+        <div class="player-fs-wrap" id="playerFsWrap">
         <div class="player-area" onclick="if(event.target===this||event.target.id==='player')togglePlay()">
             <div id="noVideoMsg" style="color: var(--dim);">Sélectionnez un clip</div>
             <div class="video-wrapper" id="videoWrapper">
@@ -955,7 +961,6 @@
                 <button id="syncBtn" onclick="triggerSync()" title="Synchroniser maintenant" style="display:none;">
                     <span id="syncDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6b7280;vertical-align:middle;"></span><span id="syncLabel" style="display:none;"></span>
                 </button>
-                <button onclick="saveNotes()" class="btn-primary" title="Sauvegarder (Ctrl+S)">💾</button>
             </div>
         </div>
 
@@ -982,6 +987,7 @@
                 <button class="spd-btn" id="spd15" onclick="setSpeed(1.5)">1.5×</button>
                 <button class="spd-btn" id="spd20" onclick="setSpeed(2)">2×</button>
             </div>
+            <button onclick="saveNotes()" class="btn-primary" title="Sauvegarder (Ctrl+S)">💾 Sauver</button>
             <span id="saveStatus" style="font-size:0.75em;color:#34d399;opacity:0;transition:opacity .6s;"></span>
         </div>
 
@@ -995,6 +1001,7 @@
             <span class="timeline-tc-start" id="tlTcStart">00:00:00:00</span>
             <span class="timeline-tc-end" id="tlTcEnd">--:--:--:--</span>
         </div>
+        </div><!-- /player-fs-wrap -->
         <!-- Marker popup -->
         <div class="popup-overlay" id="popupOverlay"></div>
         <div class="marker-popup" id="markerPopup">
@@ -1609,14 +1616,30 @@ async function createProject() {
 }
 
 // --- USER MANAGEMENT ---
+let _rescanForceUntil = 0;
+
 async function rescanProject(btn) {
     if(!currentProjectId) return;
     const orig = btn ? btn.textContent : '';
     if(btn) { btn.textContent = '⏳'; btn.disabled = true; }
+    // Pas de confirm() natif (casse le focus des inputs sous Electron, cf. saga textarea) :
+    // la confirmation se fait en reCliquant 🔄 dans les 15s qui suivent le refus serveur.
+    const force = Date.now() < _rescanForceUntil;
+    _rescanForceUntil = 0;
     try {
-        const res = await apiFetch(`/api/project/${currentProjectId}/scan`, {method:'POST'});
-        if(!res.ok) { alert('Erreur lors du scan'); return; }
+        const res = await apiFetch(`/api/project/${currentProjectId}/scan`, {
+            method:'POST',
+            body: JSON.stringify({force})
+        });
         const data = await res.json();
+        if(res.status === 409) {
+            // Garde-fou serveur : le scan a trouvé beaucoup moins de clips qu'avant (chemin
+            // probablement invalide) — refusé pour ne pas écraser les clips existants.
+            _rescanForceUntil = Date.now() + 15000;
+            showToast(`⚠️ ${data.error} Recliquez 🔄 dans les 15s pour forcer quand même.`, 'warn', 9000);
+            return;
+        }
+        if(!res.ok) { showToast(data.error || 'Erreur lors du scan', 'err'); return; }
         clips = data.clips || clips;
         showSaveStatus(`🔄 ${clips.length} clips`, '#60a5fa');
         seenClipIds = new Set();
@@ -2813,7 +2836,7 @@ function toggleMute() {
 }
 
 function toggleFullscreen() {
-    const wrapper = document.getElementById('videoWrapper');
+    const wrapper = document.getElementById('playerFsWrap');
     if (!document.fullscreenElement) {
         if (wrapper.requestFullscreen) {
             wrapper.requestFullscreen();
@@ -3699,6 +3722,7 @@ document.addEventListener('keydown', e => {
         case 'j': case 'J': e.preventDefault(); _jklPress(-1); break;
         case 'k': case 'K': e.preventDefault(); _jklPress(0);  break;
         case 'l': case 'L': e.preventDefault(); _jklPress(1);  break;
+        case 'f': case 'F': e.preventDefault(); toggleFullscreen(); break;
         case 'ArrowLeft':
             if(v) { e.preventDefault(); v.pause(); v.currentTime = Math.max(0, v.currentTime - (e.shiftKey ? 5 : 1/fps)); }
             break;

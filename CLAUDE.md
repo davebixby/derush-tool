@@ -600,17 +600,21 @@ let _lut = null, _lutEnabled = false, _lutRaf = null, _lutCtx = null;
 2. `🎨 LUT` → `toggleLUT()` → `enableLUT(on)` — toggle on/off
 3. Badge `LUT` affiché sur la vidéo quand actif
 
-### Disposition des contrôles du lecteur (refonte juin 2026)
+### Disposition des contrôles du lecteur (refonte juin 2026, save déplacé juillet 2026)
 
 Deux zones distinctes :
-- **Barre du bas `.player-controls`** (sous la vidéo, au-dessus de la timeline) = transport + lecture uniquement : TC `#tcDisplay`, ◀5s/◀1s/⏯/1s▶/5s▶, 📌 Marker, 🖌 Dessin, ⤢ plein écran, 🔊 Son ingé (`#bwfBtn`), volume (`#volIcon`+`#volSlider`), spacer flex, groupe vitesses `1×/1.25×/1.5×/2×`, puis `#saveStatus` (flash de sauvegarde).
-- **Barre flottante verticale `.player-toolbar`** (`#playerToolbar`) = tous les **outils/actions**, en colonne d'**icônes seules** (tooltips `title`), overlay en haut-droite de `.player-area` (`position:absolute; top:8px; right:8px; z-index:20`, fond translucide + blur) : ⚡ Comparer, 🎞 Cadre (+`#aspectMenu`), 🎨 LUT (`#lutBtn`), 📂 LUT, 🎥 Multi-cam, 🎬 Session (`#sessionBtn`), 📤 Exporter, 🔗 Partager, 🩺 Health, 📊 Stats, ⌨️ raccourcis, ☁️ Sync (`#syncBtn`, dot couleur uniquement — `#syncLabel` masqué), 💾 Sauver.
+- **Barre du bas `.player-controls`** (sous la vidéo, au-dessus de la timeline) = transport + lecture : TC `#tcDisplay`, ◀5s/◀1s/⏯/1s▶/5s▶, 📌 Marker, 🖌 Dessin, ⤢ plein écran, 🔊 Son ingé (`#bwfBtn`), volume (`#volIcon`+`#volSlider`), spacer flex, groupe vitesses `1×/1.25×/1.5×/2×`, **💾 Sauver**, puis `#saveStatus` (flash de sauvegarde).
+- **Barre flottante verticale `.player-toolbar`** (`#playerToolbar`) = tous les **outils/actions**, en colonne d'**icônes seules** (tooltips `title`), overlay en haut-droite de `.player-area` (`position:absolute; top:8px; right:8px; z-index:20`, fond translucide + blur) : ⚡ Comparer, 🎞 Cadre (+`#aspectMenu`), 🎨 LUT (`#lutBtn`), 📂 LUT, 🎥 Multi-cam, 🎬 Session (`#sessionBtn`), 📤 Exporter, 🔗 Partager, 🩺 Health, 📊 Stats, ⌨️ raccourcis, ☁️ Sync (`#syncBtn`, dot couleur uniquement — `#syncLabel` masqué).
 
 **Points techniques** :
 - Boutons à état dynamique passés en icône seule : `setAspectFrame` → `🎞` (format dans `title`/badge), `_updateSessionUI` (`js/session-live.js`) → `🛑`/`👁`/`🎬` (état via couleur + `title`), `_updateSyncUI` → dot coloré (label masqué, statut dans `title`).
 - `#aspectMenu` s'ouvre vers la gauche (`right: calc(100% + 8px); top:0`) ; `#lutSettingsPanel` décalé à `right:56px` pour ne pas passer sous la barre.
 - La barre est **masquée pendant le mode dessin** (`startDrawing`/`cancelDrawing` togglent `#playerToolbar`) pour ne pas intercepter les clics du canvas dans le coin.
-- `applyRoleUI` cible `button[onclick="saveNotes()"]` → le bouton 💾 garde son `onclick` (rôle viewer le masque toujours).
+- `applyRoleUI` cible `button[onclick="saveNotes()"]` (maintenant dans `.player-controls`, un seul exemplaire dans le DOM) → le bouton 💾 garde son `onclick` (rôle viewer le masque toujours).
+
+### Plein écran englobe timeline + marqueurs (juillet 2026)
+
+`toggleFullscreen()` mettait en fullscreen uniquement `#videoWrapper` (juste la vidéo + canvases) : la timeline et ses marqueurs, siblings en dehors de cet élément, disparaissaient complètement en plein écran. Fix : nouveau conteneur `.player-fs-wrap` (`#playerFsWrap`), englobant `.player-area` + `.player-controls` + `.timeline-bar` (mais pas `.notes-panel`, qui reste hors-champ). `toggleFullscreen()` cible désormais `#playerFsWrap`. CSS : `.player-fs-wrap { flex:1; display:flex; flex-direction:column; }`, `.player-fs-wrap:fullscreen { width/height:100%; background:#000; }` — `.player-area` garde son `flex:1` donc la vidéo remplit l'espace restant au-dessus de la barre de transport + timeline. Le comparateur (`js/compare.js`) a déjà ses marqueurs sur `.compare-timeline` de chaque slot via `renderCmpMarkers()`, câblé depuis longtemps — aucun changement nécessaire là.
 
 ### Cadrage / format d'image (overlay letterbox/pillarbox)
 
@@ -1308,3 +1312,49 @@ Constaté lors du test de sync à 3 : un commentaire posté pendant la session n
 - Endpoint `POST /api/sync/pull` (body `{project_id}`) : pull-only du projet courant. Valide le `pid` (regex `^[a-zA-Z0-9_\-]+$`), renvoie `{ok, message}`. No-op si sync non configurée.
 - Frontend `startNotesPolling` : `fetch('/api/sync/pull', {project_id})` best-effort en tête de chaque tick, puis logique de relecture `/notes` + `/discussions` existante.
 - Les push locaux restent gérés par le timer debounced sur save (`_schedule_sync_push`) — le pull-only n'introduit aucun push supplémentaire.
+
+# État au 26 juillet 2026 — v0.3.10 : timeline en plein écran, bouton save relocalisé
+
+## Timeline + marqueurs visibles en plein écran
+Voir section « Plein écran englobe timeline + marqueurs » plus haut. `#playerFsWrap` remplace `#videoWrapper` comme cible de `requestFullscreen()`.
+
+## Bouton 💾 Sauver déplacé
+Retiré de la barre flottante `.player-toolbar`, ajouté dans `.player-controls` (barre du bas), juste avant `#saveStatus`. Un seul exemplaire désormais dans le DOM (avant : dupliqué visuellement nulle part mais documenté à tort comme faisant partie de la barre flottante uniquement).
+
+## FS5 son TC + flèches ◄/► qui ne bougent pas la timeline — build Mac obsolète, pas un bug de code
+Signalé par l'utilisateur **spécifiquement sur la version Mac** : le son joué était la piste TC/LTC (BZZZZ) au lieu du micro, et ◄/► ne permettaient pas de se déplacer dans la timeline. Vérification du code source actuel (Windows, HEAD) :
+- Le routage WebAudio mono-R (`_attachPlayerAudio`/`_setPlayerMonoR` dans `derush_app.html`, `_attachCmpSlotAudio`/`_setCmpMonoR` dans `js/compare.js`) est présent, correct et **sans branche spécifique à une plateforme** — Electron embarque Chromium sur Mac comme sur Windows, donc le même code WebAudio doit s'y comporter identiquement.
+- Les raccourcis `ArrowLeft`/`ArrowRight` (seek frame-accurate, `Shift` = ±5s) sont câblés à la fois dans le handler clavier global (`derush_app.html`, section KEYBOARD SHORTCUTS) et dans `_cmpKeydown` (`js/compare.js`) pour le comparateur — également sans code spécifique à une plateforme.
+- Aucune des deux fonctionnalités n'est un ajout récent : elles étaient déjà présentes bien avant le premier build Mac réel (session 20-21 mai, voir plus haut) et le dernier rebuild Mac documenté date de la **v0.3.6** (22 mai) — trois versions en retard sur le HEAD actuel (0.3.10).
+
+**Conclusion : très probablement un exécutable Mac (`.app`) pas reconstruit depuis longtemps**, pas un bug de code à corriger. Pas de piste de correctif côté source à ce stade — recommandation : refaire `git pull` + `./build_mac.sh` sur le Mac mini (voir `BUILD_MAC.md`) et re-tester avant d'investiguer plus loin. Si le bug persiste après rebuild depuis ce commit, il faudrait alors reproduire en conditions réelles sur Mac (logs console, `_playerAudioCtx.state`, vérifier que `_attachPlayerAudio()` ne tombe pas dans son `catch` silencieux) — piste non explorée faute d'accès à une machine Mac depuis cet environnement.
+
+## Sauvegarde automatique hors-ligne : oui, côté local
+`setInterval(() => saveNotes(true), 30000)` (`derush_app.html`) sauvegarde les annotations toutes les 30 s via `POST /api/project/<id>/notes`, qui va vers le **serveur Python local** (`localhost:8765`) — ça marche que la machine soit connectée à Internet ou non, tant que le serveur Derush tourne. `save_project()` écrit sur disque de façon atomique (`.tmp` + `os.replace`) à chaque appel, avec backup versionné.
+La **sync cloud** (push vers `derush_sync.php`) est un mécanisme séparé et additionnel : elle est debouncée (3 s après une sauvegarde) et retentée automatiquement à la reconnexion / toutes les 10 min (`_sync_background_thread`), mais son échec hors-ligne n'affecte pas la sauvegarde locale — les annotations ne sont jamais perdues faute de réseau, seule leur propagation aux autres collaborateurs est différée jusqu'au retour en ligne.
+
+# État au 26 juillet 2026 (suite) — v0.3.11 : perte de clips au rescan (incident réel + fix)
+
+## Incident : 428 clips perdus en un clic
+Constaté en conditions réelles sur le projet `drift_club` : l'admin a mis à jour son chemin local des rushs (le disque externe s'était rebranché sous une nouvelle lettre, `D:` → `E:`), puis a lancé un rescan. Résultat : `proj['clips']` passé de 428 à 0 en ~3 secondes — bien trop rapide pour un vrai scan (un scan complet de ce dossier prend ~64s, mesuré). Preuve que le scan a tourné sur un chemin invalide qui échoue immédiatement, très probablement l'ancien `proj['root_path']` (`D:\DRIFT_CLUB`, champ resté périmé) utilisé en fallback parce que le `root_path` de la session n'était pas encore à jour au moment de ce scan précis.
+
+**Bonne nouvelle constatée en investiguant** : les `notes`/`discussions`/`multicam_groups`/`audio_clips` référencent les clips par leur `id` mais vivent dans des dicts séparés de `clips[]` — un vidage de `clips[]` seul ne détruit aucune annotation, juste leur affichage (plus aucun clip dans la sidebar). Récupération : restauration de `proj['clips']` depuis le dernier backup versionné d'avant l'incident (`projects/backups/drift_club/drift_club_20260726_102931.json`, 428 clips) + correction de `proj['root_path']` sur la lettre de lecteur réelle actuelle.
+
+## Root cause côté code
+`POST /api/project/<pid>/scan` (derush_server.py) faisait `proj['clips'] = scan_media_folder(scan_root, ...)` sans **aucun garde-fou** — un résultat vide (chemin invalide, disque pas monté, mauvaise saisie) écrasait silencieusement une liste de clips existante partagée par toute l'équipe (le champ `clips` n'est pas per-user).
+
+## Fix : garde-fou anti-écrasement
+- Si `proj['clips']` a déjà des entrées et que le nouveau scan en trouve **moins de 50%**, la requête est refusée (HTTP 409, rien n'est sauvegardé) avec un message explicite (chemin scanné, ancien/nouveau compte).
+- Un flag `force:true` dans le body POST bypass le garde-fou pour un vidage volontaire assumé (dossier réellement déplacé/vidé).
+- Frontend (`rescanProject()`) : **pas de `confirm()` natif** (cf. piège Electron déjà documenté — le focus state casse après un dialog natif). À la place : toast d'avertissement + fenêtre de 15s pendant laquelle recliquer 🔄 revient à confirmer (`_rescanForceUntil`, comparé à `Date.now()` au clic suivant). Remplace aussi un `alert()` préexistant sur le chemin d'erreur générique (même règle no-native-dialog).
+
+## Ce que ça ne couvre PAS
+Le vrai bug de fond (pourquoi `s.get('root_path')` n'était pas à jour au moment du scan qui a déclenché l'incident) n'a pas été identifié avec certitude — plusieurs chemins de mise à jour du `root_path` existent (`set_root_path`, édition admin `edit_user`) et ne mettent pas forcément à jour `SESSIONS[token]['root_path']` de façon uniforme. Le garde-fou ci-dessus protège contre la conséquence (perte de données) quelle que soit la cause exacte ; investiguer la cause précise si l'avertissement 409 se déclenche à nouveau sans raison apparente.
+
+## Question : sync auto après travail hors-ligne sur une autre machine
+Confirmé (pas de changement de code nécessaire, comportement déjà correct) : un collaborateur qui annote hors-ligne (ex. Mac portable sans connexion) voit ses notes sauvegardées localement en continu (`saveNotes` toutes les 30s, sur le serveur local — indépendant du réseau). Dès que sa machine retrouve une connexion, `_sync_background_thread` détecte la reconnexion (poll 90s) et déclenche un sync automatiquement, sans action utilisateur. Ses notes sont indexées sous son propre `user_id` (merge sans conflit — voir `merge_projects`), donc aucun risque d'écraser le travail des autres à ce push.
+
+**Nuance importante découverte en creusant `merge_projects`** : le champ `clips` n'est **jamais fusionné** — `result = copy.deepcopy(local)` garde toujours SES PROPRES clips, ceux du remote ne sont jamais adoptés lors d'un merge normal (seul le flow `join_with_key`, qui télécharge le projet à neuf sans merge, adopte directement le remote). Implication pratique de l'incident ci-dessus : tant que le fichier local d'une machine a des clips corrects, un push depuis cette machine réécrase le cloud avec les bons clips, quel que soit l'état du cloud — la machine avec les données saines est donc auto-réparatrice pour ce champ au prochain sync.
+
+## Badge « En attente » (invite_key)
+`'pending': bool(u.get('invite_key'))` (endpoint liste users, derush_server.py ~L2445) — un user reste « En attente » tant que son `invite_key` n'a pas été consommé via `POST /api/sync/join_with_key` **et que cette consommation n'a pas encore été synchronisée** vers la copie du projet qu'on regarde. Cas vécu : collaborateur qui a déjà rejoint et annoté sur sa machine (hors-ligne), mais dont la machine qu'on consulte n'a pas encore reçu son push — le badge reste affiché à tort jusqu'au prochain sync réussi de sa machine, qui effacera `invite_key` partout.

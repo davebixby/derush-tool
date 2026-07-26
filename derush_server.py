@@ -3305,14 +3305,33 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             pid = re.match(r'^/api/project/([^/]+)/scan$', path).group(1)
             s = require_auth(self)
             if not s: return
+            body = self._read_body() or {}
+            force = bool(body.get('force'))
             proj = load_project(pid)
             if not proj:
                 self.send_error(404)
                 return
             # Use authenticated user's root_path if set, else project default
             scan_root = s.get('root_path') or proj.get('root_path', '')
-            proj['clips'] = scan_media_folder(scan_root,
+            new_clips = scan_media_folder(scan_root,
                 [e.lower() for e in proj.get('media_extensions', ['.mxf', '.mp4', '.mov'])])
+            old_count = len(proj.get('clips', []))
+            new_count = len(new_clips)
+            # Garde-fou : un scan qui revient avec beaucoup moins de clips (typiquement 0,
+            # cas d'un chemin momentanément invalide — lettre de lecteur changée, disque pas
+            # encore monté, chemin mal saisi) ne doit jamais écraser silencieusement une liste
+            # de clips existante. Vécu en prod : root_path périmé (D: -> E:) -> scan_root
+            # invalide -> 0 clips -> 428 clips perdus en un clic. `force` permet de confirmer
+            # explicitement un vidage volontaire (dossier réellement vidé/déplacé).
+            if not force and old_count > 0 and new_count < old_count * 0.5:
+                self._json_response({
+                    'error': f"Le scan de « {scan_root} » n'a trouvé que {new_count} clip(s) alors que le projet en a {old_count}. "
+                              f"Chemin probablement incorrect ou disque non accessible — aucune modification appliquée. "
+                              f"Renvoyez la requête avec force=true si le dossier a vraiment changé de contenu.",
+                    'old_count': old_count, 'new_count': new_count, 'scan_root': scan_root,
+                }, 409)
+                return
+            proj['clips'] = new_clips
             save_project(pid, proj)
             self._json_response({'clip_count': len(proj['clips']), 'clips': proj['clips']})
             return
