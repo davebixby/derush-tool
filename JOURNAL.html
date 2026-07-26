@@ -218,6 +218,28 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 26 juillet 2026 (v0.3.13)</div>
   <a href="#compare-fixes">Comparateur : bugs de reprise + miniatures</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.14)</div>
+  <a href="#heartbeat-scan-crash">Rescan qui plante : watchdog heartbeat trop court</a>
+  <a href="#fs5-ltc-noise">Son TC entendu sur les nouveaux proxys FS5</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.15)</div>
+  <a href="#heartbeat-generalise">Rebelote : le fix du scan ne suffisait pas</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.16)</div>
+  <a href="#double-read-bug">La vraie cause : lecture double du corps POST</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.17)</div>
+  <a href="#ffprobe-stuck">ffprobe.exe bloqué à 0% CPU : un fichier gelait tout le projet</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.18)</div>
+  <a href="#semaphore-leak">La vraie fuite : la sémaphore ffmpeg partagée par toute l'app</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.19)</div>
+  <a href="#py-spy-live">Diagnostic en direct (py-spy) : plus un hang, juste trop lent</a>
+
+  <div class="nav-section">Session 26 juillet 2026 (v0.3.20)</div>
+  <a href="#ltc-restart">Redémarrage nécessaire après Décoder LTC</a>
 </nav>
 
 <main>
@@ -2365,8 +2387,164 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="heartbeat-scan-crash">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.14</span>
+    <span class="entry-title">Rescan qui plante : le watchdog heartbeat se tue lui-même</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Contexte : 102 proxys FS5 fraîchement générés sur <code>E:\DRIFT_CLUB</code> (voir plus bas pour le son TC associé). Sébastien relance un rescan pour que Derush Tool les prenne en compte — le bouton reste en ⏳, puis <strong>l'application entière se ferme</strong>. Aucune trace dans <code>crashes.jsonl</code>.</p>
+
+  <div class="box box-fail"><strong>Diagnostic (mesuré, pas deviné) :</strong> <code>scan_media_folder()</code> appelé directement en isolation sur <code>E:\DRIFT_CLUB</code> prend <strong>65 secondes</strong> pour les 428 clips du projet (ffprobe par fichier) — et se termine sans la moindre erreur, 428/428. Le watchdog <code>_heartbeat_watcher()</code>, lui, tue le process (<code>os._exit(0)</code>) si aucun heartbeat n'arrive pendant <code>_HEARTBEAT_TIMEOUT = 12</code> secondes. <code>os._exit(0)</code> est un arrêt volontaire, pas une exception — c'est pour ça qu'il n'y a rien dans le crash reporter : ce n'est pas un crash, c'est le mécanisme anti-fuite qui fait exactement ce pour quoi il a été conçu, sur un faux positif.</div>
+
+  <p>Preuve reproduite en conditions contrôlées : lancer <code>scan_media_folder()</code> dans un script Python qui importe <code>derush_server</code> (donc démarre aussi le watchdog) <strong>sans jamais simuler de heartbeat</strong> — le process meurt silencieusement avant d'avoir rien affiché, aux alentours de la 23<sup>e</sup> seconde (20s de grâce au démarrage + première vérification). En simulant un heartbeat toutes les 2s depuis le script, le même scan va jusqu'au bout sans problème. Le <code>/api/heartbeat</code> envoyé par le frontend toutes les 5s est censé être indépendant de la requête <code>/scan</code> (connexions HTTP séparées, <code>ThreadingMixIn</code>), mais sur une machine qui vient d'enchaîner 40+ minutes d'encodage NVENC et lance un scan CPU/IO-intensif sur un disque externe, la marge de 12 secondes est beaucoup trop fine pour absorber le moindre à-coup de charge.</p>
+
+  <div class="box box-why"><strong>Fix appliqué :</strong> <code>scan_media_folder()</code> rafraîchit désormais <code>_last_heartbeat</code> lui-même à chaque fichier itéré dans sa boucle (<code>derush_server.py</code>). Le scan prouve sa propre vivacité pendant qu'il tourne, au lieu de dépendre uniquement du heartbeat client qui arrive par une voie complètement indépendante. Re-testé dans les mêmes conditions qu'a l'origine du bug (aucun heartbeat simulé, script isolé) : le scan va maintenant jusqu'au bout, 428 clips, ~53s, aucun arrêt prématuré.</div>
+
+  <p>Portée du fix : ciblé sur <code>scan_media_folder()</code>, la seule opération synchrone-dans-la-requête qui peut légitimement dépasser 12s (les autres jobs longs — décodage LTC, détection multicam, auto-détection de plans — tournent déjà en thread de fond avec polling, donc ne bloquent jamais la requête HTTP elle-même).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="fs5-ltc-noise">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026</span>
+    <span class="entry-title">Son TC (BZZZZ) entendu sur les nouveaux proxys FS5</span>
+    <span class="entry-tag tag-doc">Doc</span>
+  </div>
+
+  <p>Même contexte que ci-dessus : après régénération des 102 proxys FS5 sur <code>E:\DRIFT_CLUB</code> et rescan, la lecture de ces clips fait entendre le bruit du timecode audio (LTC) au lieu du micro. Pas un bug de code — vérifié directement dans <code>drift_club.derush.json</code> : les 147 clips FS5 du projet ont tous <code>ltc_tc_in_sec = null</code>.</p>
+
+  <div class="box box-ok"><strong>Explication :</strong> le silencing automatique de la piste LTC (<a href="#audio-mono-r">voir plus haut</a>) se déclenche sur <code>clip.ltc_tc_in_sec != null</code> — c'est la preuve qu'une FS5 est jam-syncée qui active le routage WebAudio mono-R. Cette valeur n'est peuplée que par l'étape <strong>« 🎶 Décoder LTC »</strong> du workflow multicam, jamais lancée automatiquement. Tant qu'elle n'a pas tourné sur ces clips fraîchement (re)proxysés, le lecteur joue le stéréo brut du proxy (L=LTC, R=micro) sans filtrage, d'où le bruit.</div>
+
+  <p>Pas de correctif nécessaire : lancer « 🎶 Décoder LTC » une fois sur le projet peuple <code>ltc_tc_in_sec</code> pour tous les clips FS5 et le silencing se réactive normalement.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="heartbeat-generalise">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.15</span>
+    <span class="entry-title">Rebelote : le fix du scan ne couvrait pas tous les cas</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Après le build 0.3.14 (fix du crash pendant un rescan), Sébastien retente et l'app se ferme <strong>quelques minutes après un rescan</strong> — mais cette fois sans relancer de scan, sans lancer « 🎶 Décoder LTC » (vérifié explicitement auprès de lui), juste en naviguant normalement dans les clips (clics, scroll de la sidebar).</p>
+
+  <div class="box box-fail"><strong>Pourquoi le fix précédent ne suffisait pas :</strong> il ne touchait que la boucle interne de <code>scan_media_folder()</code>. Le vrai problème est plus général : sur ce lot d'environ 100 clips FS5 jamais ouverts, chaque premier affichage déclenche une rafale de générations ffmpeg (vignette, strip de scrubbing, waveform) — et sur un disque externe, cette rafale peut créer des à-coups de charge suffisants pour qu'un simple <code>/api/heartbeat</code> (censé arriver toutes les 5s sur une connexion indépendante) rate malgré tout la fenêtre de 12 secondes. Même mécanisme de fond que le bug du scan (watchdog trop strict face à une activité serveur légitime), déclenché par un chemin différent.</p>
+
+  <div class="box box-why"><strong>Fix généralisé (plus robuste qu'un correctif au cas par cas) :</strong> au lieu de chercher et patcher chaque boucle serveur susceptible de tourner longtemps une par une, <code>do_GET</code> et <code>do_POST</code> rafraîchissent désormais <code>_last_heartbeat</code> pour <strong>toute requête entrante</strong>, pas seulement <code>/api/heartbeat</code> — une vignette, un flux proxy ou une requête waveform prouvent tout autant que le navigateur est actif. En complément, la marge <code>_HEARTBEAT_TIMEOUT</code> passe de 12 à <strong>30 secondes</strong>, pour absorber les à-coups sans dégrader la détection d'un onglet réellement fermé (qui reste raisonnablement rapide : ~50s dans le pire cas avec la grâce de démarrage).</div>
+
+  <p>Le correctif ciblé de la 0.3.14 (heartbeat rafraîchi dans la boucle de <code>scan_media_folder</code>) reste en place — redondant maintenant avec le fix général pour ce cas précis, mais inoffensif et utile en défense en profondeur si un futur job long ne génère aucune requête HTTP entrante pendant son exécution.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="double-read-bug">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.16</span>
+    <span class="entry-title">La vraie cause, enfin trouvée : lecture double du corps de la requête POST</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Sébastien signale un troisième symptôme, plus précis que les précédents : « le sablier reste même si le scan est fini » — le bouton 🔄 reste bloqué en ⏳ alors que le scan semble terminé. Cette fois, vérification directe demandée : F12 → onglet Réseau → la requête <code>/scan</code> reste en <strong>« pending » indéfiniment</strong>, jamais de statut 200. Ce n'était donc pas (uniquement) une question de timing heartbeat — un vrai hang réseau.</p>
+
+  <div class="box box-fail"><strong>Root cause, trouvée par reproduction en conditions réelles (pas par lecture de code seule) :</strong> un script de test a ouvert une vraie session sur le serveur réel et envoyé une vraie requête HTTP <code>POST /api/project/drift_club/scan</code> (avec instrumentation : marqueurs de progression injectés dans <code>scan_media_folder</code>/<code>save_project</code> via monkey-patch, plus un thread qui affiche l'âge du heartbeat toutes les 5s). Résultat : <strong>« SCAN START » n'apparaît jamais</strong> — le hang se produit <em>avant même</em> d'atteindre <code>scan_media_folder()</code>, donc avant tout ce que les fix précédents (0.3.14, 0.3.15) touchaient.</p>
+
+  <p>En lisant le handler <code>/scan</code> ligne par ligne : <code>_dispatch_post()</code> lit déjà le corps de la requête une première fois tout en haut (<code>body = self._read_body()</code>, ligne 3033) — commun à tous les endpoints POST. Mais le handler <code>/scan</code> lui-même refaisait <strong>une deuxième lecture</strong> (<code>body = self._read_body() or {}</code>) juste après <code>require_auth</code>. <code>_read_body()</code> fait <code>self.rfile.read(length)</code> où <code>length</code> vient du header <code>Content-Length</code> — la première lecture consomme déjà tous les octets du corps ; la deuxième relit le <strong>même nombre d'octets</strong> sur un socket qui n'a plus rien à donner, et <code>rfile.read()</code> bloque indéfiniment (aucun timeout configuré sur ce socket) en attendant des données que le client ne renverra jamais, puisqu'il attend justement la réponse.</p>
+
+  <div class="box box-ok"><strong>Pourquoi ça n'arrivait que sur <code>/scan</code> :</strong> un <code>grep</code> sur tout <code>derush_server.py</code> confirme que <code>/scan</code> est le <strong>seul</strong> endpoint avec cette double lecture. Les autres endpoints POST ne lisent le corps qu'une fois (via le dispatcher partagé) — d'où l'absence de rapport similaire ailleurs. Le bug ne se déclenche que si le corps POST est non-vide (ex. <code>{"force": false}</code>) ; un corps vide (<code>Content-Length: 0</code>) fait retourner <code>{}</code> immédiatement aux deux lectures sans jamais toucher le socket, ce qui explique pourquoi ce chemin de code a pu exister sans être détecté depuis l'ajout du flag <code>force</code> (v0.3.11).</div>
+
+  <div class="box box-why"><strong>Fix :</strong> suppression de la lecture redondante dans le handler <code>/scan</code> — il utilise désormais le <code>body</code> déjà lu par <code>_dispatch_post()</code>, disponible dans la même portée de fonction. Revérifié avec le <strong>même</strong> test de reproduction (requête HTTP réelle, authentifiée, contre le serveur réel) : réponse propre, statut 200, 428 clips, en 51,9 secondes.</div>
+
+  <p><strong>Implication rétroactive :</strong> <code>do_POST</code> tient le verrou par projet (<code>_project_lock(pid)</code>) pendant tout le dispatch — un <code>/scan</code> qui bloque indéfiniment dessus tient donc <em>aussi</em> ce verrou indéfiniment, empêchant en cascade toute autre écriture sur ce même projet (sauvegarde de notes, etc.) tant que la requête reste pendante. C'est très probablement la vraie explication des plantages signalés en 0.3.14/0.3.15 — les fix heartbeat de ces versions restent corrects et utiles en défense en profondeur (une opération légitimement longue ne doit jamais se faire tuer par le watchdog), mais ce bug-ci était la cause directe et suffisante du symptôme observé par l'utilisateur, indépendamment de tout timing de heartbeat.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="ffprobe-stuck">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.17</span>
+    <span class="entry-title">Le fix 0.3.16 ne suffisait toujours pas : un ffprobe.exe zombie à 0% CPU</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Sébastien retente proprement avec un zip 0.3.16 fraîchement extrait dans un nouveau dossier (confirmé, aucune ambiguïté de version) — <code>/scan</code> reste malgré tout bloqué en « pending » indéfiniment, même après une très longue attente. Ma reproduction isolée (le même test HTTP réel que pour la 0.3.16) fonctionne pourtant parfaitement à deux reprises sur cette machine, à quelques minutes d'écart (51,9s puis 52,4s) — le code du fix est correct et l'environnement (disque E:, fichier projet) est stable. La divergence devait donc venir d'un facteur absent de mon test isolé mais présent dans la vraie session de l'utilisateur.</p>
+
+  <p>Point de bascule du diagnostic : demande d'observer le Gestionnaire des tâches (onglet Détails, trié CPU) pendant le blocage. Réponse : <strong>un processus <code>ffprobe.exe</code> est présent, mais à 0% CPU</strong> — pas de <code>ffmpeg.exe</code>. Un processus qui existe mais ne consomme aucun CPU n'est pas en train de calculer : il est bloqué en attente sur quelque chose (I/O), pas en train de travailler lentement.</p>
+
+  <div class="box box-fail"><strong>Root cause :</strong> <code>_ffmpeg_run()</code> lance <code>subprocess.run(cmd, timeout=30, ...)</code> — en théorie, Python tue le process après 30s. Mais un processus bloqué dans une <strong>attente I/O noyau ininterruptible</strong> (disque externe qui répond mal, ou antivirus Windows qui retient en lecture un fichier tout juste écrit sur le disque — exactement le cas des 102 proxys FS5 fraîchement générés par ffmpeg quelques minutes plus tôt) peut être <em>impossible à tuer</em> depuis l'espace utilisateur : <code>TerminateProcess()</code> ne revient tout simplement pas tant que l'I/O sous-jacente ne se termine pas côté pilote/OS — ce qui peut prendre très longtemps, voire ne jamais se produire dans la fenêtre d'observation. <code>scan_media_folder()</code> appelle <code>ffprobe_metadata()</code> <strong>séquentiellement</strong> pour chaque fichier : un seul fichier dans cet état gèle la boucle entière, et donc — via le verrou par projet tenu pendant toute la durée de la requête <code>/scan</code> (fix 0.3.16 compris) — gèle en cascade toute autre écriture sur ce projet. Exactement le symptôme observé : <code>/notes</code> et <code>pull_comments</code> également bloqués, alors que <code>/api/heartbeat</code> (hors verrou projet) répondait normalement.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>_ffprobe_metadata_bounded()</code> (nouvelle fonction) exécute <code>ffprobe_metadata()</code> dans un thread daemon et attend le résultat avec un délai « mur » de 20s (<code>Event.wait(timeout=...)</code>) — indépendant de ce qui se passe réellement à l'intérieur du thread. Si le fichier ne répond pas à temps, <code>scan_media_folder()</code> continue avec des métadonnées vides pour ce clip (durée 0, pas de TC — le clip apparaît quand même dans la liste, dégradé plutôt qu'absent) au lieu d'attendre indéfiniment un sous-processus qui ne se terminera peut-être jamais. Dans le pire cas (rare), un thread et un slot de la sémaphore <code>_ffmpeg_sem</code> restent occupés jusqu'à ce que l'OS libère enfin le processus zombie — mais plus aucun fichier problématique ne peut geler le scan ni, par ricochet, le reste du projet.</p>
+
+  <div class="box box-note"><strong>Bonus trouvé en creusant :</strong> <code>/api/crash</code> avait exactement la même double-lecture du corps que le bug 0.3.16 (<code>self.rfile.read(...)</code> une deuxième fois après le <code>_read_body()</code> du dispatcher) — corrigée par la même occasion, même si elle n'a pas été mise en cause dans cet incident précis (les payloads de crash sont généralement petits, le risque était plus théorique).</div>
+
+  <p><strong>Pourquoi ça n'apparaît que sur ce lot précis de clips :</strong> les 102 proxys FS5 sur <code>E:\DRIFT_CLUB</code> venaient d'être écrits par un encodage NVENC de 43 minutes juste avant. Un antivirus qui scanne les fichiers neufs en temps réel, ou un disque externe qui n'a pas fini de flusher son cache d'écriture, sont des explications plausibles pour un verrou I/O transitoire sur un ou plusieurs de ces fichiers précis au moment du scan — sans que ce soit reproductible à volonté (mon test isolé, lancé à un moment où ces conditions ne se représentaient pas, n'a jamais rencontré le problème).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="semaphore-leak">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.18</span>
+    <span class="entry-title">Le fix 0.3.17 ne suffisait toujours pas : la vraie fuite était dans la sémaphore ffmpeg partagée</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Sébastien retente avec le 0.3.17 : « après plus de 5 minutes ffprobe à 0%, scan/notes/pull_comments en pending, donc toujours pareil ». Le fix précédent (<code>_ffprobe_metadata_bounded</code>, borne l'attente de l'<em>appelant</em> à 20s) était correct dans son principe mais incomplet — il manquait la vraie fuite de ressource.</p>
+
+  <div class="box box-fail"><strong>Ce qui manquait :</strong> le thread daemon lancé par <code>_ffprobe_metadata_bounded</code> pour un fichier bloqué continue de tourner en arrière-plan indéfiniment (c'est le principe même du fix — on abandonne l'attente côté appelant, pas le thread lui-même). Ce thread est bloqué à l'intérieur de <code>_ffmpeg_run()</code>, qui faisait <code>with _ffmpeg_sem:</code> — un <code>with</code> ne libère la sémaphore qu'au retour de <code>subprocess.run()</code>, qui ne revient <strong>jamais</strong> pour un processus vraiment zombie. Le permis de sémaphore reste donc perdu pour de bon, silencieusement, à chaque fichier dans cet état.</p>
+
+  <p><code>_ffmpeg_sem</code> n'a que <strong>8 permis</strong> sur cette machine (<code>_FFMPEG_MAX_CONCURRENT</code>) et elle est <strong>partagée par toutes les fonctionnalités de l'app</strong> — vignettes, strips, waveform, décodage LTC, détection de plans, tout. Si plusieurs fichiers du lot de 102 proxys se retrouvent dans cet état pendant le scan (plausible si l'antivirus scanne plusieurs fichiers à la suite), les 8 permis finissent tous par fuiter un par un. Une fois épuisés, <strong>tout nouvel appel ffmpeg/ffprobe de l'app entière</strong> — pas seulement les fichiers restants du scan, littéralement n'importe quelle vignette ou waveform demandée ailleurs dans l'app — se met à bloquer indéfiniment sur le <code>with _ffmpeg_sem:</code> lui-même, en attente d'un permis qui ne se libérera jamais. D'où « toujours pareil » malgré le fix 0.3.17 : celui-ci réglait le symptôme sur le <em>premier</em> fichier bloqué, pas la fuite de fond qui s'accumule ensuite.</p>
+
+  <div class="box box-ok"><strong>Confirmé par simulation directe</strong> (pas juste déduit) : script qui acquiert les 8 permis de <code>_ffmpeg_sem</code> à la main et ne les libère jamais (simulant exactement des zombies accumulés), puis appelle <code>_ffmpeg_run(['ffprobe', '-version'], timeout=5)</code>. Avec l'ancien code (<code>with _ffmpeg_sem:</code> sans délai) : blocage indéfini. Avec le fix : échoue proprement après 10s (<code>timeout + 5</code>) avec un <code>TimeoutError</code> clair.</div>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>_ffmpeg_run()</code> acquiert désormais la sémaphore via <code>_ffmpeg_sem.acquire(timeout=timeout + 5)</code> au lieu du <code>with</code> bloquant sans limite. Si aucun permis ne se libère à temps, <code>TimeoutError</code> est levée — absorbée par le même <code>except Exception</code> qui gérait déjà les autres échecs ffprobe (retour <code>{}</code>, clip dégradé mais pas de gel). Le compromis reste identique à la 0.3.17 : un permis peut rester perdu pour de bon si son détenteur est un vrai zombie (capacité effective réduite d'autant, de façon permanente jusqu'au redémarrage de l'app), mais plus aucun appelant, nulle part dans l'app, ne peut désormais rester bloqué indéfiniment à cause de ça.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="py-spy-live">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.19</span>
+    <span class="entry-title">Diagnostic en direct avec py-spy : ce n'était plus un hang, juste beaucoup trop lent</span>
+    <span class="entry-tag tag-fix">Diagnostic + fix</span>
+  </div>
+
+  <p>Sébastien retente avec la 0.3.18 : « toujours pareil ». Plutôt que reproduire encore une fois en isolation (ce qui n'avait jamais réussi à révéler le vrai problème jusqu'ici), demande faite de laisser le rescan bloqué <strong>en direct</strong> sur sa machine — qui se trouve être la même machine que celle utilisée pour tout ce travail. Installation de <code>py-spy</code> (dump de stack Python sans coopération du process cible) et inspection du process réel en cours d'exécution (<code>py-spy dump --pid &lt;pid&gt;</code>).</p>
+
+  <div class="box box-ok"><strong>Ce que ça a montré, très précisément :</strong> le thread gérant la requête <code>/scan</code> était bien à l'intérieur de <code>_ffprobe_metadata_bounded</code> (le fix 0.3.17), en train d'attendre sur <code>Event.wait(20)</code> — pas bloqué indéfiniment, juste en train d'attendre son délai normal sur le fichier courant. Un second dump quelques instants plus tard a montré le thread <strong>avoir progressé vers un fichier suivant</strong> (nouveau thread daemon interne, nouvel identifiant). Un troisième dump, un peu plus tard : le thread avait <strong>disparu</strong> — la requête s'était terminée normalement, et le fichier projet venait d'être sauvegardé (428 clips, horodatage concordant).</p>
+
+  <p>Conclusion directement observée, pas déduite : les fix 0.3.16/0.3.17/0.3.18 fonctionnent tous correctement. Il ne s'agissait plus d'un blocage infini — juste d'une lenteur réelle. Confirmé par Sébastien : le scan a fini par se terminer, mais après <strong>~15 minutes</strong> (contre ~52s dans mes tests isolés).</p>
+
+  <div class="box box-fail"><strong>D'où venait cette lenteur (elle, pas encore expliquée) :</strong> un <code>ffprobe</code> sur un des fichiers concernés, lancé directement en ligne de commande pendant que l'app était censée être « bloquée », répond en 0,1s — donc ni le disque ni le fichier ne sont intrinsèquement lents. La différence : dans l'app réelle, <code>scan_media_folder()</code> sonde chaque fichier via <code>_ffmpeg_sem</code>, la <strong>même sémaphore à 8 emplacements</strong> utilisée par les vignettes/strips/waveform. Juste après avoir généré 102 nouveaux proxys FS5, l'app pré-génère leurs aperçus en tâche de fond (vignettes, strips, waveform — décodage vidéo réel, bien plus lourd qu'un simple <code>ffprobe -show_entries</code>) — ces opérations occupent les 8 emplacements en continu pendant plusieurs minutes. Les sondages du scan, bien que individuellement quasi instantanés, doivent alors faire la queue derrière ce travail de fond, un par un, jusqu'à épuiser leur délai d'attente (20s du fix 0.3.17, ou 35s de la sémaphore elle-même) avant même d'avoir pu démarrer.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> nouvelle sémaphore dédiée <code>_ffprobe_meta_sem</code> (16 emplacements sur cette machine, <code>_FFPROBE_META_MAX_CONCURRENT</code>), réservée aux sondages <code>ffprobe</code> de métadonnées seules — <code>_ffmpeg_run()</code> accepte désormais un paramètre <code>sem</code> optionnel, et <code>ffprobe_metadata()</code> (utilisée uniquement par <code>scan_media_folder</code>) passe cette nouvelle sémaphore au lieu de la partagée. Un rescan que l'utilisateur attend activement à l'écran ne peut plus se faire distancer par de la pré-génération d'aperçus en arrière-plan, qui elle continue de tourner normalement sur son propre quota.</p>
+
+  <p>Sanity check post-fix (conditions isolées, sans contention) : toujours ~52s, aucune régression. L'amélioration réelle (scan qui ne fait plus la queue derrière la pré-génération) ne peut se mesurer qu'en conditions réelles — c'est justement ce que ce fix cible.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="ltc-restart">
+  <div class="entry-header">
+    <span class="entry-date">26 juillet 2026 · v0.3.20</span>
+    <span class="entry-title">Redémarrage nécessaire après « 🎶 Décoder LTC » pour entendre le bon son</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Sébastien signale : après avoir lancé le décodage LTC pour corriger le bruit de TC sur les clips FS5 (cf. plus haut, incident du même jour), le son restait faux <strong>tant qu'il n'avait pas redémarré l'application</strong>, alors que le décodage s'était bien terminé avec succès.</p>
+
+  <div class="box box-fail"><strong>Root cause :</strong> le décodage LTC met à jour <code>clip.ltc_tc_in_sec</code> côté serveur (fichier projet), mais le tableau <code>clips</code> côté client est chargé <strong>une seule fois</strong>, à l'entrée dans le projet (<code>enterWorkspace()</code>). À la fin du décodage, le frontend (<code>js/multicam-modal.js</code>) n'appelait que <code>refreshLtcSummary()</code> — qui ne fait que rafraîchir un texte de compteur (<code>GET /decode_ltc/summary</code>), sans jamais recharger la vraie liste des clips. Le silencing automatique de la piste TC (<code>_setPlayerMonoR</code>, basé sur <code>c.ltc_tc_in_sec != null</code>) continuait donc de lire des valeurs <code>null</code> périmées jusqu'à ce qu'un redémarrage force un rechargement complet des clips depuis le serveur.</div>
+
+  <div class="box box-why"><strong>Fix :</strong> nouvelle fonction <code>_refreshClipsAfterLtcDecode()</code> appelée dès que le statut passe à <code>done</code> — recharge <code>clips</code> depuis <code>GET /api/project/&lt;pid&gt;/clips</code>, et si un clip est actuellement ouvert dans le lecteur, retrouve sa version à jour, la réassigne à <code>activeClip</code>, et réapplique immédiatement <code>_setPlayerMonoR(updated.ltc_tc_in_sec != null)</code>. Plus besoin de redémarrer : le son bascule sur le micro dès que le décodage se termine, y compris pour le clip en cours de lecture.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 26 juillet 2026 (v0.3.13 — correctifs comparateur + miniatures)
+  Derush Tool · Journal de développement · Dernière mise à jour 26 juillet 2026 (v0.3.20 — plus besoin de redémarrer après Décoder LTC)
 </div>
 
 </main>

@@ -493,6 +493,13 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 <p>Quand vous rejoignez un projet pour la première fois sur une machine, le serveur doit générer les vignettes de tous les clips (1–2s par clip via ffmpeg). Sur 400+ clips, comptez 5 à 10 minutes. Une barre flottante en bas-droite indique la progression « X / 428 aperçus prêts ». Pendant ce temps les vignettes affichent un effet shimmer animé.</p>
 <p>Une fois la première génération terminée, le cache est conservé : les ouvertures suivantes du projet sont instantanées.</p>
 
+<h3>Le bouton 🔄 (rescanner) reste bloqué en ⏳ indéfiniment</h3>
+<p>Plusieurs bugs distincts corrigés à ce sujet (0.3.16 à 0.3.18) qui pouvaient faire rester le bouton bloqué en ⏳ indéfiniment — tous corrigés, un vrai blocage infini n'est plus possible depuis la 0.3.18. Il reste néanmoins normal qu'un rescan soit <strong>lent</strong> (plusieurs minutes) juste après avoir généré un gros lot de nouveaux proxys : l'app génère en parallèle leurs vignettes/aperçus, ce qui peut ralentir un rescan lancé au même moment. Depuis la <strong>0.3.19</strong>, le rescan a sa propre file d'attente dédiée et n'est plus ralenti par cette génération d'aperçus en arrière-plan. Si vous êtes sur une version antérieure, mettez à jour. Aucun contournement possible côté utilisateur en attendant : fermer/rouvrir l'onglet interrompt juste la requête en cours, sans perte de données (le scan n'écrase jamais les clips existants grâce au garde-fou anti-perte de clips).</p>
+
+<h3>L'application se ferme toute seule pendant une activité normale (rescan, navigation sur des clips jamais ouverts)</h3>
+<p>Un rescan complet relit les métadonnées (ffprobe) de <strong>tous</strong> les clips du projet, pas seulement les nouveaux — sur un gros projet (400+ clips) ça peut prendre 30 à 60+ secondes, surtout juste après avoir généré un lot de nouveaux proxys ou sur un disque externe. Idem pour un lot de clips jamais ouverts : chaque premier affichage génère vignette + waveform + strip de scrubbing, ce qui peut créer un pic de charge de plusieurs minutes. C'est normal, laissez tourner sans fermer l'onglet.</p>
+<p>Depuis la version 0.3.15, ces cas ne provoquent plus de fermeture intempestive de l'application (toute requête au serveur — pas seulement le signal de présence — compte comme preuve que l'app est active, avec une marge de sécurité plus large). Si vous êtes sur une version antérieure et que l'app se ferme pendant une activité normale mais intense, mettez à jour.</p>
+
 <h3>Erreur 403 lors de la synchronisation</h3>
 <p>La clé de synchronisation dans <code>derush_config.json</code> (<code>sync_key</code>) ne correspond pas à la valeur <code>$SECRET_KEY</code> dans le fichier PHP sur le serveur web.</p>
 
@@ -531,6 +538,9 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
   <li>Ouvrez les deux clips concernés et regardez leur TC source dans le panneau d'infos. S'ils sont à plus de quelques secondes l'un de l'autre alors que les plans ont été filmés au même moment, le TC d'au moins une caméra est faux.</li>
   <li>Sur les autres jours (où le TC est cohérent), la détection trouve les paires instantanément — un projet où ça ne marche jamais signale plutôt un souci de scan ou de métadonnées que de la méthode.</li>
 </ul>
+
+<h3>On entend le bruit du timecode (BZZZZ) au lieu du micro sur un clip FS5</h3>
+<p>Normal juste après avoir (re)généré des proxys FS5 ou rejoint le projet sur une nouvelle machine : le silencing automatique de la piste TC ne s'active que si le TC a été décodé depuis l'audio pour ce clip. Lancez <strong>🎶 Décoder LTC</strong> une fois sur le projet (voir <a href="#multicam">Multi-cam &amp; son ingé</a>) — une fois terminé, la lecture bascule automatiquement sur le micro en mono pour tous les clips FS5.</p>
 
 <h3>Le son ingé son est décalé dans le viewer multi-cam</h3>
 <p>Le BWF est aligné automatiquement sur le clip le plus ancien du groupe via son TC. S'il sonne décalé, deux possibilités :</p>

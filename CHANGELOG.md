@@ -4,6 +4,55 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.20] — 2026-07-26
+
+### 🐛 Corrigé
+- **Redémarrage nécessaire après « 🎶 Décoder LTC » pour entendre le bon son** : le décodage LTC met à jour `ltc_tc_in_sec` côté serveur, mais le client gardait en mémoire la liste des clips chargée à l'entrée du projet (donc `ltc_tc_in_sec` toujours `null`) — le silencing automatique de la piste TC (audio FS5 mono-R) ne se réactivait qu'après un redémarrage complet forçant un rechargement des clips. La liste des clips est désormais rechargée automatiquement dès que le décodage se termine, et le routage audio du clip actif est réappliqué immédiatement si besoin — plus besoin de redémarrer.
+
+### 🔧 Amélioré
+- **Rescan toujours lent (~15 min) après le fix 0.3.18, même sans blocage infini** : diagnostic en direct (`py-spy`, dump des threads du process réel pendant que le scan tournait) — pas de blocage, mais un fichier après l'autre mettait jusqu'à 20s (la limite du fix 0.3.17) alors que le même fichier sondé directement en ligne de commande répond en 0,1s. Cause : `scan_media_folder()` sonde chaque fichier via la même sémaphore partagée (8 slots) que les vignettes/strips/waveform — quand un gros lot de clips neufs génère ses aperçus en tâche de fond en même temps qu'un rescan, les sondages rapides du scan font la queue derrière des extractions bien plus lourdes (décodage vidéo réel) au lieu de passer en priorité.
+- Fix : nouvelle sémaphore dédiée (`_ffprobe_meta_sem`, 16 slots) réservée aux requêtes `ffprobe` de métadonnées seules (utilisées uniquement par le scan) — indépendante de celle des vignettes/strips/waveform. Un rescan que l'utilisateur attend activement ne peut plus se faire ralentir par de la pré-génération d'aperçus en arrière-plan.
+
+---
+
+## [0.3.18] — 2026-07-26
+
+### 🐛 Corrigé
+- **Le fix 0.3.17 ne suffisait toujours pas — la vraie fuite était dans la sémaphore ffmpeg partagée** : `_ffprobe_metadata_bounded` (0.3.17) bornait bien l'attente de *l'appelant* à 20s par fichier, mais le thread interne bloqué sur un `ffprobe.exe` zombie continuait de tenir un permis de `_ffmpeg_sem` (la sémaphore qui limite à 8 le nombre de processus ffmpeg/ffprobe simultanés — partagée par **toutes** les fonctionnalités : vignettes, strips, waveform, LTC, etc.) indéfiniment, puisque `with _ffmpeg_sem:` ne se libère qu'au retour de `subprocess.run()`, qui ne revient jamais pour un processus vraiment bloqué. Si plusieurs fichiers du lot se retrouvent dans cet état (plausible si l'antivirus scanne plusieurs des 102 nouveaux proxys à la suite), les 8 permis finissent tous par fuiter — et l'ancien `with _ffmpeg_sem:` (sans délai) faisait alors bloquer indéfiniment **tout nouvel appel ffmpeg/ffprobe de l'app entière**, pas seulement le scan en cours. Reproduit et confirmé par simulation directe : les 8 permis "fuités" à la main, un nouvel appel bloquait indéfiniment avec l'ancien code ; avec le fix, il échoue proprement après quelques secondes.
+- Fix : `_ffmpeg_run()` acquiert désormais la sémaphore avec son propre délai (`timeout + 5` s) au lieu d'un `with` bloquant sans limite — si aucun permis ne se libère à temps, l'appel échoue proprement (`TimeoutError`, absorbée comme toute autre erreur ffprobe) au lieu de bloquer indéfiniment. Le compromis reste le même qu'en 0.3.17 : un permis peut rester perdu pour de bon si son détenteur est un processus véritablement zombie, mais plus aucun appelant ne peut rester bloqué indéfiniment à cause de ça.
+
+---
+
+## [0.3.17] — 2026-07-26
+
+### 🐛 Corrigé
+- **`/scan` toujours bloqué même après le fix 0.3.16, cette fois pour une vraie raison système** : diagnostic en direct chez l'utilisateur (Gestionnaire des tâches pendant le blocage) — un processus `ffprobe.exe` restait présent à **0% CPU** indéfiniment, bien au-delà du timeout de 30s censé le tuer. Un processus bloqué dans une attente I/O noyau ininterruptible (disque externe qui répond mal, antivirus qui retient un fichier tout juste écrit — exactement le cas des 102 proxys FS5 fraîchement générés) peut être « impossible à tuer » : `TerminateProcess()` ne revient pas tant que l'I/O sous-jacente ne se termine pas, ce qui peut prendre très longtemps voire jamais. Un seul fichier dans cet état gelait toute la boucle du scan — et via le verrou par projet tenu pendant toute la requête, ça gelait en cascade toutes les autres écritures sur ce projet (sauvegarde de notes, etc.), exactement le symptôme observé.
+- Fix : `scan_media_folder()` sonde désormais chaque fichier via un thread avec une limite de temps « mur » (`_ffprobe_metadata_bounded`, 20s) — si un fichier ne répond pas dans ce délai, le scan continue avec les métadonnées vides pour ce clip au lieu d'attendre indéfiniment un sous-processus qui ne se terminera peut-être jamais. Dans le pire cas (rarissime), un thread et un slot de la sémaphore ffmpeg restent occupés jusqu'à ce que l'OS libère enfin le processus bloqué — mais le scan et le reste de l'app ne sont plus jamais gelés par un seul fichier problématique.
+- Fix additionnel (même classe de bug que 0.3.16, trouvée en creusant) : `/api/crash` lisait lui aussi le corps de la requête une deuxième fois — supprimé, même s'il n'a pas été observé en cause dans cet incident.
+
+---
+
+## [0.3.16] — 2026-07-26
+
+### 🐛 Corrigé
+- **`/scan` restait bloqué indéfiniment (« sablier » qui ne se termine jamais)** : le handler du rescan lisait le corps de la requête POST **deux fois** (une fois dans le dispatcher partagé, une deuxième fois — redondante — dans le handler lui-même). La deuxième lecture bloquait indéfiniment sur le socket en attendant des octets déjà consommés par la première, qui n'arriveraient jamais. Bug reproduit en conditions réelles (requête HTTP authentifiée contre le serveur réel) : la requête restait « pending » indéfiniment, sans jamais atteindre `scan_media_folder()`. Supprimée la lecture redondante — même test, réponse propre en 51,9s. C'était très probablement la vraie cause des plantages précédents (0.3.14/0.3.15) : le corps mort tenait aussi le verrou par projet, bloquant en cascade toute autre sauvegarde sur ce projet.
+
+---
+
+## [0.3.15] — 2026-07-26
+
+### 🐛 Corrigé
+- **Le fix du 0.3.14 ne couvrait que le rescan** : l'app a pu se fermer à nouveau, cette fois après une navigation normale (pas de rescan, pas de décodage LTC en cours) sur un lot de ~100 clips jamais ouverts auparavant — même mécanisme (watchdog heartbeat trop court face à une rafale de charge légitime : génération de vignettes/waveforms/strips pour des clips neufs). Deux changements, plus généraux que le fix précédent : (1) **toute** requête HTTP entrante (pas seulement `/api/heartbeat`) prouve désormais que le navigateur est actif et rafraîchit le heartbeat — une rafale de requêtes vignettes/proxy/waveform pendant la navigation compte comme preuve de vie ; (2) marge portée de 12 à **30 secondes** pour absorber les à-coups de charge sans changer la détection (raisonnablement rapide) d'un onglet réellement fermé.
+
+---
+
+## [0.3.14] — 2026-07-26
+
+### 🐛 Corrigé
+- **Rescan qui pouvait faire fermer l'application** (grave) : sur un gros projet (400+ clips), un rescan complet peut légitimement prendre 30 à 60+ secondes (ffprobe par fichier). Le watchdog anti-fuite (fermeture auto si l'onglet est fermé) ne tolérait que 12 secondes sans heartbeat client — un scan un peu long pouvait déclencher une fermeture silencieuse du serveur (`os._exit(0)`, aucune trace dans le journal des erreurs). Le scan rafraîchit désormais lui-même le heartbeat à chaque fichier traité, prouvant sa propre activité indépendamment du client. Reproduit et vérifié : un scan de 428 clips (~65s) qui tuait le process avant le fix se termine maintenant normalement.
+
+---
+
 ## [0.3.13] — 2026-07-26
 
 ### 🐛 Corrigé

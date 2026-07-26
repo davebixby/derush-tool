@@ -272,6 +272,28 @@ async function mcRejectSelectedValid() {
 
 let _ltcPollTimer = null;
 
+async function _refreshClipsAfterLtcDecode() {
+    // Sans ça, `clips` (chargé une fois à l'entrée du projet) garde
+    // ltc_tc_in_sec=null pour tous les clips après un décodage LTC : le
+    // silencing mono-R (_setPlayerMonoR, cf. selectClip/audio-bwf.js) ne se
+    // réactivait qu'après un redémarrage complet de l'app (rechargement des
+    // clips depuis le serveur). On recharge la liste tout de suite et on
+    // réapplique le routage audio si le clip actif vient d'être décodé.
+    if (!currentProjectId) return;
+    try {
+        const r = await apiFetch(`/api/project/${currentProjectId}/clips`);
+        if (!r.ok) return;
+        clips = await r.json();
+        if (activeClip) {
+            const updated = clips.find(c => c.id === activeClip.id);
+            if (updated) {
+                activeClip = updated;
+                _setPlayerMonoR(updated.ltc_tc_in_sec != null);
+            }
+        }
+    } catch(e) {}
+}
+
 async function refreshLtcSummary() {
     if (!currentProjectId) return;
     try {
@@ -337,6 +359,7 @@ function _startLtcPolling() {
                         `Terminé en ${dur} : ${j.n_with_ltc} avec LTC · ${j.n_without_ltc} sans LTC` +
                         (j.n_skipped ? ` · ${j.n_skipped} déjà décodés` : '');
                     document.getElementById('ltcBar').style.width = '100%';
+                    _refreshClipsAfterLtcDecode();
                     setTimeout(() => {
                         document.getElementById('ltcProgress').style.display = 'none';
                         refreshLtcSummary();

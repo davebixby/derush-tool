@@ -19,7 +19,9 @@ from derush_exports import (export_fcpxml, export_xml_fcp7, export_subclips_fcpx
 
 # ─── Heartbeat / auto-shutdown ───
 _last_heartbeat = _time.time()
-_HEARTBEAT_TIMEOUT = 12  # seconds without heartbeat → exit
+_HEARTBEAT_TIMEOUT = 30  # seconds without heartbeat → exit — margin widened from 12s
+# (26 juillet 2026) : trop court pour absorber une rafale légitime de charge
+# (scan, décodage LTC, navigation sur des dizaines de clips jamais ouverts).
 
 def _heartbeat_watcher():
     _time.sleep(20)  # grace period on startup (browser opening)
@@ -221,11 +223,37 @@ FFPROBE  = _resolve_binary('ffprobe')
 _FFMPEG_MAX_CONCURRENT = max(2, min(8, (os.cpu_count() or 4) // 2))
 _ffmpeg_sem = threading.BoundedSemaphore(_FFMPEG_MAX_CONCURRENT)
 
-def _ffmpeg_run(cmd, timeout=30, capture_output=True, text=False):
-    """Bounded wrapper around subprocess.run for ffmpeg/ffprobe invocations."""
-    with _ffmpeg_sem:
+# Separate, more generous semaphore for ffprobe metadata-only queries (used by
+# scan_media_folder). ffprobe -show_entries doesn't decode frames — it's far
+# cheaper than thumbnail/strip/waveform extraction (real video/audio decode)
+# — so it has no reason to queue behind that heavier work on the shared
+# semaphore. Incident 26 juillet 2026 : a rescan took ~15 minutes on a project
+# with 100+ freshly-generated proxies because its sequential ffprobe calls
+# kept losing the shared semaphore to concurrent thumbnail/strip/waveform
+# pregeneration for those same new clips — an interactive, user-waited-on
+# scan should never be stuck queuing behind best-effort background prefetch.
+_FFPROBE_META_MAX_CONCURRENT = max(4, min(16, os.cpu_count() or 4))
+_ffprobe_meta_sem = threading.BoundedSemaphore(_FFPROBE_META_MAX_CONCURRENT)
+
+def _ffmpeg_run(cmd, timeout=30, capture_output=True, text=False, sem=None):
+    """Bounded wrapper around subprocess.run for ffmpeg/ffprobe invocations.
+
+    Acquires the semaphore with its own timeout rather than blocking forever.
+    Necessary because a process stuck in an uninterruptible kernel I/O wait
+    (unresponsive external drive, antivirus holding a file — incident 26
+    juillet 2026) never returns from subprocess.run() even after `timeout`,
+    permanently leaking that semaphore permit. Without this, enough leaked
+    permits eventually exhaust the semaphore and every future ffmpeg/ffprobe
+    call across the whole app — not just the one scan — would block forever
+    waiting for a permit that will never be released."""
+    sem = sem or _ffmpeg_sem
+    if not sem.acquire(timeout=timeout + 5):
+        raise TimeoutError('ffmpeg/ffprobe busy: no free slot (a stuck process may have leaked one)')
+    try:
         return subprocess.run(cmd, capture_output=capture_output, text=text,
                               timeout=timeout, creationflags=_NO_WINDOW)
+    finally:
+        sem.release()
 
 # Dedup running computations. Two HTTP requests asking for the same uncached
 # thumbnail/strip/waveform must NOT both spawn the underlying ffmpeg work — the
@@ -384,12 +412,38 @@ def require_auth(handler):
 
 # ─── Media Scanner ───
 
+def _ffprobe_metadata_bounded(filepath, wall_timeout=20):
+    """Wraps ffprobe_metadata() so a single stuck file can never freeze the
+    whole scan (and by extension the whole project, via _project_lock).
+
+    subprocess.run(timeout=...) kills the child on a normal hang, but a
+    process blocked in an uninterruptible kernel-mode I/O wait (external/USB
+    drive gone unresponsive, antivirus holding a freshly-written file) can be
+    unkillable — TerminateProcess() doesn't return until the I/O completes,
+    which may be much later or never. Incident 26 juillet 2026 : ffprobe.exe
+    observed alive at 0% CPU for minutes on freshly-generated FS5 proxies,
+    freezing scan_media_folder() and, via the project lock, the whole app.
+    Running the call in a daemon thread with a join timeout lets the scan
+    move on to the next file regardless — worst case a thread (and one
+    _ffmpeg_sem slot) leaks until the OS eventually frees the stuck process."""
+    result = {}
+    done = threading.Event()
+    def _run():
+        nonlocal result
+        try:
+            result = ffprobe_metadata(filepath)
+        finally:
+            done.set()
+    threading.Thread(target=_run, daemon=True).start()
+    done.wait(wall_timeout)
+    return result
+
 def ffprobe_metadata(filepath):
     try:
         cmd = [FFPROBE, '-i', str(filepath), '-show_entries',
                'format=duration,filename:format_tags:stream=width,height,codec_name,r_frame_rate,channels,sample_rate',
                '-v', 'quiet', '-print_format', 'json']
-        r = _ffmpeg_run(cmd, timeout=30, text=True)
+        r = _ffmpeg_run(cmd, timeout=30, text=True, sem=_ffprobe_meta_sem)
         return json.loads(r.stdout)
     except Exception:
         return {}
@@ -470,18 +524,24 @@ def _extract_tech_metadata(fmt_tags, streams, fps=25):
 
 
 def scan_media_folder(root_path, media_exts=None):
+    global _last_heartbeat
     if media_exts is None:
         media_exts = ['.mxf', '.mp4', '.mov', '.avi', '.r3d', '.braw', '.ari']
     root = Path(root_path)
     clips = []
     for f in sorted(root.rglob('*')):
+        # A full scan (ffprobe per file) can run well past _HEARTBEAT_TIMEOUT on a
+        # large project — proves its own liveness so the watchdog doesn't self-exit
+        # mid-scan regardless of client heartbeat timing (incident 26 juillet 2026:
+        # 65s scan on E:\DRIFT_CLUB vs 12s timeout → silent os._exit(0), no crash log).
+        _last_heartbeat = _time.time()
         if not f.is_file(): continue
         if f.suffix.lower() not in media_exts: continue
         if 'sub' in str(f).lower().split(os.sep) or 'proxy' in str(f).lower().split(os.sep):
             continue
         if f.stem.startswith('._'): continue
 
-        data = ffprobe_metadata(f)
+        data = _ffprobe_metadata_bounded(f)
         fmt = data.get('format', {})
         tags = fmt.get('tags', {})
         streams = data.get('streams', [])
@@ -2277,6 +2337,13 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
 
     def do_GET(self):
+        # Toute requête qui arrive prouve que le navigateur est ouvert et actif
+        # (thumbnails, proxy, waveform...), pas seulement /api/heartbeat — sinon
+        # une rafale légitime de requêtes (parcours de nouveaux clips, génération
+        # de vignettes) peut faire rater le heartbeat explicite et déclencher
+        # l'auto-extinction en plein usage normal (incident 26 juillet 2026).
+        global _last_heartbeat
+        _last_heartbeat = _time.time()
         try:
             self._dispatch_get()
         except Exception:
@@ -2285,6 +2352,8 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         # Verrou par projet : sérialise les écritures concurrentes sur un même
         # projet (audit 1.1). + capture des exceptions → 500 propre (audit 1.3).
+        global _last_heartbeat
+        _last_heartbeat = _time.time()
         pid = _pid_from_path(self.path)
         try:
             if pid:
@@ -3123,11 +3192,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == '/api/crash':
-            # Frontend errors (window.onerror, unhandledrejection, etc.)
-            try:
-                body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
-            except Exception:
-                body = {}
+            # Frontend errors (window.onerror, unhandledrejection, etc.).
+            # `body` already read once by _dispatch_post() above — re-reading
+            # rfile here would block forever (same bug class fixed on /scan).
             entry = {
                 'source': 'js',
                 'type': str(body.get('type', 'Error'))[:80],
@@ -3305,7 +3372,6 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             pid = re.match(r'^/api/project/([^/]+)/scan$', path).group(1)
             s = require_auth(self)
             if not s: return
-            body = self._read_body() or {}
             force = bool(body.get('force'))
             proj = load_project(pid)
             if not proj:
