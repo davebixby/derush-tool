@@ -10,6 +10,21 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, unquote, parse_qs, quote as _urlquote
 from collections import Counter
 import mimetypes
+
+# Force l'usage du bundle de certificats certifi pour toutes les requêtes HTTPS
+# (urllib.request, utilisé par toute la sync cloud). Sans ça, un build PyInstaller
+# sur macOS échoue systématiquement avec `SSL: CERTIFICATE_VERIFY_FAILED` — le
+# Python embarqué dans l'app n'a pas accès au trousseau de certificats racine du
+# système comme un Python installé normalement. `SSL_CERT_FILE` est lu par
+# ssl.create_default_context() (donc par urlopen()) avant tout fallback OS,
+# ça doit être posé avant la première requête réseau — donc tout en haut du
+# fichier. Constaté sur le MacBook Pro M2 de Paola (0.3.29) : sync systématiquement
+# hors ligne malgré une clé et une connexion internet correctes.
+try:
+    import certifi
+    os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+except ImportError:
+    pass
 from derush_core import (hash_password, is_legacy_hash, verify_password,
                         tc_to_seconds, seconds_to_tc, seconds_to_rational,
                         find_project_user, user_note_key)

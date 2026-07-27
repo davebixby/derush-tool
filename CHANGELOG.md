@@ -4,6 +4,13 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.30] — 2026-07-27
+
+### 🐛 Corrigé
+- **Sync systématiquement hors ligne sur macOS (`SSL: CERTIFICATE_VERIFY_FAILED`)** : constaté sur le MacBook Pro M2 de Paola — dot ☁️ rouge malgré une clé et une connexion internet correctes. Le Python embarqué dans un build PyInstaller n'a pas accès au trousseau de certificats racine du système comme un Python installé normalement, donc toute requête HTTPS (`urllib.request`, utilisée par toute la sync cloud) échoue à la vérification du certificat SSL. Fix : bundle du CA de `certifi` + `SSL_CERT_FILE` pointé dessus au démarrage, avant toute requête réseau. N'affecte pas Windows (déjà fonctionnel), corrige macOS sans configuration supplémentaire — juste un rebuild.
+
+---
+
 ## [0.3.29] — 2026-07-27
 
 ### 🐛 Corrigé

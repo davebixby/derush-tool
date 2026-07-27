@@ -2711,8 +2711,26 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="macos-ssl-cert">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.30</span>
+    <span class="entry-title">Sync systématiquement hors ligne sur macOS — certificat SSL</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Sur le MacBook Pro M2 de Paola, à jour en 0.3.29 : dot ☁️ rouge en permanence. Réflexe initial — encore le bug de clé 403 déjà rencontré deux fois cette même journée sur d'autres machines. Mais le message exact, récupéré au survol du bouton Sync, dit autre chose : <code>Connexion impossible : urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] ...</code>.</p>
+
+  <div class="box box-fail"><strong>Root cause :</strong> aucune des ~12 requêtes réseau du fichier (toutes via <code>urllib.request.urlopen</code>) ne spécifie de contexte SSL explicite — elles comptent sur le comportement par défaut de Python, qui va chercher le trousseau de certificats racine via les chemins standard de l'OS. Sur un Python <strong>embarqué par PyInstaller</strong> (le cas de cette app), cet accès peut échouer selon la plateforme — jamais reproduit sur Windows dans toute cette session malgré des dizaines de tests, mais confirmé ici sur macOS.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> ajout de <code>certifi</code> aux dépendances, et tout en haut de <code>derush_server.py</code>, avant tout code réseau : <code>os.environ.setdefault('SSL_CERT_FILE', certifi.where())</code>. Cette variable d'environnement est lue par le contexte SSL par défaut de Python — la poser une seule fois au démarrage couvre tous les sites d'appel réseau du fichier, sans modifier chacun individuellement. PyInstaller bundle automatiquement le fichier de certificats de <code>certifi</code> dès qu'il est importé (hook natif) — vérifié après rebuild : présent dans <code>_internal/certifi/cacert.pem</code>.</p>
+
+  <p>Aucun risque de régression Windows : un bundle de certificats à jour (certifi) fonctionne exactement comme le magasin de certs du système, juste une source différente pour les mêmes autorités de confiance.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.29 — suppression des commentaires externes enfin propagée partout)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.30 — fix sync macOS : certificat SSL)
 </div>
 
 </main>

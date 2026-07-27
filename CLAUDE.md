@@ -1663,3 +1663,24 @@ Ces deux bugs cumulés expliquent exactement les deux symptômes rapportés : le
 
 ## ⚠️ Action requise, hors code
 Vérifié par `curl` direct contre le serveur en ligne : `clear_comments` n'est pas reconnu tant que le nouveau `derush_sync.php` n'est pas réuploadé sur `sebastiendelahaye.be` (le fichier déployé est gitignored, jamais mis à jour automatiquement par un git pull). Le fix Python fonctionne déjà en local (vide le cache) même sans le redéploiement, mais la propagation cross-machine reste incomplète tant que ce n'est pas fait.
+
+# État au 27 juillet 2026 (suite) — v0.3.30 : sync systématiquement hors ligne sur macOS (certificat SSL)
+
+## Symptôme
+Sur le MacBook Pro M2 de Paola, à jour en 0.3.29 : dot ☁️ rouge, message au survol `Connexion impossible : urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] ...`. Ni la clé ni l'URL de sync n'étaient en cause (ce n'est pas le bug 403 déjà connu) — sa connexion internet fonctionne par ailleurs.
+
+## Root cause
+Aucune requête réseau du fichier (`urllib.request.urlopen`, ~12 sites d'appel — sync projet, share, invite, etc.) ne spécifie de contexte SSL explicite. Sur un Python **installé normalement**, `ssl.create_default_context()` (utilisé implicitement par `urlopen`) trouve le trousseau de certificats racine via les chemins par défaut de l'OS. Sur un Python **embarqué par PyInstaller** (le cas de ce build), cet accès au trousseau système peut échouer selon la plateforme — observé ici spécifiquement sur macOS (jamais reproduit sur Windows dans cette session, malgré des dizaines de syncs testées).
+
+## Fix
+Ajout de `certifi` (déjà une dépendance transitive de pip, mais jamais importée explicitement) à `requirements.txt`. Tout en haut de `derush_server.py`, avant tout code réseau :
+```python
+try:
+    import certifi
+    os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+except ImportError:
+    pass
+```
+`SSL_CERT_FILE` est lu par `ssl.get_default_verify_paths()` (donc par tout `create_default_context()` implicite derrière `urlopen`) — poser la variable avant la première requête suffit à couvrir tous les sites d'appel sans toucher à chacun individuellement. PyInstaller bundle automatiquement `certifi/cacert.pem` dès que le module est importé (hook natif, pas de configuration `derush.spec` nécessaire) — vérifié dans `dist/DerushTool/_internal/certifi/cacert.pem` après rebuild.
+
+Sans risque de régression Windows : `SSL_CERT_FILE` pointant vers un bundle de certs valide et à jour (certifi) fonctionne aussi bien qu'un magasin de certs OS, juste une source différente pour les mêmes autorités de confiance.
