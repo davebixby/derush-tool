@@ -4,6 +4,20 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.28] — 2026-07-27
+
+### 🐛 Corrigé
+- **Notes/ratings d'un compte legacy invisibles pour tous les autres collaborateurs** : `GET /api/project/<pid>/config` (source exclusive de `currentProject.users` côté frontend) retirait le champ `id` de chaque utilisateur en le traitant à tort comme une donnée sensible (seuls `password_hash` et la valeur d'`invite_key` le sont réellement). Pour un compte historique identifié par `id` plutôt que par `username` (le seul cas dans ce projet : le compte admin d'origine), le frontend recalculait `u.id || u.username || u.name` sans jamais voir `id` — et retombait sur `name`, une clé différente de celle où ses notes sont réellement stockées (`user_note_key()`, qui priorise `id`). Résultat : ses ratings/marqueurs étaient invisibles dans le panneau « Avis des autres » et les chips de la sidebar pour absolument tous les autres collaborateurs, sur n'importe quelle machine — lui-même ne voyait jamais le problème puisque sa propre session résout sa clé côté serveur, indépendamment de ce payload. Fix : `id` n'est plus retiré de la réponse. Un seul point de code concerné, vérifié qu'il n'y en a pas d'autre.
+
+---
+
+## [0.3.27] — 2026-07-27
+
+### 🐛 Corrigé
+- **Vignette cassée (⚠) sur les clips très courts (< ~1s)** : le calcul de l'offset ffmpeg pour générer une vignette visait un minimum de 1 seconde par défaut (`max(1.0, durée × 0.15)`), sans jamais vérifier que ce point tombe bien dans la durée réelle du clip. Un clip GoPro de 0,96s (déclenchement accidentel de la caméra) faisait donc viser 1s — au-delà de sa propre fin — ffmpeg ne trouvait aucune frame à cet instant, le `.jpg` n'était jamais créé, 404 silencieux → icône ⚠ dans la sidebar sans raison apparente. Offset désormais plafonné sous la durée réelle du clip (`durée − 0.05s`). Vérifié directement contre le fichier concerné : la vignette se génère maintenant correctement.
+
+---
+
 ## [0.3.26] — 2026-07-27
 
 ### 🔧 Amélioré

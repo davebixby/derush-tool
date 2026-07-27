@@ -2517,10 +2517,21 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             pid = re.match(r'^/api/project/([^/]+)/config$', path).group(1)
             proj = load_project(pid)
             if proj:
-                # Strip sensitive fields from user records
+                # Strip sensitive fields from user records (password_hash, la vraie
+                # valeur d'invite_key). `id` N'EST PAS sensible — c'est juste la clé
+                # interne des comptes legacy (avant le passage à username) — mais il
+                # a longtemps été retiré ici par erreur. Résultat : pour un compte
+                # legacy (id-based, pas de username), le frontend recalculait
+                # `u.id || u.username || u.name` sans jamais voir `id` → retombait sur
+                # `name`, une clé DIFFÉRENTE de celle où ses notes sont réellement
+                # stockées (`user_note_key()` = id en priorité). Ses notes devenaient
+                # invisibles dans le panneau "Avis des autres" pour TOUT LE MONDE
+                # d'autre que lui-même (sa propre session résout sa clé côté serveur,
+                # indépendamment de ce payload) — trouvé le 27 juillet 2026.
                 safe_users = []
                 for u in proj.get('users', []):
                     safe_users.append({
+                        'id': u.get('id'),
                         'username': u.get('username') or u.get('name', ''),
                         'color': u.get('color', '#a78bfa'),
                         'is_admin': u.get('is_admin', False),
@@ -2872,7 +2883,12 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 if scrub_mode:
                     compute_thumbnail_scrub(str(file_path), clip_id, t_sec)
                 else:
-                    offset = max(1.0, clip.get('duration_sec', 10) * 0.15)
+                    dur = clip.get('duration_sec') or 10
+                    # Cap sous la durée réelle : un clip très court (GoPro déclenché par
+                    # erreur, <1s) faisait viser un offset de 1s par défaut, au-delà de la
+                    # fin du fichier — ffmpeg ne trouve aucune frame à cet instant, .jpg
+                    # jamais créé, 404 silencieux (vignette cassée sans raison apparente).
+                    offset = min(max(1.0, dur * 0.15), max(0.0, dur - 0.05))
                     compute_thumbnail(str(file_path), clip_id, offset)
                 if not thumb.exists(): self.send_error(404); return
             self.send_response(200)

@@ -1606,3 +1606,35 @@ Discussion sur la fréquence de synchro : est-ce que descendre à 15s serait gê
 
 ## Fix
 `derush_app.html`, `startNotesPolling()` (~L2648) : `setInterval(..., 60000)` → `setInterval(..., 15000)`. Seul ce poll est concerné (pull-only cloud + relecture `/notes`/`/discussions`, cf. section « Sync asymétrique » plus haut). Intervalles inchangés : sauvegarde auto locale (30s), push debounced après save (3s), thread serveur de fond (vérif 90s / sync forcée 10 min), badge ☁️ (30s).
+
+# État au 27 juillet 2026 (suite) — v0.3.27 : vignette cassée sur un clip GoPro < 1s
+
+## Symptôme
+Vignette ⚠ cassée pour `J05_2026_04_11_GOPRO_GX010141`, avec une erreur 401 en console sur `/thumbnail/...` — alors que le endpoint `/thumbnail/` (`derush_server.py` ~L2835) ne fait aucune vérification d'auth et ne peut renvoyer que 200 ou 404. Longue investigation en cul-de-sac (hypothèse clip-id divergent entre machines, hypothèse process serveur parasite sur le port 8765 — écartées : un seul process écoute sur 8765, et le fichier existe bien à l'endroit attendu par le projet, `E:\DRIFT_CLUB\J05_2026_04_11\IMAGE\GOPRO\DCIM\100GOPRO\GX010141.MP4`, confirmé par `find` direct sur le disque).
+
+## Root cause
+`clip.duration_sec = 0.96` (0,96 seconde — très probablement un déclenchement accidentel de la caméra GoPro). Le calcul de l'offset pour la vignette (~L2875) : `offset = max(1.0, duration_sec * 0.15)` → pour ce clip, `max(1.0, 0.144) = 1.0` — **au-delà de la durée réelle du fichier**. ffmpeg ne trouve aucune frame à `-ss 1.0` sur un fichier de 0,96s, le `.jpg` n'est jamais créé, `if not thumb.exists(): self.send_error(404)` renvoie 404 (le « 401 » en console était probablement un mauvais étiquetage du navigateur sur cette requête, jamais élucidé précisément — mais le vrai problème, la vignette cassée, est bien expliqué et corrigé indépendamment de ce détail).
+
+## Fix
+```python
+dur = clip.get('duration_sec') or 10
+offset = min(max(1.0, dur * 0.15), max(0.0, dur - 0.05))
+```
+Plafonne l'offset sous la durée réelle du clip, quel que soit le calcul initial. `compute_strip()` (bande de scrubbing) n'était pas concernée : sa formule (`i * duration_sec / n` pour `i` allant jusqu'à `n-1`) reste structurellement toujours sous la durée totale, aucun fix nécessaire là.
+
+Vérifié par appel direct de `compute_thumbnail()` contre le vrai fichier (`E:\DRIFT_CLUB\J05_2026_04_11\IMAGE\GOPRO\DCIM\100GOPRO\GX010141.MP4`, offset recalculé à 0.91s) : le `.jpg` se génère correctement.
+
+# État au 27 juillet 2026 (suite) — v0.3.28 : la vraie cause de « davebixby ne voit pas les étoiles de Sébastien »
+
+## Résolution du fil ouvert plus haut
+Cette session a exploré plusieurs pistes pour le symptôme « les 3 étoiles de Sébastien sur `DRIFT_avril0001` sont invisibles pour davebixby, même après sync manuel » : sync 403 (écarté — clé correcte, statut vert), merge_projects (écarté — simulation directe avec les vraies données du cloud confirme que le merge préserve bien `6714b070`), IDs de clip divergents entre scans (écarté — davebixby a vérifié le bon clip précisément). Toutes ces vérifications étaient correctes mais s'arrêtaient avant la vraie cause, jamais dans le code qui alimente le panneau d'affichage lui-même.
+
+**Résolu par une session Claude Code tournant en parallèle sur la machine de davebixby**, qui a trouvé la cause réelle en lisant `GET /api/project/<pid>/config` (`derush_server.py`, la seule source de `currentProject.users` côté frontend — confirmé ici en cherchant tous les call sites de `/config` dans `derush_app.html` : 4 occurrences, toutes alimentent `currentProject`).
+
+## Root cause
+Ce endpoint retirait le champ `id` de chaque objet user avant de l'envoyer au client, avec le commentaire « Strip sensitive fields from user records » — une erreur de catégorisation : `id` n'a rien de sensible (seuls `password_hash` et la vraie valeur d'`invite_key` le sont, et cette dernière était déjà correctement remplacée par un simple booléen `pending`). Le compte de Sébastien (`{'id': '6714b070', 'name': 'Sebastien', ...}`, le seul compte de ce projet issu de l'ancien modèle par id plutôt que par username — cf. section « Système de profil global ») perdait donc son seul identifiant utilisable côté client. `renderMultiUser()`/le chip de rating (`ukey = u.id || u.username || u.name`) retombait alors sur `u.name = 'Sebastien'`, une clé **différente** de `'6714b070'` — celle où `user_note_key()` range réellement ses notes côté serveur. `allNotes['Sebastien']` n'a jamais existé → « pas encore annoté » affiché indéfiniment, pour absolument tous les autres collaborateurs, sur n'importe quelle machine (Sébastien lui-même ne pouvait jamais le remarquer : sa propre session résout sa clé côté serveur à la connexion, indépendamment de ce payload `/config`).
+
+Confirme aussi rétroactivement pourquoi Paola et davebixby n'étaient jamais affectés en tant que « vus par les autres » : leurs comptes (créés via le système d'invitation plus récent) n'ont pas de champ `id` du tout, seulement `username` — `u.id || u.username` retombe alors correctement sur `u.username` de toute façon, aucune perte d'information dans leur cas.
+
+## Fix
+`id` n'est plus retiré de la réponse. Un seul point de code concerné dans tout `derush_server.py` (vérifié par recherche du commentaire « Strip sensitive fields »), corrigé et validé en simulant la réponse `/config` avec le vrai fichier projet : `Sebastien` a maintenant `"id": "6714b070"` dans la réponse, `Paola`/`davebixby` gardent `"id": null` (sans régression, leur résolution de clé passe déjà par `username`).

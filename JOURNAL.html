@@ -2653,8 +2653,48 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="thumb-short-clip">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.27</span>
+    <span class="entry-title">Vignette cassée sur un clip GoPro de moins d'une seconde</span>
+    <span class="entry-tag tag-bug">Bug · diagnostic</span>
+  </div>
+
+  <p>Sébastien signale une vignette ⚠ cassée sur un clip GoPro (<code>GX010141</code>), avec une erreur 401 en console sur <code>/thumbnail/...</code> — surprenant, puisque cet endpoint ne fait aucune vérification d'authentification dans le code et ne peut renvoyer que 200 ou 404.</p>
+
+  <p>Plusieurs fausses pistes explorées et écartées avant de trouver : d'abord l'hypothèse d'un ID de clip divergent entre deux machines (contexte de la conversation : problème de sync avec un collaborateur), puis celle d'un process serveur parasite qui partagerait le port 8765 — écartée en vérifiant qu'un seul process écoute réellement dessus. Sébastien confirme alors que le fichier existe bien physiquement, à un chemin différent de ce qu'il avait d'abord indiqué. Vérification directe sur le disque (<code>find</code>) : le fichier existe en fait <strong>aux deux endroits</strong> — celui attendu par le projet ET un autre, une copie parallèle. Le chemin attendu par le projet est donc parfaitement valide, la piste "fichier déplacé" tombe à l'eau.</p>
+
+  <div class="box box-fail"><strong>Root cause, trouvée en regardant la durée du clip :</strong> <code>0.96 seconde</code> — très probablement un déclenchement accidentel de la caméra GoPro. Le calcul de l'offset pour extraire la frame de la vignette visait un minimum de 1 seconde par défaut (<code>max(1.0, durée × 0.15)</code>), sans jamais vérifier que ce point tombe dans la durée réelle du fichier. Pour ce clip, l'offset calculé (1.0s) dépassait sa propre durée (0.96s) — ffmpeg ne trouve aucune frame à cet instant, le fichier <code>.jpg</code> n'est jamais créé, 404 silencieux (le "401" affiché en console reste non élucidé précisément, probablement un mauvais étiquetage du navigateur sur cette requête — mais le vrai problème, lui, est bien expliqué).</p>
+
+  <div class="box box-why"><strong>Fix :</strong> l'offset est désormais plafonné sous la durée réelle du clip (<code>min(offset_calculé, durée − 0.05s)</code>), quel que soit le résultat du calcul initial. La bande de scrubbing (<code>compute_strip</code>) n'était pas concernée par le même bug — sa formule reste structurellement toujours sous la durée totale du clip.</p>
+
+  <p>Vérifié par un appel direct de la fonction de génération contre le vrai fichier concerné (pas juste une relecture du code) : la vignette se génère maintenant correctement, offset recalculé à 0.91s.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="config-id-strip">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.28</span>
+    <span class="entry-title">La vraie cause : le champ "id" retiré par erreur de /api/project/&lt;pid&gt;/config</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Résolution du fil ouvert plus tôt dans la journée : « les 3 étoiles de Sébastien sur <code>DRIFT_avril0001</code> restent invisibles pour davebixby, même après clic sur Synchroniser ». Plusieurs pistes explorées ici (403 sync, merge_projects, IDs de clip divergents entre scans) — toutes vérifiées correctes mais aucune n'était la vraie cause.</p>
+
+  <p><strong>Résolue par une session Claude Code tournant en parallèle sur la machine de davebixby lui-même</strong>, en lisant le endpoint qui alimente réellement <code>currentProject.users</code> côté frontend — piste qu'on n'avait pas explorée ici. Vérification indépendante faite sur cette machine avant d'appliquer quoi que ce soit : recherche de tous les appels à <code>/config</code> dans <code>derush_app.html</code> (4 occurrences, toutes alimentent <code>currentProject</code>) — confirme que c'est bien la seule source.</p>
+
+  <div class="box box-fail"><strong>Root cause :</strong> <code>GET /api/project/&lt;pid&gt;/config</code> retirait le champ <code>id</code> de chaque utilisateur avant envoi au client, avec le commentaire « Strip sensitive fields from user records » — une erreur de catégorisation, <code>id</code> n'a rien de sensible (contrairement au mot de passe ou à la vraie valeur de la clé d'invitation, déjà correctement réduite à un simple booléen). Le compte de Sébastien est le seul de ce projet issu de l'ancien modèle par <code>id</code> (<code>6714b070</code>) plutôt que par <code>username</code> — il perdait donc son seul identifiant exploitable côté client. Le calcul <code>ukey = u.id || u.username || u.name</code> retombait alors sur <code>u.name = "Sebastien"</code>, une clé différente de <code>"6714b070"</code>, celle où ses notes sont réellement rangées côté serveur. Résultat : invisibles pour tous les autres, sur toutes les machines — lui-même ne pouvait jamais le remarquer puisque sa propre session résout sa clé indépendamment de ce payload.</div>
+
+  <p>Explique aussi rétroactivement l'asymétrie observée : Paola et davebixby, créés via le système d'invitation plus récent, n'ont pas de champ <code>id</code> du tout — seulement <code>username</code>, qui passait déjà correctement à travers ce même filtrage. Seul le compte legacy était concerné.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>id</code> n'est plus retiré de la réponse. Un seul point de code concerné dans tout le fichier — revérifié indépendamment ici avant de considérer que c'était réglé. Validé en simulant la réponse <code>/config</code> avec le vrai fichier projet : Sébastien récupère bien <code>"id": "6714b070"</code>, sans régression pour les deux autres comptes.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.26 — poll de sync local accéléré à 15s)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.28 — fix du vrai bug : id retiré par erreur de /config)
 </div>
 
 </main>
