@@ -4,6 +4,13 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.26] — 2026-07-27
+
+### 🔧 Amélioré
+- **Poll de sync local accéléré (60s → 15s)** : `startNotesPolling()` (pull-only cloud + relecture `/notes`/`/discussions`) tourne maintenant toutes les 15 secondes au lieu de 60 — les annotations des collaborateurs apparaissent 4× plus vite sans action manuelle. Sans impact perceptible pour une petite équipe (aucune limitation de fréquence côté `derush_sync.php`, poll silencieux tant que rien n'a changé). La sauvegarde auto locale reste à 30s, inchangée.
+
+---
+
 ## [0.3.25] — 2026-07-27
 
 ### ✨ Ajouté

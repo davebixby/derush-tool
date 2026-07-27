@@ -252,7 +252,7 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 - `undoStack` — pile d'annulation (illimitée)
 - `lastSavedHash` — hash JSON pour détecter les changements avant auto-save
 - `waveformPeaks` — peaks audio du clip actif
-- `pollingInterval` — ID du setInterval pour le sync local (60s)
+- `pollingInterval` — ID du setInterval pour le sync local (15s)
 - `_syncPollInterval` — ID du setInterval pour le statut de sync cloud (30s)
 - `currentSpeed` — vitesse de lecture courante (1, 1.25, 1.5, 2)
 - `selectedMarkerId` — ID (string) du marker sélectionné sur la timeline, null si aucun
@@ -277,7 +277,7 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 | `submitReply(btn, clipId, markerId)` | POST reply → refresh discussions |
 | `loadWaveform(clip)` | fetch /waveform/, stocke peaks, appelle drawWaveform |
 | `drawWaveform()` | dessine sur canvas dans timeline-bar |
-| `startNotesPolling()` | sync local toutes les 60s — allNotes autres users + allDiscussions |
+| `startNotesPolling()` | sync local toutes les 15s — allNotes autres users + allDiscussions |
 | `startSyncPolling()` | poll GET /api/sync/status toutes les 30s → met à jour le badge sync |
 | `triggerSync()` | POST /api/sync/now → recharge notes si ok → met à jour badge |
 | `pollSyncStatus()` | GET /api/sync/status → _updateSyncUI() |
@@ -1598,3 +1598,11 @@ En plus du `.zip`, pouvoir distribuer le build Mac en `.dmg` (format d'installat
 Le mécanisme de seed (`derush_config.seed.json`, v0.3.24) est **indépendant du format de sortie** — un `.dmg` construit sur une machine où le seed est présent contient la sync déjà configurée exactement comme le `.zip`.
 
 `build_mac.sh` : le récapitulatif de fin de build détecte maintenant zip ET dmg séparément (`ls -t electron/dist/*.zip` / `*.dmg`), affiche les deux avec leurs instructions d'installation respectives (dézipper vs glisser dans Applications). Même avertissement Gatekeeper dans les deux cas (app non signée, clic droit → Ouvrir) — un `.dmg` ne dispense pas de ça, seule une vraie signature Apple Developer ID le ferait.
+
+# État au 27 juillet 2026 (suite) — v0.3.26 : poll de sync local accéléré (60s → 15s)
+
+## Demande
+Discussion sur la fréquence de synchro : est-ce que descendre à 15s serait gênant à l'usage ? Réponse donnée avant modification : non pour une petite équipe — poll silencieux (pas de flicker tant que rien n'a changé), `derush_sync.php` n'a aucune limitation de fréquence, le seul coût réel est la bande passante (4× plus de requêtes vers l'hébergement partagé), trivial pour 2-3 personnes.
+
+## Fix
+`derush_app.html`, `startNotesPolling()` (~L2648) : `setInterval(..., 60000)` → `setInterval(..., 15000)`. Seul ce poll est concerné (pull-only cloud + relecture `/notes`/`/discussions`, cf. section « Sync asymétrique » plus haut). Intervalles inchangés : sauvegarde auto locale (30s), push debounced après save (3s), thread serveur de fond (vérif 90s / sync forcée 10 min), badge ☁️ (30s).

@@ -2637,8 +2637,24 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="poll-15s">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.26</span>
+    <span class="entry-title">Poll de sync local accéléré : 60s → 15s</span>
+    <span class="entry-tag tag-ui">UX</span>
+  </div>
+
+  <p>Sébastien demande : si on passe la synchro à toutes les 15 secondes, ça fait beaucoup ? Ce serait gênant à l'usage ?</p>
+
+  <p>Non, pour une équipe de 2-3 personnes : le poll (<code>startNotesPolling</code>) est silencieux tant que rien n'a changé — pas de popup, pas de flicker visible. <code>derush_sync.php</code> n'a aucune limitation de fréquence côté serveur. Le seul vrai compromis est la bande passante : 4× plus de requêtes vers l'hébergement web partagé, un coût trivial à cette échelle mais qui grossirait avec plus de monde ou des projets beaucoup plus lourds (dessins encodés dans les notes).</p>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>setInterval(..., 60000)</code> → <code>setInterval(..., 15000)</code> dans <code>startNotesPolling()</code>. Seul ce poll change — la sauvegarde auto locale (30s), le push debounced après save (3s), le thread serveur de fond (90s / 10 min) et le badge ☁️ (30s) restent identiques.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.25 — ajout de la target .dmg pour le build Mac)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.26 — poll de sync local accéléré à 15s)
 </div>
 
 </main>
