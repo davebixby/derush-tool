@@ -3175,7 +3175,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             self._json_response({'ok': True})
             return
 
-        m = re.match(r'^/api/project/([^/]+)/share/(create|revoke|pull_comments)$', path)
+        m = re.match(r'^/api/project/([^/]+)/share/(create|revoke|pull_comments|clear_comments)$', path)
         if m:
             pid, action = m.group(1), m.group(2)
             s = require_auth(self)
@@ -3188,6 +3188,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 self._json_response(res, 200 if res.get('ok') else 400)
             elif action == 'pull_comments':
                 res = pull_share_comments(pid)
+                self._json_response(res, 200 if res.get('ok') else 400)
+            elif action == 'clear_comments':
+                res = clear_share_comments(pid)
                 self._json_response(res, 200 if res.get('ok') else 400)
             return
 
@@ -4343,6 +4346,18 @@ def create_share(pid):
     base = SYNC_URL.rstrip('/').rsplit('?', 1)[0]
     viewer_url = f"{base}?view=share&token={token}"
     return {'ok': True, 'token': token, 'url': viewer_url, 'expires_at': expires_at}
+
+def clear_share_comments(pid):
+    """Supprime tous les commentaires externes reçus (retours du lien de review), sans
+    toucher au lien lui-même. `comments_last_pulled` n'est PAS remis à zéro : les anciens
+    commentaires ne seront donc pas re-téléchargés au prochain pull automatique."""
+    with _project_lock(pid):
+        proj = load_project(pid)
+        if not proj:
+            return {'ok': False, 'error': 'Projet introuvable'}
+        proj['share_comments'] = {}
+        save_project(pid, proj)
+    return {'ok': True}
 
 def revoke_share(pid):
     """Révoque le partage : supprime le token côté projet et envoie un delete au cloud."""

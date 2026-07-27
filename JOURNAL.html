@@ -2543,8 +2543,46 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="team-visibility">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.21</span>
+    <span class="entry-title">Réponses aux marqueurs pas rafraîchies en direct + ratings de l'équipe visibles sur la vignette</span>
+    <span class="entry-tag tag-fix">Fix + Feature</span>
+  </div>
+
+  <p>Sébastien demande : est-ce que je vois bien les commentaires (réponses) sur le marqueur d'un collaborateur ? Vérification complète du code plutôt qu'une réponse de mémoire.</p>
+
+  <div class="box box-ok"><strong>L'affichage lui-même était déjà correct des deux côtés :</strong> <code>renderMarkers()</code> montre les réponses sous vos propres marqueurs, <code>renderMultiUser()</code> (le panneau « Avis des autres ») montre les réponses sous les marqueurs des autres, avec un formulaire pour répondre directement. Rien à changer là.</p>
+
+  <div class="box box-fail"><strong>Le vrai trou était dans le temps réel :</strong> le handler WebSocket <code>discussion_updated</code> ne rappelait que <code>renderMultiUser()</code>. Si un collaborateur répondait à l'un de VOS marqueurs pendant que vous étiez sur le clip, sa réponse à lui se voyait chez lui tout de suite, mais chez vous elle n'apparaissait dans votre propre liste « Marqueurs » qu'au poll suivant (jusqu'à 60s) — pas via le WebSocket censé être instantané.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>discussion_updated</code> appelle désormais <code>renderMarkers()</code> en plus de <code>renderMultiUser()</code>. Une ligne, cohérence rétablie.</p>
+
+  <p>Deuxième demande, liée : pouvoir repérer d'un coup d'œil, sans survoler, si un collaborateur a mis 1 à 3 étoiles ou rejeté (❌) un clip entier. Avant, la sidebar n'affichait qu'un petit point de couleur de 7px par collaborateur — nom et note planqués dans l'attribut <code>title</code>, donc invisibles sans survol.</p>
+
+  <p>Le point est remplacé par une chip texte toujours visible sous chaque clip — <code>&lt;nom&gt; &lt;étoiles ou ❌&gt;</code> — dès qu'au moins un autre membre de l'équipe l'a noté. Les rejets ressortent avec un fond rouge distinct pour ne pas se noyer parmi les étoiles.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="clear-share-comments">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.22</span>
+    <span class="entry-title">Suppression des commentaires externes de test</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Sébastien avait testé le lien de review externe pour vérifier que ça fonctionnait, et veut maintenant nettoyer ces commentaires de test avant de passer en usage réel.</p>
+
+  <div class="box box-fail"><strong>Constat :</strong> aucun moyen de le faire. Le bouton <strong>🗑 Révoquer</strong> existant ne supprime que le lien lui-même (<code>proj['share']</code>) — les commentaires déjà reçus, stockés dans <code>proj['share_comments']</code>, restaient affichés indéfiniment dans le panneau « Avis des autres », révocation ou pas.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> nouvelle fonction <code>clear_share_comments(pid)</code> + endpoint <code>POST /share/clear_comments</code>, qui vide <code>proj['share_comments']</code> sans toucher au lien ni au curseur <code>comments_last_pulled</code> — les commentaires effacés ne reviennent donc pas au prochain pull automatique. Nouveau bouton <strong>🗑 Effacer les commentaires (N)</strong> dans la modale de partage, visible seulement s'il y a au moins un commentaire reçu. Confirmation par re-clic sous 8s plutôt qu'un <code>confirm()</code> natif — même pattern que le garde-fou anti-écrasement du rescan (v0.3.11), pour éviter le bug de focus textarea déjà documenté avec les dialogues natifs sous Electron.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 26 juillet 2026 (v0.3.20 — plus besoin de redémarrer après Décoder LTC)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.22 — suppression des commentaires externes de test)
 </div>
 
 </main>

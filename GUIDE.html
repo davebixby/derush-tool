@@ -222,7 +222,8 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de filtres.</p>
 
 <h2 id="team">Avis de l'équipe</h2>
-<p>Le panneau "Avis des autres" affiche les annotations de tous les collaborateurs pour le clip actif : rating, note, marqueurs, et discussions. Vous pouvez répondre à un marqueur en cliquant sur <strong>💬 Répondre</strong>.</p>
+<p>Le panneau "Avis des autres" affiche les annotations de tous les collaborateurs pour le clip actif : rating, note, marqueurs, et discussions. Vous pouvez répondre à un marqueur en cliquant sur <strong>💬 Répondre</strong>. Une réponse à l'un de vos propres marqueurs apparaît en direct dans votre liste "Marqueurs", sans avoir besoin de rafraîchir.</p>
+<p>Dans la <strong>sidebar</strong>, dès qu'au moins un autre collaborateur a noté un clip (1 à 3 étoiles ou ❌ rejet), une petite étiquette avec son nom et sa note apparaît directement sous le clip — pas besoin de l'ouvrir pour le voir. Les rejets ressortent avec un fond rouge.</p>
 
 <h2 id="permissions">Rôles &amp; permissions</h2>
 <p>Chaque collaborateur se voit attribuer un rôle à l'invitation. Le rôle détermine ce qu'il peut faire dans le projet.</p>
@@ -416,7 +417,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 <div class="step"><div class="step-num">4</div><div class="step-body">Le destinataire ouvre l'URL dans n'importe quel navigateur : il voit tous les clips avec 4 previews HD, les markers/notes/ratings de l'équipe, et un formulaire pour commenter par clip.</div></div>
 <div class="step"><div class="step-num">5</div><div class="step-body">Ses commentaires arrivent automatiquement dans ton Derush, sous chaque clip dans une section verte <strong>🔗 Retours externes</strong> (refresh toutes les 60s).</div></div>
 <div class="tip"><strong>Que voit le destinataire ?</strong> Une page lisible sans login. Les vidéos elles-mêmes ne sont PAS uploadées (gain de bande passante énorme) — il voit 4 frames HD par clip qui donnent une bonne idée du contenu.</div>
-<div class="warn">Boutons <strong>🔄 Rafraîchir le contenu</strong> (re-push markers/notes actuels), <strong>📥 Récupérer commentaires</strong> (force le pull immédiat), <strong>🗑 Révoquer</strong> (le lien ne marche plus).</div>
+<div class="warn">Boutons <strong>🔄 Rafraîchir le contenu</strong> (re-push markers/notes actuels), <strong>📥 Récupérer commentaires</strong> (force le pull immédiat), <strong>🗑 Effacer les commentaires</strong> (supprime les commentaires déjà reçus, utile après des essais — visible seulement s'il y en a), <strong>🗑 Révoquer</strong> (le lien ne marche plus, mais les commentaires déjà reçus restent dans le projet tant qu'on ne clique pas sur « Effacer les commentaires »).</div>
 
 <h2 id="sync">Synchronisation cloud</h2>
 <p>Le dot ☁️ en haut du workspace indique l'état : 🟢 synchronisé, 🔴 erreur, ⚫ non configuré.</p>
@@ -526,7 +527,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 <p>Les marqueurs s'affichent après le chargement complet des métadonnées vidéo. Attendez que la vidéo soit entièrement chargée (barre de chargement terminée), puis changez de clip et revenez si nécessaire pour forcer le rechargement.</p>
 
 <h3>Les notes d'un collaborateur n'apparaissent pas dans « Avis des autres »</h3>
-<p>Cliquer <strong>Synchroniser</strong> met à jour le fichier de projet (upload de vos notes + download de celles des autres), mais l'interface ne rafraîchit pas automatiquement le panneau « Avis des autres ». Pour voir les annotations récentes d'un collaborateur : <strong>quittez le projet</strong> (bouton Projets → retour à la liste) puis <strong>rouvrez-le</strong>. Toutes les notes synchronisées s'affichent alors.</p>
+<p>Normalement inutile d'attendre : un sync cloud automatique tourne toutes les 60 secondes en tâche de fond et rafraîchit seul le panneau « Avis des autres », et la collaboration WebSocket pousse les changements en quelques secondes quand tout le monde est connecté en même temps. Cliquer <strong>Synchroniser</strong> force ce rafraîchissement immédiatement. Si malgré ça rien n'apparaît après une minute ou deux, vérifiez que la sync cloud est bien configurée (dot vert à côté du bouton Sync) — sans elle, les annotations d'un collaborateur hors réseau local ne peuvent pas vous parvenir.</p>
 
 <h3>La collaboration temps réel ne se met pas à jour</h3>
 <p>La connexion WebSocket peut se déconnecter si le réseau est instable. Elle se reconnecte automatiquement toutes les 6 secondes. Si le problème persiste, rechargez la page (F5) — vos annotations locales non sauvegardées seront perdues, pensez à sauvegarder d'abord avec <strong>💾 Sauvegarder</strong>.</p>

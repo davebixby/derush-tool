@@ -68,6 +68,7 @@ async function _renderShareModal() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button onclick="refreshShare()">🔄 Rafraîchir le contenu</button>
             <button onclick="pullShareComments(true)">📥 Récupérer commentaires</button>
+            ${commentsCount > 0 ? `<button onclick="clearShareComments()" style="color:var(--red);border-color:rgba(239,68,68,.3);">🗑 Effacer les commentaires (${commentsCount})</button>` : ''}
             <button onclick="revokeShare()" style="color:var(--red);border-color:rgba(239,68,68,.3);margin-left:auto;">🗑 Révoquer</button>
         </div>
         <p style="font-size:0.74em;color:var(--dim);margin-top:12px;">Rafraîchir le contenu = re-push les markers/notes/thumbnails actuels vers le cloud (utile après de nouvelles annotations). Les commentaires retour sont aussi récupérés en tâche de fond toutes les ~10 min.</p>`;
@@ -115,6 +116,32 @@ function _copyShareUrl() {
         btn.textContent = '✓ Copié';
         setTimeout(() => btn.textContent = old, 2000);
     } catch(e) { document.execCommand('copy'); }
+}
+
+async function clearShareComments() {
+    if (!confirm2Step('clearShareComments')) { showToast('Recliquez pour confirmer la suppression', 'warn'); return; }
+    try {
+        const r = await apiFetch(`/api/project/${currentProjectId}/share/clear_comments`, {method: 'POST'});
+        const d = await r.json();
+        if (d.ok) {
+            showToast('Commentaires externes supprimés', 'ok');
+            await _refreshShareState();
+            if (activeClip) renderMultiUser();
+            await _renderShareModal();
+        } else {
+            showToast('Erreur : ' + (d.error || 'inconnue'), 'err');
+        }
+    } catch(e) { showToast('Erreur réseau', 'err'); }
+}
+
+// Confirmation "recliquez pour confirmer" — même pattern que le garde-fou anti-écrasement
+// du rescan (pas de confirm() natif, cf. bug focus textarea Electron). Fenêtre de 8s.
+const _confirm2StepUntil = {};
+function confirm2Step(key, windowMs=8000) {
+    const now = Date.now();
+    if (_confirm2StepUntil[key] && now < _confirm2StepUntil[key]) { _confirm2StepUntil[key] = 0; return true; }
+    _confirm2StepUntil[key] = now + windowMs;
+    return false;
 }
 
 async function pullShareComments(verbose) {

@@ -262,7 +262,7 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 
 | Fonction | Rôle |
 |----------|------|
-| `renderClipList()` | sidebar avec thumbnails+strip, en-têtes de jour, filtres, search texte, dots équipe |
+| `renderClipList()` | sidebar avec thumbnails+strip, en-têtes de jour, filtres, search texte, chips rating équipe |
 | `selectClip(c)` | charge clip, affiche tech-meta, applique currentSpeed, appelle loadWaveform + renderTags |
 | `setSpeed(rate)` | applique `video.playbackRate`, met à jour les boutons actifs |
 | `setRating(r)` | toggle : si déjà actif → null, sinon → r |
@@ -1078,6 +1078,8 @@ Labels : « Image » → « Problème image », « Son » → « Problème son �
 
 **Détails serveur PHP étendus** : voir `derush_sync.example.php` (template avec `SECRET_KEY = 'CHANGEME'` placeholder) — le vrai `derush_sync.php` contient la clé hardcodée et est exclu du repo via `.gitignore`.
 
+**Suppression des commentaires reçus** : `revoke_share` supprime le lien (`proj['share']`) mais laissait `proj['share_comments']` intact — les commentaires restaient visibles même après révocation. `clear_share_comments(pid)` (endpoint `share/clear_comments`) vide `proj['share_comments']` sans toucher au lien ni à `comments_last_pulled` — comme ce curseur reste avancé, les commentaires effacés ne sont pas re-téléchargés au pull automatique suivant. Bouton `🗑 Effacer les commentaires` dans `js/share.js`, confirmation par re-clic sous 8s (`confirm2Step`, même logique anti-`confirm()`-natif que le garde-fou de rescan).
+
 ## Sync cloud hardening
 
 - **Pull-on-enter** : `POST /api/project/enter` déclenche `sync_project(pid)` en background (non-bloquant)
@@ -1135,6 +1137,7 @@ GET  /api/project/<pid>/share/info
 POST /api/project/<pid>/share/create
 POST /api/project/<pid>/share/revoke
 POST /api/project/<pid>/share/pull_comments
+POST /api/project/<pid>/share/clear_comments         (efface proj['share_comments'], garde le lien actif)
 GET  /api/project/<pid>/clip_bwf/<clip_id>           (BWF couvrant un seul clip)
 GET  /api/project/<pid>/auto_detect
 GET  /api/project/<pid>/auto_detect/status
@@ -1504,3 +1507,35 @@ Le décodage LTC met à jour `clip.ltc_tc_in_sec` côté serveur, mais le tablea
 
 ## Fix
 Nouvelle fonction `_refreshClipsAfterLtcDecode()` (`js/multicam-modal.js`), appelée dès que le statut de polling passe à `done` (dans `_startLtcPolling`) : recharge `clips` depuis `GET /api/project/<pid>/clips`, et si `activeClip` est défini, retrouve sa version à jour dans le tableau rechargé, la réassigne à `activeClip`, et appelle `_setPlayerMonoR(updated.ltc_tc_in_sec != null)` immédiatement. Le son bascule sur le micro dès la fin du décodage, y compris pour le clip en cours de lecture — plus besoin de redémarrer.
+
+# État au 27 juillet 2026 — v0.3.21 : réponses aux marqueurs pas rafraîchies en direct + ratings équipe visibles sur la vignette
+
+## Question posée : les commentaires (réponses) sur un marqueur d'un collaborateur sont-ils bien visibles ?
+Vérification du code de bout en bout. La visibilité elle-même est déjà correcte des deux côtés :
+- **Sur vos propres marqueurs** : `renderMarkers()` (`derush_app.html` ~L2202) affiche les réponses de `allDiscussions[activeClip.id][m.id]` sous chaque marqueur de la liste.
+- **Sur les marqueurs des autres** : `renderMultiUser()` (~L3441-3448) fait la même chose dans le panneau « Avis des autres », avec en plus un formulaire pour répondre directement (`submitReply`).
+
+**Vrai gap trouvé, pas dans l'affichage mais dans le rafraîchissement temps réel** : le handler WebSocket `discussion_updated` (`startWebSocket()`, ~L2533) ne rappelait que `renderMultiUser()`, jamais `renderMarkers()`. Si un collaborateur répond à un marqueur que VOUS avez créé pendant que vous êtes sur ce clip, la réponse apparaissait dans son panneau à lui immédiatement, mais chez vous elle n'apparaissait dans votre propre liste de marqueurs qu'au poll suivant (`startNotesPolling`, jusqu'à 60s) — pas via le WebSocket qui est censé être temps réel.
+
+## Fix
+`discussion_updated` appelle désormais `renderMultiUser()` **et** `renderMarkers()` quand un clip est actif. Une ligne de correctif, cohérence rétablie entre les deux panneaux.
+
+## Feature — ratings de l'équipe visibles directement sur la vignette (pas seulement au survol)
+Demande : pouvoir repérer d'un coup d'œil, sans survoler, si un collaborateur a mis 1 à 3 étoiles ou rejeté (❌) un clip entier.
+
+Avant : `renderClipList()` (~L1942, ancien nom `teamDots`) affichait un simple point de couleur de 7px par collaborateur ayant noté le clip, avec le nom et la note uniquement dans l'attribut `title` (donc invisible sans survol).
+
+Fix : le point est remplacé par une chip texte toujours visible — `<nom> <étoiles ou ❌>` — sous la ligne méta de chaque clip (`.team-ratings-row`, une chip `.team-rating-chip` par collaborateur ayant noté). Les rejets (`rating === 'X'`) reçoivent un fond rouge distinct (`.team-rating-chip.rejected`) pour ressortir immédiatement dans la liste. Couvre à la fois les ratings 1/2/3 étoiles et le rejet X, comme demandé — c'est le même champ `un.rating` qui portait déjà les deux cas, seul l'affichage change.
+
+# État au 27 juillet 2026 (suite) — v0.3.22 : suppression des commentaires externes de test
+
+## Demande
+Sébastien avait testé le lien de review externe (retours équipe hors-Derush) pour vérifier que ça marchait, et veut maintenant supprimer ces commentaires de test du projet.
+
+## Constat
+Aucun moyen existant de le faire : `revoke_share` (bouton 🗑 Révoquer existant) supprime le **lien** (`proj['share']`, token) mais ne touchait jamais à `proj['share_comments']` — les commentaires reçus restaient stockés et affichés indéfiniment dans le panneau « Avis des autres » (section verte « 🔗 Retours externes »), y compris après révocation du lien.
+
+## Fix
+- Nouvelle fonction serveur `clear_share_comments(pid)` (`derush_server.py`, juste avant `revoke_share`) : vide `proj['share_comments']` sous verrou projet. Ne touche pas `comments_last_pulled` — comme ce curseur reste avancé, un pull automatique ultérieur ne re-télécharge pas les commentaires effacés (ils ont déjà un `ts` antérieur au curseur).
+- Nouvel endpoint `POST /api/project/<pid>/share/clear_comments` (ajouté à la regex existante `share/(create|revoke|pull_comments|clear_comments)`).
+- `js/share.js` : nouveau bouton « 🗑 Effacer les commentaires (N) » dans la modale de partage, visible seulement s'il y a au moins un commentaire (`commentsCount > 0`). Confirmation par re-clic sous 8s via `confirm2Step()` — même logique que le garde-fou anti-écrasement du rescan (v0.3.11) : pas de `confirm()` natif, qui casse le focus des textarea dans Electron (bug documenté plus haut). Après suppression : rafraîchit `_shareState` + `renderMultiUser()` si un clip est ouvert.

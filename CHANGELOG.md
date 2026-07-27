@@ -4,6 +4,23 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.22] — 2026-07-27
+
+### ✨ Ajouté
+- **Suppression des commentaires externes (retours du lien de review)** : jusqu'ici, une fois reçus, les commentaires du lien de partage public restaient dans le projet indéfiniment — seul le lien lui-même pouvait être révoqué (📤 Exporter → 🔗 Lien de review). Nouveau bouton « 🗑 Effacer les commentaires » dans cette même modale, visible dès qu'il y a au moins un commentaire reçu. Confirmation par re-clic sous 8s (pas de `confirm()` natif, cf. bug de focus Electron déjà documenté). N'affecte pas le lien actif ni les futurs commentaires : seuls ceux déjà reçus sont supprimés, sans être re-téléchargés au prochain pull automatique.
+
+---
+
+## [0.3.21] — 2026-07-27
+
+### 🐛 Corrigé
+- **Réponse à un marqueur pas rafraîchie en direct dans votre propre liste « Marqueurs »** : la réception WebSocket `discussion_updated` ne rafraîchissait que le panneau « Avis des autres » (`renderMultiUser`), pas la liste de vos propres marqueurs (`renderMarkers`) — un collaborateur qui répondait à un de VOS marqueurs pendant que vous étiez sur ce clip ne voyait sa réponse apparaître qu'au poll suivant (jusqu'à 60s), pas immédiatement. Les deux panneaux se rafraîchissent désormais ensemble sur cet évènement.
+
+### ✨ Ajouté
+- **Ratings des autres visibles directement sur la vignette** : les points de couleur discrets (visibles seulement au survol via `title`) sont remplacés par des chips visibles en permanence — nom du collaborateur + étoiles (⭐/⭐⭐/⭐⭐⭐) ou ❌ rejet — sous chaque clip dès qu'au moins un autre membre de l'équipe l'a noté. Les rejets (X) ressortent avec un fond rouge distinct.
+
+---
+
 ## [0.3.20] — 2026-07-26
 
 ### 🐛 Corrigé

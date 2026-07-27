@@ -165,7 +165,12 @@
         .clip-item.active { background: rgba(167,139,250,.15); border-left: 3px solid var(--accent); }
         .clip-item .name { font-weight: 600; font-size: 0.85em; }
         .clip-item .meta { font-size: 0.7em; color: var(--dim); margin-top: 4px; display: flex; gap: 8px; }
-        
+        .team-ratings-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .team-rating-chip { font-size: 0.65em; padding: 1px 5px; border-radius: 8px; border: 1px solid; background: rgba(255,255,255,.04); white-space: nowrap; line-height: 1.5; }
+        .team-rating-chip.rejected { background: rgba(239,68,68,.14); }
+        body.light-mode .team-rating-chip { background: rgba(0,0,0,.03); }
+        body.light-mode .team-rating-chip.rejected { background: rgba(239,68,68,.1); }
+
         .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         /* Conteneur du plein écran : englobe la vidéo ET la barre de contrôle + la timeline,
            pour qu'elles restent visibles (avec les marqueurs) une fois en fullscreen.
@@ -1938,8 +1943,8 @@ function renderClipList() {
         const markerBadge = markerCount ? `<span style="font-size:0.7em;color:var(--accent);">📌${markerCount}</span>` : '';
         const status = n.status;
         const statusBadge = status ? `<span class="status-badge ${STATUS_CSS[status]}">${STATUS_LABELS[status]}</span>` : '';
-        // Scores des autres annotateurs
-        const teamDots = (currentProject && currentProject.users || [])
+        // Scores des autres annotateurs — chip visible (nom + étoiles/rejet), pas seulement un dot au survol
+        const teamRatings = (currentProject && currentProject.users || [])
             .filter(u2 => { const k = u2.id || u2.username || u2.name; return k !== uid; })
             .map(u2 => {
                 const k2 = u2.id || u2.username || u2.name;
@@ -1947,7 +1952,8 @@ function renderClipList() {
                 if(!un.rating) return '';
                 const col = RCOL[String(un.rating)] || '#888';
                 const label = u2.username || u2.name || k2;
-                return `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${col};" title="${label} : ${RATING_LABELS[un.rating]||un.rating}"></span>`;
+                const isRejected = String(un.rating) === 'X';
+                return `<span class="team-rating-chip${isRejected ? ' rejected' : ''}" style="color:${col};border-color:${col};" title="${label} : ${RATING_LABELS[un.rating]||un.rating}">${label} ${RATING_LABELS[un.rating]||un.rating}</span>`;
             }).join('');
         const tagsBadge = (n.tags||[]).length ? `<span style="font-size:0.7em;color:#a78bfa;">🏷${(n.tags||[]).length}</span>` : '';
         let mcBadge = '';
@@ -1959,7 +1965,7 @@ function renderClipList() {
         }
         const snippet = (activeSearch && _searchSnippets[c.id])
             ? `<div class="search-snippet">${_searchSnippets[c.id]}</div>` : '';
-        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}${teamDots ? `<span style="display:flex;gap:3px;align-items:center;margin-left:auto;">${teamDots}</span>` : ''}</div>${snippet}</div>`;
+        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}</div>${teamRatings ? `<div class="team-ratings-row">${teamRatings}</div>` : ''}${snippet}</div>`;
         if(rating === 'X') div.style.opacity = '0.4';
         div.onclick = () => selectClip(c);
 
@@ -2532,7 +2538,7 @@ function startWebSocket() {
                     if(changed) { renderClipList(); if(activeClip) { renderMultiUser(); renderMarkers(); } showSaveStatus('↻ Live', '#60a5fa'); }
                 } else if(msg.type === 'discussion_updated') {
                     const r = await apiFetch(`/api/project/${currentProjectId}/discussions`);
-                    if(r.ok) { allDiscussions = await r.json(); _checkMentionNotifs(allDiscussions); if(activeClip) renderMultiUser(); }
+                    if(r.ok) { allDiscussions = await r.json(); _checkMentionNotifs(allDiscussions); if(activeClip) { renderMultiUser(); renderMarkers(); } }
                 } else if(msg.type === 'session_state' || msg.type === 'session_action') {
                     if(typeof handleSessionWsMessage === 'function') handleSessionWsMessage(msg);
                 }
