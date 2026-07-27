@@ -4,6 +4,13 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.24] — 2026-07-27
+
+### ✨ Ajouté
+- **Build "prêt à l'emploi" pour la sync cloud** : jusqu'ici, chaque nouvelle machine (ex. celle d'un collaborateur) devait saisir manuellement `sync_url`/`sync_key` dans ⚙️ Configuration après installation, sinon elle retombait sur le placeholder public (`drift2026`, rejeté par le serveur). Nouveau fichier `derush_config.seed.json` (gitignored, comme `derush_sync.php`) contenant la vraie clé : si présent sur la machine qui build, il est bundlé dans l'exe/app et sert de valeur par défaut pour toute machine qui n'a pas encore de config — le collaborateur n'a plus rien à saisir. Priorité : config déjà présente sur la machine > seed bundlé > placeholder public (pour quiconque build depuis les sources publiques sans le seed).
+
+---
+
 ## [0.3.23] — 2026-07-27
 
 ### 🐛 Corrigé

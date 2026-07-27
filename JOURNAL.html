@@ -2601,8 +2601,28 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="sync-seed">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.24</span>
+    <span class="entry-title">Build "prêt à l'emploi" pour la sync cloud — plus besoin de saisir la clé à la main</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Suite directe du fix 0.3.23 : Sébastien a dû corriger la clé de sync à la main sur le Mac de Paola via le nouveau champ. Il demande maintenant un build Mac qui embarque directement la bonne clé, pour que Paola n'ait rien à taper.</p>
+
+  <div class="box box-fail"><strong>Contrainte à respecter avant toute chose :</strong> le repo GitHub de ce projet est <strong>public</strong>. Coder la vraie clé en dur dans <code>derush_server.py</code> l'aurait publiée dans l'historique git pour toujours — exactement le risque déjà évité pour <code>derush_sync.php</code>, gitignored depuis le début avec un template <code>.example.php</code> à sa place.</p>
+
+  <div class="box box-why"><strong>Solution : même pattern, nouveau fichier.</strong> <code>derush_config.seed.json</code> (racine du projet, gitignored), avec la vraie <code>sync_url</code>/<code>sync_key</code> — un template public <code>derush_config.seed.example.json</code> le remplace dans le repo. Le serveur (<code>_load_sync_seed()</code>) le lit s'il est présent dans le bundle, avec une chaîne de priorité claire : config déjà sur la machine (prime toujours) &gt; seed bundlé (la vraie clé) &gt; placeholder public codé en dur (dernier recours pour un tiers qui clone le repo public sans le seed). <code>derush.spec</code> ne bundle le seed que s'il existe localement sur la machine qui build — même logique conditionnelle que pour <code>ffmpeg.exe</code>/<code>ffprobe.exe</code>.</p>
+
+  <p>Validé par un test direct avant de livrer : config locale de la machine temporairement retirée, réimport du module — la clé est bien récupérée depuis le seed, pas depuis le placeholder public.</p>
+
+  <p><code>zip_for_mac.ps1</code> (qui prépare le transfert des sources vers le Mac mini) n'exclut aucun fichier par nom générique — le seed, présent à la racine, est donc automatiquement embarqué dans le prochain zip transféré, sans modification du script. Résultat concret : la prochaine app Mac construite pour Paola aura la sync déjà configurée dès la première installation.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.23 — sync cloud 403 : la clé devient enfin reconfigurable depuis l'app)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.24 — build prêt à l'emploi pour la sync cloud)
 </div>
 
 </main>

@@ -279,9 +279,23 @@ def _dedupe_compute(key, fn, wait_timeout=120):
         with _compute_locks_lock:
             _compute_locks.pop(key, None)
 
-# Sync credentials — hardcoded, overridable via config for developer use
-SYNC_URL = CONFIG.get('sync_url', 'https://sebastiendelahaye.be/derush_sync.php')
-SYNC_KEY = CONFIG.get('sync_key', 'drift2026')
+# Sync credentials — priorité : derush_config.json (utilisateur, prime toujours)
+# > derush_config.seed.json bundlé (clé réelle, gitignored — voir .gitignore et
+# CLAUDE.md, permet à un build de "sortir de l'usine" déjà configuré pour un
+# collaborateur sans qu'il ait à saisir la clé à la main) > placeholder public
+# (dernier recours pour quiconque build depuis les sources sans le seed local).
+def _load_sync_seed():
+    seed_path = BUNDLE_DIR / 'derush_config.seed.json'
+    if seed_path.exists():
+        try:
+            return json.loads(seed_path.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+    return {}
+
+_SYNC_SEED = _load_sync_seed()
+SYNC_URL = CONFIG.get('sync_url', _SYNC_SEED.get('sync_url', 'https://sebastiendelahaye.be/derush_sync.php'))
+SYNC_KEY = CONFIG.get('sync_key', _SYNC_SEED.get('sync_key', 'drift2026'))
 
 # Sync runtime state — always configured since URL is hardcoded
 _sync_status = {'configured': True, 'online': None, 'last_sync': None, 'error': None}

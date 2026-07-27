@@ -31,6 +31,8 @@ derush_profile.json
 letterbox_cache.json
 # derush_sync.php contient SECRET_KEY hardcodée → utiliser derush_sync.example.php comme template
 derush_sync.php
+# derush_config.seed.json contient la vraie sync_key → utiliser derush_config.seed.example.json comme template
+derush_config.seed.json
 index.db
 
 # Bundled large binaries (téléchargés séparément, voir build_windows.bat ou requirements)

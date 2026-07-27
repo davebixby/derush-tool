@@ -10,7 +10,8 @@ Outil de dérushage vidéo multi-utilisateurs. Serveur Python + UI HTML monofich
 - `derush_app.html` — UI web complète CSS+HTML+JS (~2000 lignes)
 - `derush_launcher.py` — launcher avec tray icon (pystray) pour package installable
 - `derush_setup.html` — wizard de configuration initiale (dark UI, 3 étapes + champs sync)
-- `derush_sync.php` — script PHP à déposer sur hébergement web pour la sync cloud
+- `derush_sync.php` — script PHP à déposer sur hébergement web pour la sync cloud (gitignored, réel — `derush_sync.example.php` = template public)
+- `derush_config.seed.json` — seed sync_url/sync_key (gitignored, réel — `derush_config.seed.example.json` = template public). Bundlé dans le build s'il existe sur la machine qui compile ; sert de valeur par défaut pour toute machine sans config existante (voir section dédiée plus bas)
 - `derush.spec` — spec PyInstaller pour build Windows/macOS
 - `build_windows.bat` / `build_mac.sh` — scripts de build
 - `requirements.txt` — dépendances Python (pystray, Pillow, pyinstaller)
@@ -1559,3 +1560,27 @@ Root cause plus profonde que "une machine a une vieille clé" : **il n'existe et
 
 ## Pour le Mac (pas de correctif possible à distance)
 Le chemin équivalent sur Mac est `~/DerushTool/derush_config.json` (PAS `~/Library/Application Support/` : `APP_DIR` retombe sur `Path.home() / 'DerushTool'` faute de variable d'environnement `APPDATA` sur cette plateforme). Tant qu'un nouveau build Mac avec les champs sync n'est pas installé, il faut soit éditer ce fichier à la main (ajouter `sync_url`/`sync_key`), soit attendre un rebuild Mac puis passer par `/setup` → nouveaux champs.
+
+# État au 27 juillet 2026 (suite) — v0.3.24 : build "prêt à l'emploi" pour la sync — plus besoin de saisir la clé à la main
+
+## Demande
+Après le fix 0.3.23 (champs sync dans l'assistant), Sébastien doit quand même corriger la clé à la main sur chaque machine. Demande : un build Mac qui embarque directement la bonne clé, pour que Paola n'ait rien à saisir.
+
+## Contrainte de sécurité à respecter
+Le repo GitHub est **public** (`davebixby/derush-tool`). Il est hors de question de coder la vraie `sync_key` en dur dans `derush_server.py` — ça la publierait dans l'historique git pour toujours (exactement le risque que le projet évite déjà pour `derush_sync.php`, gitignored depuis le début avec un template `.example.php`).
+
+## Solution : seed gitignored, même pattern que `derush_sync.php`
+Nouveau fichier `derush_config.seed.json` (racine du projet, **gitignored**), contenant la vraie `sync_url`/`sync_key`. Template public `derush_config.seed.example.json` commité à sa place pour la doc (mêmes placeholders que `derush_sync.example.php`).
+
+`derush_server.py` : nouvelle fonction `_load_sync_seed()` qui lit `BUNDLE_DIR / 'derush_config.seed.json'` s'il existe (silencieux sinon). Chaîne de priorité pour `SYNC_URL`/`SYNC_KEY` :
+1. `derush_config.json` de la machine (si déjà configuré — prime toujours, jamais écrasé)
+2. Seed bundlé (la vraie clé, seulement présente sur les machines qui buildent avec le fichier local)
+3. Placeholder public codé en dur (dernier recours pour un tiers qui clone le repo public et build sans avoir le seed)
+
+`derush.spec` : bundle `derush_config.seed.json` dans les datas **seulement s'il existe** sur la machine de build (`*( [...] if (ROOT / 'derush_config.seed.json').exists() else [] )`, même pattern que le bundling conditionnel de `ffmpeg.exe`/`ffprobe.exe`).
+
+## Validé par test direct
+Config locale temporairement retirée (`derush_config.json` renommé), réimport du module → `SYNC_KEY` récupéré correctement depuis le seed (pas depuis le placeholder). Confirme le fallback avant de livrer.
+
+## Pour builder le Mac avec le seed
+`zip_for_mac.ps1` n'exclut aucun fichier par nom générique (seulement `dist/build/node_modules/projects/.git/__pycache__/thumbnails/waveforms/sync_fingerprints` + les binaires ffmpeg Windows) — `derush_config.seed.json`, présent à la racine sur cette machine, est donc automatiquement inclus dans le zip transféré. Sur le Mac : `./build_mac.sh` bundle le fichier tel quel (même logique conditionnelle dans `derush.spec`, cross-plateforme). Résultat : l'app Mac de Paola aura la sync déjà configurée dès la première installation, sans passer par ⚙️ Configuration.

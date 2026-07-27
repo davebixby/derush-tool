@@ -33,6 +33,11 @@ a = Analysis(
         # Bundle ffmpeg/ffprobe binaries if present
         *( [(str(ROOT / ffmpeg_bin),   '.')] if (ROOT / ffmpeg_bin).exists()   else [] ),
         *( [(str(ROOT / ffprobe_bin),  '.')] if (ROOT / ffprobe_bin).exists()  else [] ),
+        # Seed sync_url/sync_key (gitignored, contient la vraie clé) : si présent sur
+        # la machine de build, le build "sort de l'usine" déjà configuré pour la sync
+        # cloud — sinon absent, un tiers qui build depuis les sources publiques
+        # retombe simplement sur le placeholder public (voir derush_server.py).
+        *( [(str(ROOT / 'derush_config.seed.json'), '.')] if (ROOT / 'derush_config.seed.json').exists() else [] ),
         # Include icon if it exists
         *( [(str(ROOT / 'derush_icon.png'), '.')] if (ROOT / 'derush_icon.png').exists() else [] ),
     ],
