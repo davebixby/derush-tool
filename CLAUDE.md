@@ -1539,3 +1539,23 @@ Aucun moyen existant de le faire : `revoke_share` (bouton 🗑 Révoquer existan
 - Nouvelle fonction serveur `clear_share_comments(pid)` (`derush_server.py`, juste avant `revoke_share`) : vide `proj['share_comments']` sous verrou projet. Ne touche pas `comments_last_pulled` — comme ce curseur reste avancé, un pull automatique ultérieur ne re-télécharge pas les commentaires effacés (ils ont déjà un `ts` antérieur au curseur).
 - Nouvel endpoint `POST /api/project/<pid>/share/clear_comments` (ajouté à la regex existante `share/(create|revoke|pull_comments|clear_comments)`).
 - `js/share.js` : nouveau bouton « 🗑 Effacer les commentaires (N) » dans la modale de partage, visible seulement s'il y a au moins un commentaire (`commentsCount > 0`). Confirmation par re-clic sous 8s via `confirm2Step()` — même logique que le garde-fou anti-écrasement du rescan (v0.3.11) : pas de `confirm()` natif, qui casse le focus des textarea dans Electron (bug documenté plus haut). Après suppression : rafraîchit `_shareState` + `renderMultiUser()` si un clip est ouvert.
+
+# État au 27 juillet 2026 (suite) — v0.3.23 : sync cloud en 403 sur toutes les machines — clé jamais reconfigurable
+
+## Symptôme signalé
+« Erreur 403 niveau serveur sur le petit rond rouge, sur ce PC et sur le Mac. Rien ne synchronise. »
+
+## Diagnostic (test direct contre le serveur réel, pas de suppositions)
+`curl` contre `derush_sync.php` déployé, avec l'ancienne clé codée en dur (`drift2026`) → **403**. Avec la clé longue présente dans le `derush_sync.php` local (`quFQZQC2gUr4uzNijEui6Z0tR3NyORzGtYZNShMj6Mw`) → **200**. La clé a donc été régénérée côté hébergement à un moment donné (cf. audit 2.2/2.4, "clé à remplacer par une clé aléatoire longue lors de l'activation").
+
+Root cause plus profonde que "une machine a une vieille clé" : **il n'existe et n'a jamais existé de champ dans `derush_setup.html` pour saisir `sync_url`/`sync_key`** — malgré la doc de ce fichier ("3 étapes + champs sync") et malgré `GET /api/setup/status` qui renvoyait déjà ces valeurs (pensé pour préremplir un formulaire qui n'a jamais été câblé). Pire : `POST /api/setup` reconstruisait `new_config` à partir de zéro sans jamais reporter `sync_url`/`sync_key` — donc **toute resoumission de l'assistant (juste le dossier ou le port) effaçait silencieusement la sync**, qui retombait sur les valeurs par défaut codées en dur dans `SYNC_URL`/`SYNC_KEY` (`.get('sync_url', 'https://...')`, `.get('sync_key', 'drift2026')`). Confirmé sur cette machine : `%APPDATA%\DerushTool\derush_config.json` (le vrai fichier utilisé par l'exe packagé, pas celui du dossier source) ne contenait ni `sync_url` ni `sync_key` du tout.
+
+## Fix
+- `POST /api/setup` (`derush_server.py`) accepte désormais `sync_url`/`sync_key` dans le body, et les **préserve** si absents/vides plutôt que de les effacer (`body.get('sync_url') or CONFIG.get('sync_url', SYNC_URL)`). S'applique en live (`SYNC_URL`/`SYNC_KEY` réassignés, déjà dans le `global` de `_dispatch_post`).
+- `derush_setup.html` : 2 nouveaux champs optionnels dans l'étape 0 — "URL de sync cloud" et "Clé de sync cloud" — préremplis depuis `/api/setup/status`, envoyés dans `saveFolder()`.
+- `sync_project()` : message générique `Erreur serveur {code}` remplacé par le message explicite (clé incorrecte, cf. audit 2.2) sur 403 — jusqu'ici seuls `/api/projects` et `join_with_key` avaient ce message, pas le sync principal qui alimente le dot ☁️.
+- `_sync_url_for()` avait perdu son `?key=` en query string lors d'un refactor précédent (migration vers l'en-tête `X-Sync-Key` seul) — remis en plus de l'en-tête, par cohérence avec tous les autres appels sync du fichier (défense en profondeur si jamais le PHP déployé ne supporte pas encore l'en-tête).
+- Réparation immédiate de cette machine : `sync_url`/`sync_key` ajoutés à la main dans `%APPDATA%\DerushTool\derush_config.json` (valeur correspondant au `derush_sync.php` réellement déployé, vérifiée par test direct). Nécessite un redémarrage de l'app pour prendre effet (le process qui tournait avait chargé l'ancienne config vide en mémoire).
+
+## Pour le Mac (pas de correctif possible à distance)
+Le chemin équivalent sur Mac est `~/DerushTool/derush_config.json` (PAS `~/Library/Application Support/` : `APP_DIR` retombe sur `Path.home() / 'DerushTool'` faute de variable d'environnement `APPDATA` sur cette plateforme). Tant qu'un nouveau build Mac avec les champs sync n'est pas installé, il faut soit éditer ce fichier à la main (ajouter `sync_url`/`sync_key`), soit attendre un rebuild Mac puis passer par `/setup` → nouveaux champs.

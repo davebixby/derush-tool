@@ -4,6 +4,15 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.23] — 2026-07-27
+
+### 🐛 Corrigé
+- **Sync cloud en erreur 403 sur toutes les machines** : la clé sync avait été régénérée côté hébergement (`derush_sync.php`), mais il n'existait **aucun champ dans l'assistant de configuration** pour la modifier — et `POST /api/setup` écrasait le fichier de config sans jamais préserver `sync_url`/`sync_key`, qui retombaient donc systématiquement sur l'ancienne valeur codée en dur (`drift2026`) à chaque nouvelle sauvegarde des réglages de base. Confirmé par test direct contre le serveur réel : ancienne clé → 403, nouvelle clé → 200.
+- Fix : `/api/setup` accepte et préserve désormais `sync_url`/`sync_key` (un champ vide dans la requête garde la valeur déjà en config au lieu de l'effacer). Nouveaux champs "URL de sync cloud" / "Clé de sync cloud" (optionnels) dans l'assistant ⚙️ Configuration, pré-remplis avec la valeur actuelle — modifiables sans toucher au fichier JSON à la main.
+- Message d'erreur générique "Erreur serveur 403" du sync principal remplacé par le message explicite déjà utilisé ailleurs ("Clé sync incorrecte. Vérifie SYNC_KEY dans ⚙️ Configuration…").
+
+---
+
 ## [0.3.22] — 2026-07-27
 
 ### ✨ Ajouté

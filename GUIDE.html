@@ -502,7 +502,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 <p>Depuis la version 0.3.15, ces cas ne provoquent plus de fermeture intempestive de l'application (toute requête au serveur — pas seulement le signal de présence — compte comme preuve que l'app est active, avec une marge de sécurité plus large). Si vous êtes sur une version antérieure et que l'app se ferme pendant une activité normale mais intense, mettez à jour.</p>
 
 <h3>Erreur 403 lors de la synchronisation</h3>
-<p>La clé de synchronisation dans <code>derush_config.json</code> (<code>sync_key</code>) ne correspond pas à la valeur <code>$SECRET_KEY</code> dans le fichier PHP sur le serveur web.</p>
+<p>La clé de synchronisation ne correspond pas à la valeur <code>$SECRET_KEY</code> dans le fichier PHP sur le serveur web (souvent après une régénération de la clé côté hébergement). Depuis la <strong>0.3.23</strong>, corrigez ça directement dans l'assistant : <strong>⚙️ Configuration</strong> → champs <em>URL de sync cloud</em> / <em>Clé de sync cloud</em> — collez la nouvelle clé et validez, pas besoin de redémarrer ni de toucher un fichier à la main. Sur une version antérieure, la seule solution était d'éditer <code>derush_config.json</code> directement (pas de champ dans l'UI) : sur Windows <code>%APPDATA%\DerushTool\derush_config.json</code>, sur Mac <code>~/DerushTool/derush_config.json</code>.</p>
 
 <h3>Impossible de rejoindre un projet (clé invalide)</h3>
 <p>La clé est à usage unique — si elle a déjà été utilisée, l'admin doit en générer une nouvelle. Vérifiez aussi que l'identifiant correspond exactement à celui autorisé.</p>

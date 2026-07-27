@@ -83,6 +83,16 @@ button { padding: 9px 20px; border-radius: var(--radius); border: none; font-siz
       <input type="number" id="portInput" value="8765" min="1024" max="65535" style="width:120px;">
       <p class="hint">Pour accéder depuis un autre appareil sur le réseau local</p>
     </div>
+    <div class="field">
+      <label>URL de sync cloud (optionnel)</label>
+      <input type="text" id="syncUrlInput" placeholder="ex: https://mon-hebergement.fr/derush_sync.php">
+      <p class="hint">Laisser vide en mode réseau local sans internet. Ne pas remplir = garde la valeur déjà configurée.</p>
+    </div>
+    <div class="field">
+      <label>Clé de sync cloud (optionnel)</label>
+      <input type="text" id="syncKeyInput" placeholder="doit correspondre à $SECRET_KEY dans derush_sync.php">
+      <p class="hint">À changer ici si la clé a été régénérée côté hébergement (sinon erreur 403 sur toutes les machines).</p>
+    </div>
     <div class="alert error" id="alert0"></div>
     <div class="actions">
       <button class="btn-primary" onclick="saveFolder()">Suivant →</button>
@@ -136,6 +146,8 @@ async function init() {
       document.getElementById('projectsDir').value = data.projects_dir;
     }
     if (data.port) document.getElementById('portInput').value = data.port;
+    if (data.sync_url) document.getElementById('syncUrlInput').value = data.sync_url;
+    if (data.sync_key) document.getElementById('syncKeyInput').value = data.sync_key;
   } catch(e) {}
 
   // Check if profile already exists — skip step 1 if so
@@ -183,6 +195,8 @@ async function saveFolder() {
   alertEl.style.display = 'none';
   const projectsDir = document.getElementById('projectsDir').value.trim();
   const port = parseInt(document.getElementById('portInput').value) || 8765;
+  const syncUrl = document.getElementById('syncUrlInput').value.trim();
+  const syncKey = document.getElementById('syncKeyInput').value.trim();
   if (!projectsDir) { alertEl.textContent = 'Dossier requis.'; alertEl.style.display = 'block'; return; }
   try {
     const res = await fetch('/api/setup', {
@@ -192,7 +206,9 @@ async function saveFolder() {
         projects_dir: projectsDir,
         thumbnails_dir: projectsDir + '/thumbnails',
         waveforms_dir: projectsDir + '/waveforms',
-        port
+        port,
+        sync_url: syncUrl,
+        sync_key: syncKey
       })
     });
     const data = await res.json();

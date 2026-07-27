@@ -2581,8 +2581,28 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="sync-key-unfixable">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.23</span>
+    <span class="entry-title">Sync cloud en 403 sur toutes les machines — la clé n'était nulle part reconfigurable</span>
+    <span class="entry-tag tag-bug">Bug critique</span>
+  </div>
+
+  <p>Sébastien signale : « erreur 403 sur le petit rond, sur ce PC ET sur le Mac, rien ne synchronise ». Deux machines différentes touchées en même temps — pas un problème d'une seule installation.</p>
+
+  <div class="box box-ok"><strong>Diagnostic par test direct, pas par lecture de code seule :</strong> <code>curl</code> contre le <code>derush_sync.php</code> réellement déployé, avec l'ancienne clé codée en dur <code>drift2026</code> → 403. Avec la clé longue présente dans la copie locale du fichier PHP → 200. La clé avait donc bien été régénérée côté hébergement (comme prévu par un audit précédent), mais quelque chose empêchait les machines clientes de suivre.</p>
+
+  <div class="box box-fail"><strong>Root cause, plus profonde qu'un simple oubli :</strong> il n'a jamais existé de champ dans l'assistant de configuration (<code>derush_setup.html</code>) pour saisir <code>sync_url</code>/<code>sync_key</code> — malgré <code>GET /api/setup/status</code> qui renvoyait déjà ces valeurs, comme préparé pour un formulaire jamais câblé. Pire : <code>POST /api/setup</code> reconstruisait la config à partir de zéro à chaque sauvegarde des réglages de base (dossier, port), sans jamais reporter <code>sync_url</code>/<code>sync_key</code> — qui retombaient donc systématiquement sur les valeurs par défaut codées en dur dans le code, dont l'ancienne clé. Confirmé sur cette machine : le vrai fichier de config de l'exe packagé (<code>%APPDATA%\DerushTool\derush_config.json</code>) ne contenait ni l'un ni l'autre.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>/api/setup</code> accepte et préserve désormais ces deux champs (une valeur vide dans la requête garde ce qui est déjà en config, ne l'efface plus). Deux nouveaux champs optionnels dans l'assistant, préremplis avec la valeur actuelle. Au passage : le message d'erreur générique <code>Erreur serveur 403</code> du sync principal (celui qui alimente le dot ☁️) remplacé par le message explicite déjà utilisé ailleurs dans l'app ; et <code>_sync_url_for()</code>, qui avait perdu son <code>?key=</code> en query string lors d'un refactor antérieur (migration vers l'en-tête seul), l'a récupéré en plus de l'en-tête par cohérence avec le reste du fichier.</p>
+
+  <p>Réparation immédiate de cette machine (édition directe du fichier de config, le temps qu'un nouveau build soit installé). Pour le Mac, chemin équivalent : <code>~/DerushTool/derush_config.json</code> (pas <code>~/Library/Application Support/</code> — la logique de dossier retombe sur le home faute de variable d'environnement Windows sur cette plateforme).</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.22 — suppression des commentaires externes de test)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.23 — sync cloud 403 : la clé devient enfin reconfigurable depuis l'app)
 </div>
 
 </main>

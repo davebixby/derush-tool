@@ -3814,6 +3814,15 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             ffmpeg = body.get('ffmpeg', 'ffmpeg')
             ffprobe = body.get('ffprobe', 'ffprobe')
             port = int(body.get('port', 8765))
+            # sync_url/sync_key : champs optionnels (mode réseau local seul = pas besoin).
+            # Un champ absent OU laissé vide dans le body préserve la valeur déjà en
+            # config plutôt que de l'effacer — sinon resoumettre juste le dossier/port
+            # depuis l'assistant (qui n'envoie pas ces champs) effaçait silencieusement
+            # sync_url/sync_key à chaque sauvegarde (bug trouvé le 27 juillet 2026 :
+            # la sync restait cassée sur toutes les machines après une clé tournée
+            # côté serveur, faute de pouvoir la re-saisir nulle part dans l'UI).
+            sync_url = (body.get('sync_url') or '').strip() or CONFIG.get('sync_url', SYNC_URL)
+            sync_key = (body.get('sync_key') or '').strip() or CONFIG.get('sync_key', SYNC_KEY)
             # Validate dirs exist or can be created
             try:
                 Path(projects_dir).mkdir(exist_ok=True, parents=True)
@@ -3832,6 +3841,8 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 'ffmpeg': ffmpeg,
                 'ffprobe': ffprobe,
                 'port': port,
+                'sync_url': sync_url,
+                'sync_key': sync_key,
             }
             save_config(new_config)
             # Apply config live
@@ -3844,6 +3855,8 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             PORT = port
             FFMPEG = ffmpeg
             FFPROBE = ffprobe
+            SYNC_URL = sync_url
+            SYNC_KEY = sync_key
             self._json_response({'ok': True, 'lan_ip': get_lan_ip(), 'port': port})
             return
 
@@ -3970,7 +3983,10 @@ def _sync_headers(extra=None):
     return h
 
 def _sync_url_for(pid):
-    return f"{SYNC_URL.rstrip('/')}?project={_urlquote(pid, safe='')}"
+    # ?key= gardé en plus de l'en-tête X-Sync-Key (cf. _sync_headers) pour rester
+    # cohérent avec tous les autres appels sync de ce fichier — au cas où le PHP
+    # déployé ne supporterait pas (encore) l'en-tête.
+    return f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&project={_urlquote(pid, safe='')}"
 
 def _own_note_key(proj):
     """Clé de notes de l'utilisateur de CETTE machine (son profil local).
@@ -4090,7 +4106,9 @@ def sync_project(pid, push=True):
         if e.code == 404:
             remote = None   # Premier push
         else:
-            msg = f'Erreur serveur {e.code}'
+            msg = ('Clé sync incorrecte. Vérifie la valeur de SYNC_KEY dans ⚙️ Configuration '
+                   '(elle doit correspondre exactement à $SECRET_KEY dans derush_sync.php).'
+                   if e.code == 403 else f'Erreur serveur {e.code}')
             with _sync_lock:
                 _sync_status.update({'online': False, 'error': msg})
             return {'ok': False, 'message': msg}
