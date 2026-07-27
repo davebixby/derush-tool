@@ -1584,3 +1584,17 @@ Config locale temporairement retirée (`derush_config.json` renommé), réimport
 
 ## Pour builder le Mac avec le seed
 `zip_for_mac.ps1` n'exclut aucun fichier par nom générique (seulement `dist/build/node_modules/projects/.git/__pycache__/thumbnails/waveforms/sync_fingerprints` + les binaires ffmpeg Windows) — `derush_config.seed.json`, présent à la racine sur cette machine, est donc automatiquement inclus dans le zip transféré. Sur le Mac : `./build_mac.sh` bundle le fichier tel quel (même logique conditionnelle dans `derush.spec`, cross-plateforme). Résultat : l'app Mac de Paola aura la sync déjà configurée dès la première installation, sans passer par ⚙️ Configuration.
+
+**Transfert allégé** : pas besoin de repasser par `zip_for_mac.ps1` juste pour propager une mise à jour du seed — copier uniquement `derush_config.seed.json` à la racine du projet sur le Mac (à côté de `derush_config.seed.example.json`) avant `./build_mac.sh` suffit, le fichier n'a besoin d'exister nulle part ailleurs que sur le disque de la machine qui build.
+
+# État au 27 juillet 2026 (suite) — v0.3.25 : ajout de la target `.dmg` pour le build Mac
+
+## Demande
+En plus du `.zip`, pouvoir distribuer le build Mac en `.dmg` (format d'installation standard macOS, glisser-déposer dans `/Applications`) pour un collaborateur.
+
+## Fix
+`electron/package.json` : `mac.target` passe de `[{target: 'zip', arch: ['arm64']}]` à `[{target: 'zip', ...}, {target: 'dmg', arch: ['arm64']}]` — les deux formats sont produits par le même `npm run build:mac` / `./build_mac.sh`, aucun script séparé. Nouveau bloc `dmg: {sign: false}` (pas de signature de code disponible, comme `identity: null` déjà en place pour l'app elle-même — `sign: false` évite que `dmg-builder` tente quand même de signer l'image disque).
+
+Le mécanisme de seed (`derush_config.seed.json`, v0.3.24) est **indépendant du format de sortie** — un `.dmg` construit sur une machine où le seed est présent contient la sync déjà configurée exactement comme le `.zip`.
+
+`build_mac.sh` : le récapitulatif de fin de build détecte maintenant zip ET dmg séparément (`ls -t electron/dist/*.zip` / `*.dmg`), affiche les deux avec leurs instructions d'installation respectives (dézipper vs glisser dans Applications). Même avertissement Gatekeeper dans les deux cas (app non signée, clic droit → Ouvrir) — un `.dmg` ne dispense pas de ça, seule une vraie signature Apple Developer ID le ferait.

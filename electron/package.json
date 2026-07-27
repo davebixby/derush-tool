@@ -1,6 +1,6 @@
 {
   "name": "derush-tool-electron",
-  "version": "0.3.24",
+  "version": "0.3.25",
   "description": "Electron wrapper for Derush Tool — bundles Chromium + Python backend",
   "main": "main.js",
   "scripts": {
@@ -46,7 +46,8 @@
     },
     "mac": {
       "target": [
-        { "target": "zip", "arch": ["arm64"] }
+        { "target": "zip", "arch": ["arm64"] },
+        { "target": "dmg", "arch": ["arm64"] }
       ],
       "icon": "../derush_icon.icns",
       "category": "public.app-category.video",
@@ -54,6 +55,10 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "identity": null
+    },
+    "dmg": {
+      "artifactName": "DerushTool-${version}-mac-${arch}.${ext}",
+      "sign": false
     },
     "publish": [
       {

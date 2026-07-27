@@ -4,6 +4,13 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.25] — 2026-07-27
+
+### ✨ Ajouté
+- **Build macOS au format `.dmg`** en plus du `.zip` existant : nouvelle target `dmg` dans `electron/package.json` (arm64). Installation par glisser-déposer dans `/Applications` plutôt que dézipper manuellement. Même limitation que le zip côté Gatekeeper (app non signée — clic droit → Ouvrir au premier lancement). `build_mac.sh` rapporte désormais les deux artefacts produits (zip + dmg) avec leurs instructions respectives.
+
+---
+
 ## [0.3.24] — 2026-07-27
 
 ### ✨ Ajouté

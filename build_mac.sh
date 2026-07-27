@@ -138,16 +138,27 @@ echo "  BUILD TERMINE"
 echo "========================================================"
 echo ""
 ZIP=$(ls -t "$ROOT/electron/dist/"*.zip 2>/dev/null | head -1)
+DMG=$(ls -t "$ROOT/electron/dist/"*.dmg 2>/dev/null | head -1)
 if [ -n "$ZIP" ]; then
     SIZE=$(du -h "$ZIP" | awk '{print $1}')
     ok "Zip pret : $ZIP ($SIZE)"
+fi
+if [ -n "$DMG" ]; then
+    SIZE=$(du -h "$DMG" | awk '{print $1}')
+    ok "DMG pret : $DMG ($SIZE)"
+fi
+if [ -n "$ZIP" ] || [ -n "$DMG" ]; then
     echo ""
-    echo "Pour tester :"
+    echo "Pour tester (zip) :"
     echo "  1. Decompresse le zip dans /Applications ou un dossier"
     echo "  2. Premier lancement : clic droit sur DerushTool.app -> Ouvrir"
     echo "     (sinon Gatekeeper refuse car app non-signee)"
     echo "  3. Confirme 'Ouvrir' dans la popup"
     echo "  4. Pour le MBP M2 : copie simplement le .zip et refais clic droit -> Ouvrir"
+    echo ""
+    echo "Pour tester (dmg) :"
+    echo "  1. Double-clic sur le .dmg, glisse DerushTool.app dans Applications"
+    echo "  2. Premier lancement : clic droit sur DerushTool.app -> Ouvrir (meme raison, app non-signee)"
 else
-    fail "Aucun zip trouve dans electron/dist/" "Verifie les logs Electron"
+    fail "Aucun zip ni dmg trouve dans electron/dist/" "Verifie les logs Electron"
 fi

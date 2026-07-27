@@ -2621,8 +2621,24 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="dmg-target">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.25</span>
+    <span class="entry-title">Ajout de la target .dmg pour le build Mac</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Sébastien demande, en creusant la question du seed sync : est-ce qu'un <code>.dmg</code> (format d'installation standard macOS) est possible en plus du <code>.zip</code>, pour distribuer plus proprement à un collaborateur ?</p>
+
+  <p>Oui — c'est une simple target supplémentaire d'<code>electron-builder</code>, indépendante du mécanisme de seed sync mis en place juste avant (v0.3.24) : le seed est lu localement au moment du build, peu importe le format d'empaquetage choisi ensuite. Ajout de <code>{target: 'dmg', arch: ['arm64']}</code> à côté du <code>zip</code> existant dans <code>electron/package.json</code>, plus un bloc <code>dmg: {sign: false}</code> pour ne pas tenter de signer l'image disque (pas de certificat Apple Developer ID configuré, cohérent avec <code>identity: null</code> déjà en place pour l'app).</p>
+
+  <p><code>build_mac.sh</code> détecte désormais zip et dmg séparément dans son résumé de fin, avec les instructions d'installation propres à chacun. Même limitation dans les deux cas : app non signée → Gatekeeper bloque au premier lancement, clic droit → Ouvrir requis quel que soit le format — le <code>.dmg</code> change juste la façon de copier l'app (glisser dans Applications plutôt que dézipper), pas cet avertissement.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.24 — build prêt à l'emploi pour la sync cloud)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.25 — ajout de la target .dmg pour le build Mac)
 </div>
 
 </main>
