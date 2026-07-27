@@ -2693,8 +2693,26 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="clear-comments-full-fix">
+  <div class="entry-header">
+    <span class="entry-date">27 juillet 2026 · v0.3.29</span>
+    <span class="entry-title">"Effacer les commentaires" ne supprimait vraiment rien nulle part</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour terrain sur le bouton 🗑 Effacer les commentaires (v0.3.22) : « ça laisse toujours "Ok mais des lunettes c'est bizarre non", et ça ne les supprime pas sur les autres machines ».</p>
+
+  <div class="box box-fail"><strong>Deux bugs cumulés dans le fix initial :</strong> (1) le fichier persistant côté <code>derush_sync.php</code> (un <code>.jsonl</code> par lien, alimenté par chaque commentaire externe soumis) n'était jamais purgé par le bouton — seule la révocation complète du lien le faisait. Toute machine qui repullait, y compris celle qui venait de cliquer Effacer via son propre poll automatique, retéléchargeait donc les mêmes commentaires depuis ce fichier resté intact. (2) <code>pull_share_comments()</code> ne faisait qu'ajouter les nouveaux commentaires au cache local, sans jamais rien retirer — même le serveur purgé, un cache déjà peuplé ailleurs n'aurait jamais perdu ses entrées. Les deux bugs ensemble expliquent exactement les deux symptômes observés.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> nouvelle action <code>clear_comments</code> côté PHP (purge le fichier du token sans toucher au lien lui-même), appelée en plus du nettoyage local. Le pull des commentaires ne fait plus de fetch incrémental : il retélécharge tout à chaque appel et <strong>remplace</strong> le cache local plutôt que de le compléter — seul moyen simple de garantir qu'une suppression se propage vraiment à toutes les machines. Volume attendu (une poignée de commentaires de review) rend ce fetch complet négligeable en coût.</p>
+
+  <p><strong>Point d'attention :</strong> ce fix nécessite de réuploader <code>derush_sync.php</code> sur l'hébergement — vérifié par un appel direct contre le serveur en ligne, l'action n'est pas reconnue tant que l'ancien fichier reste déployé (le fichier réel est gitignored, un simple <code>git pull</code> ne le met jamais à jour). Le nettoyage local fonctionne déjà sans ça, mais la propagation cross-machine attend le redéploiement.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.28 — fix du vrai bug : id retiré par erreur de /config)
+  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.29 — suppression des commentaires externes enfin propagée partout)
 </div>
 
 </main>

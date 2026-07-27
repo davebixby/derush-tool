@@ -1079,7 +1079,13 @@ Labels : « Image » → « Problème image », « Son » → « Problème son �
 
 **Détails serveur PHP étendus** : voir `derush_sync.example.php` (template avec `SECRET_KEY = 'CHANGEME'` placeholder) — le vrai `derush_sync.php` contient la clé hardcodée et est exclu du repo via `.gitignore`.
 
-**Suppression des commentaires reçus** : `revoke_share` supprime le lien (`proj['share']`) mais laissait `proj['share_comments']` intact — les commentaires restaient visibles même après révocation. `clear_share_comments(pid)` (endpoint `share/clear_comments`) vide `proj['share_comments']` sans toucher au lien ni à `comments_last_pulled` — comme ce curseur reste avancé, les commentaires effacés ne sont pas re-téléchargés au pull automatique suivant. Bouton `🗑 Effacer les commentaires` dans `js/share.js`, confirmation par re-clic sous 8s (`confirm2Step`, même logique anti-`confirm()`-natif que le garde-fou de rescan).
+**Suppression des commentaires reçus** : `revoke_share` supprime le lien (`proj['share']`) mais laissait `proj['share_comments']` intact — les commentaires restaient visibles même après révocation. `clear_share_comments(pid)` (endpoint `share/clear_comments`) vide `proj['share_comments']` sans toucher au lien. Bouton `🗑 Effacer les commentaires` dans `js/share.js`, confirmation par re-clic sous 8s (`confirm2Step`, même logique anti-`confirm()`-natif que le garde-fou de rescan).
+
+**v0.3.29 — la suppression ne propageait pas aux autres machines** : le fix initial (ci-dessus) ne vidait que le cache local de la machine cliquée. Le fichier JSONL persistant côté `derush_sync.php` (un fichier par lien, alimenté par `add_comment`) n'était jamais purgé — seul `revoke_share` le faisait, en tuant le lien entier. Toute machine (y compris celle qui venait d'« effacer ») qui repullait ultérieurement retéléchargeait donc les mêmes commentaires depuis ce fichier intact. Aggravant : `pull_share_comments()` ne faisait qu'AJOUTER les nouveaux commentaires à `proj['share_comments']`, sans jamais rien retirer — une suppression ne pouvait donc structurellement jamais se propager, même le serveur purgé, tant que le cache local de chaque machine n'était pas lui aussi explicitement vidé.
+
+Fix complet : nouvelle action `clear_comments` dans `derush_sync.php` (purge le JSONL du token, sans toucher au `.json` du package — contrairement à `revoke_share` qui supprime les deux). `clear_share_comments()` l'appelle en plus du nettoyage local. `pull_share_comments()` ne fait plus de fetch incrémental par `since` : il retélécharge l'intégralité des commentaires actuels à chaque appel et **remplace** `proj['share_comments']` plutôt que de le compléter — le seul moyen simple de rendre une suppression cohérente sur toutes les machines, sans tombstone. Volume attendu (une poignée de commentaires de review par petite équipe) rend le fetch complet négligeable en coût. Effet de bord positif : le reset de `comments_last_pulled = None` par `create_share`/`refreshShare()` (qui pouvait auparavant redéclencher un re-fetch complet involontaire) devient inoffensif, puisque le fetch est désormais toujours complet de toute façon.
+
+**⚠️ Nécessite un redéploiement manuel** : `derush_sync.php` doit être réuploadé sur l'hébergement (`sebastiendelahaye.be`) pour que `clear_comments` soit reconnu — vérifié par `curl` direct contre le serveur en ligne au moment du fix : action pas encore reconnue tant que l'ancien fichier reste déployé. `derush_sync.example.php` (template public) mis à jour en parallèle.
 
 ## Sync cloud hardening
 
@@ -1638,3 +1644,22 @@ Confirme aussi rétroactivement pourquoi Paola et davebixby n'étaient jamais af
 
 ## Fix
 `id` n'est plus retiré de la réponse. Un seul point de code concerné dans tout `derush_server.py` (vérifié par recherche du commentaire « Strip sensitive fields »), corrigé et validé en simulant la réponse `/config` avec le vrai fichier projet : `Sebastien` a maintenant `"id": "6714b070"` dans la réponse, `Paola`/`davebixby` gardent `"id": null` (sans régression, leur résolution de clé passe déjà par `username`).
+
+# État au 27 juillet 2026 (suite) — v0.3.29 : « Effacer les commentaires » ne supprimait vraiment rien nulle part
+
+## Symptôme
+Sébastien : « en cliquant sur Effacer, ça laisse toujours "Ok mais des lunettes c'est bizarre non", et ça ne les supprime pas sur les autres machines. »
+
+## Root cause (deux bugs cumulés dans le fix de la v0.3.22)
+1. Le fichier persistant côté `derush_sync.php` (un `.jsonl` par lien de partage, alimenté par chaque `add_comment` externe) n'était **jamais purgé** par « Effacer » — seule `revoke_share` le faisait, en tuant le lien entier au passage. Toute machine qui repullait (y compris celle qui venait de cliquer Effacer, via le poll automatique) retéléchargeait donc les mêmes commentaires depuis ce fichier resté intact.
+2. `pull_share_comments()` ne faisait qu'**ajouter** les commentaires reçus au cache local, sans jamais rien retirer. Même en supposant le point 1 réglé, un cache local déjà peuplé sur une AUTRE machine ne pouvait jamais perdre un commentaire supprimé ailleurs — rien ne le lui redemandait.
+
+Ces deux bugs cumulés expliquent exactement les deux symptômes rapportés : le commentaire revient toujours (bug 1, sur la machine qui clique Effacer elle-même, via le pull automatique suivant), et il ne disparaît jamais ailleurs (bug 2, structurellement, quelle que soit la machine).
+
+## Fix
+- Nouvelle action `clear_comments` dans `derush_sync.php` (et son template public `derush_sync.example.php`) : supprime le `.jsonl` du token sans toucher au package JSON du lien lui-même.
+- `clear_share_comments()` (Python) appelle cette action en plus de vider le cache local.
+- `pull_share_comments()` retélécharge désormais l'intégralité des commentaires à chaque appel (plus de fetch incrémental par `since`) et **remplace** `proj['share_comments']` au lieu de le compléter — un commentaire supprimé côté serveur disparaît donc de toutes les machines dès leur prochain pull, automatique ou manuel. Volume attendu (une poignée de commentaires pour une petite équipe) rend le coût du fetch complet négligeable.
+
+## ⚠️ Action requise, hors code
+Vérifié par `curl` direct contre le serveur en ligne : `clear_comments` n'est pas reconnu tant que le nouveau `derush_sync.php` n'est pas réuploadé sur `sebastiendelahaye.be` (le fichier déployé est gitignored, jamais mis à jour automatiquement par un git pull). Le fix Python fonctionne déjà en local (vide le cache) même sans le redéploiement, mais la propagation cross-machine reste incomplète tant que ce n'est pas fait.

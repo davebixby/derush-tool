@@ -4,6 +4,14 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.29] — 2026-07-27
+
+### 🐛 Corrigé
+- **« Effacer les commentaires » (retours externes) incomplet — un commentaire revenait toujours, jamais supprimé sur les autres machines** : le bouton (v0.3.22) ne vidait que le cache local de la machine cliquée — le fichier persistant côté serveur (`derush_sync.php`, JSONL par lien de partage) n'était jamais purgé, sauf par « Révoquer » qui tue le lien entier. Résultat : un pull ultérieur (automatique ou manuel), sur **n'importe quelle machine** de l'équipe, retéléchargeait les commentaires soi-disant effacés depuis ce fichier toujours intact. Le mécanisme de pull lui-même (`pull_share_comments`) ne faisait par ailleurs qu'ajouter les nouveaux commentaires sans jamais retirer les anciens du cache local — une suppression ne pouvait donc structurellement jamais se propager, même en corrigeant le premier point seul.
+- Fix : nouvelle action serveur `clear_comments` dans `derush_sync.php` (purge le fichier JSONL du lien sans le révoquer) — **nécessite de réuploader `derush_sync.php` sur l'hébergement pour prendre effet**. `clear_share_comments()` l'appelle en plus de vider le cache local. `pull_share_comments()` retélécharge désormais l'intégralité des commentaires à chaque pull et **remplace** le cache local au lieu de le compléter — un commentaire supprimé côté serveur disparaît donc bien de toutes les machines dès leur prochain pull, automatique ou manuel.
+
+---
+
 ## [0.3.28] — 2026-07-27
 
 ### 🐛 Corrigé

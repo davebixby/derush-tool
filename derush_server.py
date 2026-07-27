@@ -4396,14 +4396,30 @@ def create_share(pid):
     return {'ok': True, 'token': token, 'url': viewer_url, 'expires_at': expires_at}
 
 def clear_share_comments(pid):
-    """Supprime tous les commentaires externes reçus (retours du lien de review), sans
-    toucher au lien lui-même. `comments_last_pulled` n'est PAS remis à zéro : les anciens
-    commentaires ne seront donc pas re-téléchargés au prochain pull automatique."""
+    """Supprime tous les commentaires externes reçus (retours du lien de review),
+    SUR LE SERVEUR CLOUD en plus du cache local — sans ça, un pull ultérieur (fait
+    en tâche de fond, ou depuis N'IMPORTE QUELLE AUTRE machine de l'équipe) les
+    retélécharge depuis le fichier JSONL persistant côté PHP, qui n'était jamais
+    purgé (seul revoke_share le faisait, en tuant le lien entier). Incident du 27
+    juillet 2026 : un commentaire revenait systématiquement après effacement, et
+    ne disparaissait jamais sur les autres machines. Ne touche pas au lien lui-même."""
+    proj = load_project(pid)
+    if not proj:
+        return {'ok': False, 'error': 'Projet introuvable'}
+    token = (proj.get('share') or {}).get('token')
+    if token and SYNC_URL and SYNC_KEY:
+        try:
+            url = f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&action=clear_comments&token={token}"
+            req = urllib.request.Request(url, method='POST', headers=_sync_headers())
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+        except Exception:
+            pass  # On efface quand même localement — mieux que rien si le cloud est injoignable
     with _project_lock(pid):
-        proj = load_project(pid)
-        if not proj:
-            return {'ok': False, 'error': 'Projet introuvable'}
+        proj = load_project(pid) or proj
         proj['share_comments'] = {}
+        if proj.get('share'):
+            proj['share']['comments_last_pulled'] = datetime.now().isoformat(timespec='seconds')
         save_project(pid, proj)
     return {'ok': True}
 
@@ -4439,60 +4455,63 @@ def _get_share_lock(pid):
         return _share_pull_locks[pid]
 
 def pull_share_comments(pid):
-    """Récupère les nouveaux commentaires externes depuis le cloud, les stocke dans
-    proj['share_comments'][clip_id] = [{name, text, ts}].
-    Lock per-pid + dédoublonnage rétroactif pour absorber les copies déjà accumulées."""
+    """Récupère TOUS les commentaires externes actuellement sur le cloud et
+    REMPLACE proj['share_comments'] avec ce résultat complet (pas un merge additif).
+
+    Avant (jusqu'au 27 juillet 2026) : fetch incrémental via `since` + append des
+    seuls nouveaux commentaires, jamais de suppression du cache local. Résultat :
+    un commentaire supprimé côté cloud (bouton Effacer) restait indéfiniment dans
+    le cache local de TOUTE machine qui l'avait déjà pullé une fois, puisque rien
+    ne redemandait jamais son statut — une suppression ne pouvait donc jamais se
+    propager. Fetch complet à chaque pull : le volume attendu (une poignée de
+    commentaires de review pour une petite équipe) rend le coût négligeable, et
+    c'est le seul moyen simple de rendre les suppressions cohérentes partout.
+
+    Lock per-pid pour éviter les races d'écriture concurrentes sur le même projet."""
     with _get_share_lock(pid):
         proj = load_project(pid)
         if not proj or not proj.get('share') or not SYNC_URL or not SYNC_KEY:
             return {'ok': False, 'count': 0}
         token = proj['share']['token']
-        # IMPORTANT: si comments_last_pulled est None (jamais pullé), on doit envoyer
-        # chaîne vide, sinon PHP reçoit "None" et la comparaison '2026-...' <= 'None'
-        # est True alphanumériquement → tous les commentaires sont filtrés.
-        since = proj['share'].get('comments_last_pulled') or ''
         try:
-            url = f"{SYNC_URL.rstrip('/')}?key={SYNC_KEY}&action=poll_comments&token={token}&since={since}"
+            url = f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&action=poll_comments&token={token}&since="
             req = urllib.request.Request(url, headers=_sync_headers())
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
         except Exception as e:
             return {'ok': False, 'error': str(e), 'count': 0}
 
-        sc = proj.setdefault('share_comments', {})
-        # Dédup rétroactif : nettoie les copies déjà accumulées avant le fix.
-        for cid in list(sc.keys()):
-            seen = set()
-            deduped = []
-            for c in sc[cid]:
-                key = (c.get('ts', ''), c.get('text', ''))
-                if key in seen: continue
-                seen.add(key)
-                deduped.append(c)
-            sc[cid] = deduped
+        old_keys = set()
+        for cid, items in (proj.get('share_comments') or {}).items():
+            for it in items:
+                old_keys.add((cid, it.get('ts', ''), it.get('text', '')))
 
-        new_comments = data.get('comments', [])
-        added = 0
-        max_ts = since
-        for c in new_comments:
+        sc = {}
+        seen = set()
+        new_count = 0
+        max_ts = ''
+        for c in data.get('comments', []):
             cid = c.get('clip_id', '')
             if not cid: continue
-            sc.setdefault(cid, [])
-            existing_keys = {(x.get('ts', ''), x.get('text', '')) for x in sc[cid]}
-            key = (c.get('ts', ''), c.get('text', ''))
-            if key not in existing_keys:
-                sc[cid].append({
-                    'name': c.get('name', 'Anonyme')[:80],
-                    'text': c.get('text', '')[:2000],
-                    'ts': c.get('ts', datetime.now().isoformat(timespec='seconds')),
-                })
-                added += 1
+            key = (cid, c.get('ts', ''), c.get('text', ''))
+            if key in seen: continue
+            seen.add(key)
+            sc.setdefault(cid, []).append({
+                'name': c.get('name', 'Anonyme')[:80],
+                'text': c.get('text', '')[:2000],
+                'ts': c.get('ts', datetime.now().isoformat(timespec='seconds')),
+            })
+            if key not in old_keys:
+                new_count += 1
             if c.get('ts', '') > max_ts:
                 max_ts = c['ts']
-        proj['share']['comments_last_pulled'] = max_ts
+
+        proj['share_comments'] = sc
+        if max_ts:
+            proj['share']['comments_last_pulled'] = max_ts
         with _project_lock(pid):
             save_project(pid, proj)
-        return {'ok': True, 'count': added}
+        return {'ok': True, 'count': new_count}
 
 def sync_all_projects():
     """Synchronise tous les projets connus + pull les commentaires share externes."""

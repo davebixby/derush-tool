@@ -15,8 +15,9 @@
  *   POST ?action=add_comment&token=<token>  + body  → ajoute un commentaire
  *
  * SHARE — admin (key required):
- *   POST ?key=SECRET&action=create_share&token=<token> + body → stocke package
- *   POST ?key=SECRET&action=revoke_share&token=<token>        → supprime share
+ *   POST ?key=SECRET&action=create_share&token=<token>  + body → stocke package
+ *   POST ?key=SECRET&action=revoke_share&token=<token>          → supprime share + commentaires
+ *   POST ?key=SECRET&action=clear_comments&token=<token>        → supprime les commentaires SANS révoquer le lien
  *   GET  ?key=SECRET&action=poll_comments&token=<token>&since=<ts> → comments depuis ts
  */
 
@@ -132,6 +133,15 @@ if ($action === 'create_share' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($action === 'revoke_share' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$token) { http_response_code(400); echo '{"error":"Token requis"}'; exit; }
     @unlink($SHARE_DIR . $token . '.json');
+    @unlink($SHARE_DIR . $token . '_comments.jsonl');
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// Efface les commentaires reçus SANS révoquer le lien (contrairement à revoke_share
+// qui supprime tout).
+if ($action === 'clear_comments' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!$token) { http_response_code(400); echo '{"error":"Token requis"}'; exit; }
     @unlink($SHARE_DIR . $token . '_comments.jsonl');
     echo json_encode(['ok' => true]);
     exit;
