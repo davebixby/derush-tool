@@ -273,7 +273,8 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 | `renderTags()` | affiche les tags du clip actif comme chips cliquables |
 | `handleTagInput(e)` | Entrée ou virgule → ajoute tag dans allNotes + renderTags |
 | `removeTag(tag)` | supprime tag avec pushUndo |
-| `renderMultiUser()` | panneau "Avis des autres" : rating + note + markers + replies |
+| `renderMultiUser()` | panneau "Avis des autres" : rating + note + markers (cliquables → seek) + replies |
+| `_muSeekMarker(time, e)` | clic sur un marker d'un collaborateur dans "Avis des autres" → `player.currentTime = time`. Ignore les clics dans `.mu-reply-form` imbriqué |
 | `submitReply(btn, clipId, markerId)` | POST reply → refresh discussions |
 | `loadWaveform(clip)` | fetch /waveform/, stocke peaks, appelle drawWaveform |
 | `drawWaveform()` | dessine sur canvas dans timeline-bar |
@@ -1684,3 +1685,13 @@ except ImportError:
 `SSL_CERT_FILE` est lu par `ssl.get_default_verify_paths()` (donc par tout `create_default_context()` implicite derrière `urlopen`) — poser la variable avant la première requête suffit à couvrir tous les sites d'appel sans toucher à chacun individuellement. PyInstaller bundle automatiquement `certifi/cacert.pem` dès que le module est importé (hook natif, pas de configuration `derush.spec` nécessaire) — vérifié dans `dist/DerushTool/_internal/certifi/cacert.pem` après rebuild.
 
 Sans risque de régression Windows : `SSL_CERT_FILE` pointant vers un bundle de certs valide et à jour (certifi) fonctionne aussi bien qu'un magasin de certs OS, juste une source différente pour les mêmes autorités de confiance.
+
+# État au 28 juillet 2026 — v0.3.31 : markers des collaborateurs cliquables (seek)
+
+## Demande
+Les markers des collaborateurs apparaissaient déjà (avec réponses) dans le panneau « Avis des autres ». Demande : pouvoir cliquer dessus pour amener directement la lecture au bon endroit de la timeline — comme c'est déjà le cas pour ses propres markers (liste de gauche + pins timeline, `renderMarkers()`).
+
+## Fix
+`renderMultiUser()` (`derush_app.html`) : chaque bloc `.mu-marker` reçoit `onclick="_muSeekMarker(m.time, event)"`. Nouvelle fonction `_muSeekMarker(time, e)` (juste avant `submitReply`) : pose `player.currentTime = time`, sauf si le clic vient du formulaire de réponse imbriqué (`e.target.closest('.mu-reply-form')`) — pour ne pas voler le focus de l'input quand on répond à un marker. CSS `.mu-marker` : `cursor:pointer` + surbrillance au survol (clair/sombre).
+
+Portée volontairement limitée au panneau « Avis des autres » : les markers de l'utilisateur courant (`renderMarkers()`) avaient déjà ce comportement (`div.onclick` sur `.marker-row` et `mousedown` sur les pins timeline), aucun changement nécessaire là.

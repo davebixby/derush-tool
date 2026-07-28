@@ -361,7 +361,9 @@
         .mu-block:last-child { margin-bottom:0; }
         .mu-user-header { display:flex;align-items:center;gap:6px;margin-bottom:4px; }
         .mu-note { font-size:0.78em;color:var(--fg);background:rgba(255,255,255,0.04);border-radius:4px;padding:4px 6px;margin-bottom:4px;white-space:pre-wrap;line-height:1.4; }
-        .mu-marker { display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:3px 0;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.04); }
+        .mu-marker { display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:3px 0;font-size:0.8em;border-top:1px solid rgba(255,255,255,0.04);cursor:pointer;border-radius:3px; }
+        .mu-marker:hover { background:rgba(255,255,255,0.05); }
+        body.light-mode .mu-marker:hover { background:rgba(0,0,0,0.05); }
         .mu-replies { width:100%;margin:3px 0 2px 10px;border-left:2px solid rgba(255,255,255,0.07);padding-left:8px; }
         .mu-reply { font-size:0.75em;padding:1px 0;color:var(--dim);line-height:1.5; }
         .mu-reply strong { font-size:1em; }
@@ -2714,6 +2716,14 @@ function startNotesPolling() {
     }, 15000);
 }
 
+// Clic sur un marker d'un autre user (panneau "Avis des autres") → seek le lecteur
+// à la position exacte. Ignore les clics dans le formulaire de réponse imbriqué.
+function _muSeekMarker(time, e) {
+    if(e && e.target.closest('.mu-reply-form')) return;
+    const v = document.getElementById('player');
+    if(v && !isNaN(time)) v.currentTime = time;
+}
+
 async function submitReply(btn, clipId, markerId) {
     const form = btn.closest('.mu-reply-form');
     const input = form.querySelector('input');
@@ -3451,7 +3461,7 @@ function renderMultiUser() {
             const replyForm = m.id
                 ? `<div class="mu-reply-form"><input type="text" placeholder="Répondre…" onkeydown="if(event.key==='Enter')submitReply(this.nextElementSibling,'${clipId}','${m.id}')"><button onclick="submitReply(this,'${clipId}','${m.id}')">↩</button></div>`
                 : '';
-            return `<div class="mu-marker"><span style="font-family:monospace;font-size:0.78em;color:var(--dim);">${m.tc||''}</span><span style="color:${col};font-size:0.78em;">${lbl}</span>${m.desc ? `<span style="font-size:0.8em;">${m.desc}</span>` : ''}<div class="mu-replies">${repliesHtml}${replyForm}</div></div>`;
+            return `<div class="mu-marker" title="Cliquer pour aller à ${m.tc||''}" onclick="_muSeekMarker(${JSON.stringify(m.time || 0)}, event)"><span style="font-family:monospace;font-size:0.78em;color:var(--dim);">${m.tc||''}</span><span style="color:${col};font-size:0.78em;">${lbl}</span>${m.desc ? `<span style="font-size:0.8em;">${m.desc}</span>` : ''}<div class="mu-replies">${repliesHtml}${replyForm}</div></div>`;
         }).join('') : '';
 
         return `<div class="mu-block">

@@ -4,6 +4,13 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.31] — 2026-07-28
+
+### ✨ Ajouté
+- **Cliquer sur un marker d'un collaborateur (panneau « Avis des autres ») déplace la lecture au bon endroit** : jusqu'ici seuls vos propres markers (liste + pins de la timeline) faisaient sauter le lecteur au clic ; ceux des autres, affichés avec leurs réponses dans le panneau « Avis des autres », n'étaient que du texte. Un clic dessus positionne maintenant la tête de lecture exactement au TC du marker — le clic dans le mini-formulaire de réponse imbriqué reste sans effet sur la lecture.
+
+---
+
 ## [0.3.30] — 2026-07-27
 
 ### 🐛 Corrigé

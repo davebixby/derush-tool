@@ -2729,8 +2729,22 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="mu-marker-seek">
+  <div class="entry-header">
+    <span class="entry-date">28 juillet 2026 · v0.3.31</span>
+    <span class="entry-title">Cliquer sur un marker d'un collaborateur déplace la lecture</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : au-delà de voir apparaître les markers des collaborateurs (avec leurs réponses) dans le panneau « Avis des autres », pouvoir cliquer dessus pour amener directement le lecteur à l'endroit exact de la timeline — jusqu'ici, seuls ses <em>propres</em> markers (liste de gauche + pins sur la timeline) faisaient ça au clic ; ceux affichés dans « Avis des autres » (<code>renderMultiUser()</code>) n'étaient que du texte statique.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> chaque bloc <code>.mu-marker</code> reçoit un <code>onclick="_muSeekMarker(m.time, event)"</code> — nouvelle fonction qui pose <code>player.currentTime = time</code>, sauf si le clic vient du mini-formulaire de réponse imbriqué à l'intérieur du même bloc (<code>e.target.closest('.mu-reply-form')</code>, pour ne pas voler le focus de l'input quand on répond). Curseur pointer + surbrillance au survol en CSS pour signaler que c'est cliquable.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 27 juillet 2026 (v0.3.30 — fix sync macOS : certificat SSL)
+  Derush Tool · Journal de développement · Dernière mise à jour 28 juillet 2026 (v0.3.31 — markers des collaborateurs cliquables pour seek)
 </div>
 
 </main>
