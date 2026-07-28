@@ -115,7 +115,11 @@ function _mcAttachAudio(a) {
     const hasLtc = (a.clip && a.clip.ltc_tc_in_sec != null);
     if (!hasLtc) { a._monoR = false; return; }
     try {
-        const ctx = window._mcAudioCtx || (window._mcAudioCtx = new (window.AudioContext || window.webkitAudioContext)());
+        let ctx = window._mcAudioCtx;
+        if (!ctx) {
+            ctx = window._mcAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (typeof _pinStereoDestination === 'function') _pinStereoDestination(ctx);
+        }
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const src = ctx.createMediaElementSource(a.vidEl);
         const splitter = ctx.createChannelSplitter(2);

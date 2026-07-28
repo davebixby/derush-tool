@@ -1707,3 +1707,87 @@ Le mécanisme de réponse (`proj['discussions'][clip_id][marker_id]`, endpoint `
 `renderMultiUser()` (`derush_app.html`) : chaque bloc `.mu-block` reçoit un `.mu-note-thread` (réponses existantes + `<input>`/bouton ↩, même markup que `.mu-reply-form` des markers) après la note et les markers — y compris dans le cas « pas encore annoté » (permet de relancer un collaborateur avant même qu'il ait noté le clip). CSS : `.mu-note-thread .mu-replies` a une bordure gauche en pointillés pour se distinguer visuellement des réponses de marker (bordure pleine).
 
 Le rafraîchissement temps réel (`discussion_updated` WebSocket → `renderMultiUser()` + `renderMarkers()`, déjà en place depuis la v0.3.21) couvre ce nouveau fil sans modification : `renderMultiUser()` reconstruit tout son HTML depuis `allDiscussions` à chaque appel, qu'il s'agisse d'un `marker_id` réel ou synthétique.
+
+# État au 28 juillet 2026 (suite) — v0.3.33 : son uniquement à droite sur Mac (hypothèse, non vérifiée)
+
+## Symptôme
+« Sur mac je n'entends que le son à droite, avec ou sans écouteurs. » YouTube sur la même machine joue les deux canaux normalement, jamais reproduit sur Windows dans cette session — donc probablement isolé au graphe WebAudio de Derush, pas à un réglage système.
+
+## Root cause (hypothèse la plus solide trouvée, pas confirmée sur machine réelle)
+Trois endroits construisent un graphe WebAudio pour le son des clips — `_attachPlayerAudio()` (`derush_app.html`, lecteur principal, **actif sur tous les clips**), `_attachCmpSlotAudio()` (`js/compare.js`, comparateur, **actif sur tous les clips**), `_mcAttachAudio()` (`js/multicam-viewer.js`, viewer multicam, actif seulement sur les clips avec LTC) — tous avec le même pattern `createMediaElementSource` → `ChannelSplitter`/`ChannelMerger` → `ctx.destination`, sans jamais fixer le nombre de canaux de la destination.
+
+Indice trouvé en comparant au code voisin : `_routeBwfMultiChannel()` (`js/audio-bwf.js`, pour le "Son ingé" BWF multipistes) force déjà `src.channelInterpretation = 'discrete'` — preuve que ce fichier a déjà eu affaire à un problème de mixage de canaux par le passé, mais ce traitement n'a jamais été étendu au chemin audio ordinaire des clips. Sur un Mac dont la sortie audio expose plus de 2 canaux au navigateur (haut-parleurs "spatial audio" des MacBook Pro récents type M1 Pro/Max/M2 Pro/Max, ou une sortie agrégée), Chromium up-mixe un signal stéréo brut connecté à une destination >2 canaux selon un layout de haut-parleurs ("speakers") qui ne correspond pas forcément au signal réel — classe de bug Web Audio documentée pouvant faire atterrir tout le son sur un seul canal physique.
+
+## Fix
+Nouvelle fonction `_pinStereoDestination(ctx)` (`derush_app.html`, définie dans le script inline principal donc visible de tous les modules `js/*.js` chargés après) :
+```javascript
+function _pinStereoDestination(ctx) {
+    try {
+        const dest = ctx.destination;
+        const maxCh = dest.maxChannelCount || 2;
+        dest.channelCount = Math.min(2, maxCh);
+        dest.channelCountMode = 'explicit';
+        dest.channelInterpretation = 'speakers';
+    } catch(e) {}
+}
+```
+Appelée juste après `new AudioContext()` dans les 3 sites de création de contexte (`_attachPlayerAudio`, `_attachCmpSlotAudio`, `_mcAttachAudio`). `_routeBwfMultiChannel()` réutilise un contexte déjà créé par l'un de ces 3 sites — pas besoin d'y toucher séparément, il en bénéficie automatiquement.
+
+Sans effet sur une sortie 2 canaux standard (le cas normal — `maxChannelCount` vaut alors déjà 2, aucun changement de comportement, donc aucun risque de régression Windows).
+
+## ⚠️ Non vérifié
+Pas de machine Mac disponible dans cet environnement pour reproduire/confirmer directement. Nécessite un rebuild Mac (`build_mac.sh`) + retest par Paola avant de considérer le bug clos. Si le symptôme persiste après ce fix, il faudra investiguer en conditions réelles (`ctx.destination.maxChannelCount`/`channelCount` dans la console DevTools Mac, lister les périphériques audio via `navigator.mediaDevices.enumerateDevices()`).
+
+# État au 28 juillet 2026 (suite) — v0.3.34 : un tag non validé "colle" au clip suivant
+
+## Symptôme rapporté
+« Quand Paola met "sanglier" comme tag sous un clip, si elle clique un autre clip, "sanglier" s'affiche comme tag [dessus]. Quand elle recherche "sanglier" dans la barre de recherche ça n'affiche aucun clip. »
+
+## Pistes écartées
+Hypothèse d'IDs de clip dupliqués (`clip_id = f"{day}_{camera}_{f.stem}"`, un vrai risque en théorie si deux fichiers du même jour/caméra partagent un nom — ex. compteur de fichier remis à zéro entre cartes SD) vérifiée sur `projects/drift_club.derush.json` : aucun doublon. Écartée aussi car les `clips[]` ne sont scannés qu'une fois (généralement par l'admin) et partagés via sync — Paola ne rescanne pas sur sa propre machine, donc pas de divergence d'ID possible entre elle et les autres.
+
+## Root cause réelle
+`#tagInput` (le `<input>` de saisie des tags, `derush_app.html`) n'était **jamais vidé** dans `selectClip()` au changement de clip — seul `#clipNotes` (textarea des notes) l'était. Un tag tapé sans être validé (`Entrée` ou `,` — le seul indice pour l'utilisateur est le placeholder discret `+ tag (Entrée)…`) restait donc affiché tel quel dans le champ en changeant de clip, donnant l'illusion qu'il "appartenait" au nouveau clip. Comme il n'a jamais été validé par `handleTagInput()`, il n'a jamais existé dans `allNotes` ni été envoyé au serveur — d'où l'absence totale de résultat en recherche. Une seule cause explique les deux symptômes ; aucune corruption de données réelle.
+
+## Fix
+`selectClip()` (`js/audio-bwf.js`) vide `#tagInput.value` juste après avoir rempli `#clipNotes`, au même endroit dans le flux.
+
+En creusant le chemin de recherche pendant ce diagnostic, gap trouvé en plus : un tag *validé* n'était poussé au serveur (donc indexé en FTS, donc trouvable en recherche) qu'à la prochaine sauvegarde périodique (`setInterval(saveNotes, 30000)`), jusqu'à 30s de latence + les 2s de debounce d'indexation côté serveur (`_schedule_index`). `handleTagInput()` et `removeTag()` (`derush_app.html`) appellent désormais `saveNotes(true)` immédiatement après modification — un tag est maintenant cherchable en quelques secondes au lieu de jusqu'à 32s.
+
+# État au 28 juillet 2026 (suite) — v0.3.35 : tags collaboratifs (visibles pour l'équipe, colorés, filtrables)
+
+## Constat en creusant le bug ci-dessus
+« Au-delà [du bug], je me rends compte qu'elle ne peut pas voir mes tags. » Vérifié : les tags étaient strictement privés côté rendu (comme les ratings/notes), alors que `allNotes` (chargé intégralement avec le projet via `GET /api/project/<pid>/notes` → `proj.get('notes', {})`, **toutes les clés utilisateur, pas seulement la sienne**) contient déjà les tags de tout le monde en mémoire côté client. Confirmé aussi que `search_index()`/`GET /api/search` (`derush_server.py`) n'a **jamais** filtré par `user_id` — seulement par `project_id` — donc chercher un tag d'un collaborateur fonctionnait déjà côté recherche ; seul l'affichage manquait. **Aucun changement serveur nécessaire pour cette feature.**
+
+## Demande
+« Ça serait bien pour chaque utilisateur de voir les tags des autres (…) ils peuvent apparaître de la couleur de l'utilisateur ainsi on sait qui a écrit quoi. À côté du tri par caméra ou jour, ça serait super d'avoir un tri par tag cochable qui se met à jour à chaque qu'un utilisateur crée un tag. »
+
+## Implémentation
+
+### Tags visibles + colorés par auteur
+`_clipTagEntries(clipId)` (`derush_app.html`) : parcourt `currentProject.users`, retourne `[{tag, uid, color, label}]` — un objet par (utilisateur, tag) présent sur ce clip.
+- **Sous le clip actif** : nouveau bloc `#teamTagsDisplay` (juste sous `#tagInput`, dans le panneau Notes), rempli par `renderTeamTags()` — reprend `_clipTagEntries()` en excluant l'utilisateur courant, chips en lecture seule teintées `border-color`/`color`/`background` de la couleur du collaborateur (`e.color + '22'` pour un fond très léger).
+- **Dans la liste des clips** (`renderClipList()`) : nouvelle variable `teamTags` = `_clipTagEntries(c.id)` (soi-même **inclus** cette fois, pour une vue complète sans ouvrir le clip), rendue dans une `<div class="team-ratings-row">` supplémentaire sous celle des ratings d'équipe (classe déjà existante, réutilisée telle quelle — même style que les chips de rating par couleur).
+
+### Filtre par tags cochable
+Nouveau bouton `#tagFilterBtn` ("🏷 Tags") à côté de `#filterCam`/`#filterDay` dans `.filter-selects`, ouvrant `#tagFilterMenu` (liste à cocher, position absolue, `z-index:60` cohérent avec les autres popups de la page).
+- `_allProjectTags()` : vocabulaire complet des tags du projet, calculé en parcourant `Object.values(allNotes)` (toute l'équipe) — pas d'appel serveur dédié.
+- `_rebuildTagFilterMenu()` : reconstruit la liste de checkboxes depuis `_allProjectTags()`, préserve les cases cochées (`_tagFilterSelected`, un `Set`), retire silencieusement de la sélection un tag qui n'existe plus nulle part (dernier clip démarqué), met à jour le libellé du bouton (`🏷 Tags (N)`) et sa classe `.active-filter`.
+- Filtrage OR dans `renderClipList()` : un clip passe le filtre s'il porte **au moins un** des tags cochés, toute l'équipe confondue (agrège `Object.values(allNotes)` par clip).
+- **Live update** : `_rebuildTagFilterMenu()` appelée à chaque rafraîchissement de `allNotes` — chargement initial du projet, poll 15s (`startNotesPolling`), WebSocket `notes_updated` — ainsi qu'immédiatement après un ajout/suppression de tag local (`handleTagInput`/`removeTag`). Un nouveau tag créé par un collaborateur apparaît donc dans le menu sans avoir à rouvrir le projet.
+- **Pattern d'ouverture/fermeture** : inspiré du combo du comparateur (`_cmpToggleCombo`/`_cmpComboOutsideClick`, v0.3.13 — écouteur `click` en phase de capture, `{once:true}`, ajouté *pendant* le dispatch du clic d'ouverture donc jamais déclenché rétroactivement par ce même clic). Adapté ici car le menu à cases à cocher doit rester ouvert tant qu'on coche plusieurs tags (contrairement à une sélection unique) : `_tagFilterOutsideClick(ev)` ignore les clics dont la cible est à l'intérieur du menu (`menu.contains(ev.target)`) ou sur le bouton toggle lui-même, et ne se retire (`removeEventListener`) qu'au moment où il ferme réellement le menu.
+
+# État au 28 juillet 2026 (suite) — v0.3.36 : la recherche ne matche plus le nom de fichier des clips
+
+## Demande
+Retour immédiat après le fix de tags (v0.3.34/35) : « si je veux utiliser le tag drift, il va m'afficher tous les clips avec le nom drift, or je veux une recherche par tag. » Le projet s'appelle DRIFT_CLUB, clips nommés `DRIFT_avril0010` etc. — chercher le tag « drift » remontait donc aussi tous les clips juste à cause de leur nom de fichier (source `clip_meta` dans l'index FTS, qui indexait `stem`/`filename`/`camera`/`day`/`tc_in`), noyant le vrai résultat recherché.
+
+## Fix
+- **Serveur** (`_index_project_db()`, `derush_server.py`) : suppression complète du bloc qui insérait la ligne `clip_meta` (stem/filename/camera/day/tc_in) dans `notes_fts`. La table `clip_by_id`/`clips` locale à la fonction n'était utilisée que par ce bloc — supprimée avec lui (code mort sinon). La recherche ne porte plus que sur `note`/`tag`/`marker`/`reply` — ce que l'équipe a réellement écrit. Aucune migration nécessaire : `_index_project_db` fait `DELETE FROM notes_fts WHERE project_id = ?` puis réinsère à chaque appel (déclenché par tout save via `_schedule_index`, ou par `_rebuild_index_full()` au démarrage du serveur, lancé en thread de fond) — les anciennes lignes `clip_meta` disparaissent au premier reindex qui suit le déploiement.
+- **Client, repli local** (`renderClipList()`, `derush_app.html`, chemin utilisé pour une recherche <2 caractères ou si le fetch FTS échoue) : ne teste plus `c.stem + c.camera + c.day`, uniquement les tags — mais élargi au passage pour agréger les tags de **toute l'équipe** sur ce clip (`Object.values(allNotes)`), pas seulement ceux de l'utilisateur courant, pour rester cohérent avec le comportement serveur (qui n'a jamais filtré par `user_id`).
+
+## Vérifié en conditions réelles (pas juste en lecture de code)
+Serveur relancé (déclenche `_rebuild_index_full()`) puis requêtes directes contre `/api/search` sur le vrai projet `drift_club` : `?q=poulet` (tag réel du projet) → 1 résultat, le bon clip. `?q=drift` → 0 résultat (aucun clip n'a "drift" en tag/note/marker/réponse, malgré des dizaines de clips nommés `DRIFT_avril00xx`) — avant le fix, cette même requête aurait remonté toute la liste.
+
+## Ce qui reste inchangé
+Les filtres caméra/jour (`#filterCam`/`#filterDay`) restent le bon outil pour retrouver un clip par son nom — volontairement pas remplacés, la recherche texte devient un outil dédié au contenu écrit par l'équipe plutôt qu'aux métadonnées de fichier.

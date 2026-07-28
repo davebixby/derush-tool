@@ -997,19 +997,15 @@ def _init_index_db():
 def _index_project_db(pid, proj):
     """Replace all index rows for this project with a fresh dump from proj."""
     rows = []
-    clips = proj.get('clips', [])
     notes = proj.get('notes', {})
     discussions = proj.get('discussions', {})
-    clip_by_id = {c['id']: c for c in clips}
 
-    # Per-clip metadata row (filename, camera, day, tc) — searchable filenames/cameras
-    for c in clips:
-        meta_text = ' '.join(filter(None, [
-            c.get('stem', ''), c.get('filename', ''),
-            c.get('camera', ''), c.get('day', ''), c.get('tc_in', ''),
-        ]))
-        if meta_text.strip():
-            rows.append((pid, c['id'], '', 'clip_meta', meta_text))
+    # Pas de ligne clip_meta (nom de fichier/caméra/jour) : la recherche ne porte
+    # que sur ce que l'équipe a écrit (tags/notes/markers/réponses), pas sur le
+    # nom des clips — sinon un tag comme "drift" ressort noyé sous tous les clips
+    # dont le nom de fichier contient "drift" (cas réel : projet DRIFT_CLUB, clips
+    # nommés DRIFT_avril0010 etc.). Le tri par tag cochable (🏷 Tags, v0.3.35) reste
+    # le bon outil pour un filtrage par nom de clip exact via caméra/jour.
 
     # Notes / markers / tags by user
     for uid, ucnotes in notes.items():

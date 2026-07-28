@@ -276,12 +276,19 @@ function selectClip(c) {
     const _myKey = currentSession.user_id || currentSession.username;
     const n = (allNotes[_myKey] || {})[c.id] || {};
     document.getElementById('clipNotes').value = n.notes || '';
+    // Le champ de saisie tag n'était jamais vidé au changement de clip : un tag
+    // tapé sans valider (Entrée/virgule) restait visible en quittant le clip, et
+    // semblait "collé" au clip suivant alors qu'il n'avait jamais été enregistré
+    // nulle part (d'où l'invisibilité totale en recherche).
+    const tagInputEl = document.getElementById('tagInput');
+    if (tagInputEl) tagInputEl.value = '';
     seenClipIds.add(c.id);
     renderMarkers();
     renderMultiUser();
     renderAnglesPanel();
     renderStatusBtn();
     renderTags();
+    renderTeamTags();
     clearCanvas();
     loadWaveform(c);
 }

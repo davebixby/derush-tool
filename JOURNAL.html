@@ -2759,8 +2759,84 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="audio-right-channel-mac">
+  <div class="entry-header">
+    <span class="entry-date">28 juillet 2026 · v0.3.33</span>
+    <span class="entry-title">Son entendu uniquement à droite sur Mac</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour : « je n'entends que le son à droite, avec ou sans écouteurs » — sur le Mac de Paola uniquement, jamais sur Windows dans cette session. YouTube joue bien les deux canaux sur la même machine, donc le problème est isolé au graphe audio de Derush, pas à un réglage système ou matériel.</p>
+
+  <div class="box box-fail"><strong>Piste retenue :</strong> le lecteur principal, le comparateur et le viewer multicam construisent chacun un graphe WebAudio (<code>createMediaElementSource</code> → <code>ChannelSplitter</code>/<code>ChannelMerger</code> → <code>ctx.destination</code>) sans jamais fixer le nombre de canaux de la destination. Sur un Mac dont la sortie audio expose plus de 2 canaux au navigateur (haut-parleurs « spatial audio » des MacBook Pro récents, ou une sortie agrégée), Chromium up-mixe un signal stéréo brut selon un layout de haut-parleurs qui ne correspond pas — classe de bug Web Audio connue, pouvant faire atterrir tout le son sur un seul canal de sortie. Indice concret à l'appui : le seul endroit du code qui gérait déjà de l'audio multi-pistes (<code>_routeBwfMultiChannel</code>, pour le « Son ingé » BWF) avait déjà dû forcer <code>channelInterpretation = 'discrete'</code> pour éviter un souci voisin — mais ce traitement n'avait jamais été étendu au chemin audio ordinaire des clips.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> nouvelle fonction <code>_pinStereoDestination(ctx)</code> — force <code>destination.channelCount = 2</code> (<code>channelCountMode: 'explicit'</code>) sur chaque <code>AudioContext</code> créé (lecteur principal, comparateur, viewer multicam). Sans effet sur une sortie 2 canaux standard (le cas normal, donc aucun risque de régression) — la fonction n'existe qu'une fois (définie dans le script inline principal) et est appelée depuis les 3 sites de création de contexte.</p>
+
+  <p><strong>Non vérifié en conditions réelles</strong> — pas de Mac disponible dans cet environnement pour tester directement. Nécessite un rebuild Mac + retest par Paola avant de considérer le bug clos.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="tag-input-not-cleared">
+  <div class="entry-header">
+    <span class="entry-date">28 juillet 2026 · v0.3.34</span>
+    <span class="entry-title">Un tag tapé sans validation « colle » au clip suivant</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour : « quand Paola met "sanglier" comme tag sous un clip, si elle clique un autre clip, "sanglier" s'affiche comme tag [dessus]. Quand elle recherche "sanglier" ça n'affiche aucun clip. » Bug pas évident au premier abord ; l'hypothèse d'IDs de clip dupliqués a été vérifiée et écartée — aucun doublon dans le projet actuel, et les clips sont partagés (scannés une fois, pas re-scannés par chaque machine).</p>
+
+  <div class="box box-fail"><strong>Root cause, trouvée en lisant le markup :</strong> le champ <code>#tagInput</code> n'était vidé nulle part au changement de clip (<code>selectClip()</code> réinitialisait bien <code>#clipNotes</code>, jamais <code>#tagInput</code>). Un tag tapé puis quitté sans appuyer sur Entrée/virgule (le seul indice étant le placeholder discret « + tag (Entrée)… ») restait affiché tel quel dans le champ de saisie en changeant de clip — donnant l'impression qu'il « appartenait » au nouveau clip. Comme il n'avait en réalité jamais été validé, il n'existait dans aucune structure de données : d'où l'absence totale de résultat en recherche. Explique les deux symptômes avec une seule cause, sans corruption de données réelle.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> <code>selectClip()</code> vide désormais <code>#tagInput</code> à chaque changement de clip, comme <code>#clipNotes</code>. Profité de l'occasion pour réduire la latence de recherche sur les tags réellement validés : <code>handleTagInput()</code>/<code>removeTag()</code> déclenchent désormais une sauvegarde immédiate (<code>saveNotes(true)</code>) au lieu d'attendre l'auto-save 30s — le serveur réindexe en FTS 2s après chaque sauvegarde (<code>_schedule_index</code>), donc un tag est maintenant cherchable en quelques secondes au lieu de jusqu'à 32s.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="team-tags-visibility">
+  <div class="entry-header">
+    <span class="entry-date">28 juillet 2026 · v0.3.35</span>
+    <span class="entry-title">Tags collaboratifs : visibles pour toute l'équipe, colorés, filtrables</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>En creusant le bug de tag (v0.3.34), Sébastien réalise que Paola ne peut de toute façon pas voir ses tags à lui — les tags sont strictement privés (comme les notes/ratings), contrairement à ce que l'équipe attendait d'un outil collaboratif. Trois demandes : voir les tags des autres colorés par utilisateur (sous le clip et dans la liste), et un tri par tag cochable qui se met à jour en direct quand quelqu'un crée un nouveau tag.</p>
+
+  <div class="box box-ok"><strong>Bonne surprise :</strong> <code>allNotes</code> (chargé une fois avec le projet) contient déjà les notes de <em>tous</em> les utilisateurs, pas seulement les siennes — <code>GET /api/project/&lt;pid&gt;/notes</code> renvoie <code>proj['notes']</code> intégralement. Le fait que les tags des autres soient invisibles n'était donc qu'un choix de rendu (<code>renderTags()</code>/le badge sidebar ne lisaient que <code>allNotes[monUid]</code>), pas une limitation de données. Confirmé aussi que <code>/api/search</code> n'a jamais filtré par utilisateur — chercher un tag d'un collaborateur fonctionnait déjà côté recherche, seul l'affichage manquait.</p>
+
+  <p><strong>Implémentation, 100% frontend :</strong></p>
+  <ul>
+    <li><code>_clipTagEntries(clipId)</code> — parcourt <code>currentProject.users</code>, retourne un <code>{tag, uid, color, label}</code> par (utilisateur, tag) sur ce clip.</li>
+    <li>Nouveau bloc <code>#teamTagsDisplay</code> sous les tags personnels (chips en lecture seule, teintées de la couleur du collaborateur), rempli par <code>renderTeamTags()</code>.</li>
+    <li>Sidebar : nouvelle ligne <code>.team-ratings-row</code> (classe déjà existante, réutilisée telle quelle) sous chaque clip listant les tags de toute l'équipe (soi-même inclus), même code couleur.</li>
+    <li>Nouveau bouton « 🏷 Tags » à côté des filtres caméra/jour → menu à cocher (<code>#tagFilterMenu</code>) listant tous les tags du projet, toute l'équipe confondue. Sélection multiple = filtre OR (un clip matche s'il porte au moins un des tags cochés, par n'importe quel auteur).</li>
+  </ul>
+
+  <div class="box box-why"><strong>Live update :</strong> <code>_rebuildTagFilterMenu()</code> (reconstruit le vocabulaire de tags + nettoie les sélections devenues obsolètes) est appelée à chaque rafraîchissement de <code>allNotes</code> — poll 15s (<code>startNotesPolling</code>), WebSocket <code>notes_updated</code>, et localement à chaque ajout/suppression de tag. Un nouveau tag créé par un collaborateur apparaît donc dans le menu de tri sans qu'on ait besoin de rouvrir le projet.</p>
+
+  <p>Menu à cases à cocher pensé pour rester ouvert pendant qu'on coche plusieurs tags (contrairement au combo à sélection unique du comparateur, dont le pattern de fermeture-au-clic-extérieur a été repris mais adapté : on ignore les clics à l'intérieur du menu).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="search-drop-filename">
+  <div class="entry-header">
+    <span class="entry-date">28 juillet 2026 · v0.3.36</span>
+    <span class="entry-title">La recherche ne matche plus le nom de fichier des clips</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour immédiat après le fix de tags (v0.3.34/35) : « si je veux utiliser le tag drift, il va m'afficher tous les clips avec le nom drift, or je veux une recherche par tag. » Le projet s'appelle DRIFT_CLUB, les clips sont nommés <code>DRIFT_avril0010</code> etc. — chercher le tag « drift » remonte donc aussi tous les clips juste à cause de leur nom de fichier, noyant le vrai résultat recherché.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> l'indexation FTS serveur (<code>_index_project_db()</code>, <code>derush_server.py</code>) n'insère plus la ligne <code>clip_meta</code> (stem/filename/camera/day/tc) qui alimentait ce matching par nom. La recherche ne porte plus que sur ce que l'équipe a écrit : tags, notes, descriptions de marker, réponses de discussion. Même traitement côté client sur le repli local (requêtes de moins de 2 caractères ou FTS indisponible, dans <code>renderClipList()</code>) : il ne teste plus que les tags de toute l'équipe sur le clip, plus le nom/caméra/jour. Testé en direct : chercher « poulet » (tag réel du projet) remonte bien le clip concerné ; chercher « drift » remonte désormais 0 résultat (aucun clip n'a ce mot en tag/note/marker) au lieu de toute la liste.</p>
+
+  <p>Pour retrouver un clip par son nom de fichier, les filtres caméra/jour existants restent le bon outil — volontairement pas remplacés par la recherche texte, qui devient un outil dédié au contenu écrit par l'équipe.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 28 juillet 2026 (v0.3.32 — fil de discussion forum sous l'avis général d'un collaborateur)
+  Derush Tool · Journal de développement · Dernière mise à jour 28 juillet 2026 (v0.3.36 — la recherche ne matche plus le nom de fichier des clips)
 </div>
 
 </main>

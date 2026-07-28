@@ -163,7 +163,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <ul>
   <li><strong>Liste des clips</strong> — triés par jour de tournage, avec miniature et tech-méta (caméra, durée, ISO, ouverture…)</li>
   <li><strong>Filtres</strong> — par rating, marqueurs, statut, caméra, jour</li>
-  <li><strong>Recherche</strong> — texte libre sur nom de fichier, tags, notes</li>
+  <li><strong>Recherche</strong> — texte libre sur ce que l'équipe a écrit : tags, notes, descriptions de marqueur, réponses (pas sur le nom de fichier des clips — pour ça, utilisez les filtres caméra/jour)</li>
 </ul>
 <h3>Zone principale</h3>
 <ul>
@@ -220,7 +220,10 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <p>Activez le mode dessin (<strong>🖌 Dessin</strong>), trace tes formes (cercle/flèche/libre), puis clique <strong>✅ Valider</strong>. Un popup s'ouvre pour entrer une description — le dessin sera attaché au marker créé. Le pin sur la timeline aura une icône 🖌 indiquant la présence d'un dessin.</p>
 
 <h2 id="tags">Tags</h2>
-<p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de filtres.</p>
+<p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de recherche — celle-ci ne matche jamais le nom de fichier des clips, uniquement ce qui a été écrit (tags, notes, marqueurs, réponses), pour éviter qu'un tag comme « drift » ne remonte tous les clips dont le nom contient ce mot.</p>
+<div class="tip"><strong>Important :</strong> un tag ne compte que si vous validez avec <code>Entrée</code> ou <code>,</code> — il apparaît alors sous forme de puce colorée. Si vous tapez du texte puis changez de clip sans valider, ce texte est simplement effacé (il n'a jamais été enregistré).</div>
+<p>Les tags sont <strong>partagés avec toute l'équipe</strong> : ceux des autres collaborateurs apparaissent sous vos propres tags (section « Tags de l'équipe »), ainsi que directement dans la liste des clips à gauche — chacun coloré selon la couleur du collaborateur qui l'a écrit, pour savoir qui a tagué quoi d'un coup d'œil.</p>
+<p>Le bouton <strong>🏷 Tags</strong> à côté des filtres caméra/jour ouvre une liste à cocher de tous les tags du projet (toute l'équipe confondue) : cochez-en un ou plusieurs pour ne garder que les clips portant au moins l'un d'eux. La liste se met à jour automatiquement dès qu'un collaborateur crée un nouveau tag, sans avoir besoin de rouvrir le projet.</p>
 
 <h2 id="team">Avis de l'équipe</h2>
 <p>Le panneau "Avis des autres" affiche les annotations de tous les collaborateurs pour le clip actif : rating, note, marqueurs, et discussions. <strong>Cliquez sur un marqueur d'un collaborateur pour déplacer instantanément la lecture à son emplacement exact</strong> dans la timeline. Vous pouvez répondre à un marqueur en cliquant sur <strong>💬 Répondre</strong>. Une réponse à l'un de vos propres marqueurs apparaît en direct dans votre liste "Marqueurs", sans avoir besoin de rafraîchir.</p>

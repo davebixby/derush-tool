@@ -4,6 +4,30 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.36] — 2026-07-28
+
+### 🔧 Modifié
+- **La recherche ne porte plus sur le nom de fichier des clips** : chercher un tag comme « drift » remontait aussi tous les clips dont le nom de fichier contient « drift » (cas réel sur DRIFT_CLUB, clips nommés `DRIFT_avril00xx`), noyant les vrais résultats. La recherche (barre de recherche + indexation FTS serveur) ne matche plus que sur ce que l'équipe a écrit : tags, notes, descriptions de marker, réponses. Pour retrouver un clip par son nom, utiliser les filtres caméra/jour ou faire défiler la liste.
+
+## [0.3.35] — 2026-07-28
+
+### ✨ Ajouté
+- **Tags visibles pour toute l'équipe, colorés par auteur** : jusqu'ici les tags étaient strictement privés (comme les notes/ratings). Ils apparaissent désormais aussi sous le clip actif (section « Tags de l'équipe ») et directement dans la liste des clips, chaque tag teinté de la couleur du collaborateur qui l'a écrit — on sait qui a écrit quoi sans ouvrir chaque clip.
+- **Filtre par tags cochable dans la sidebar** : nouveau bouton « 🏷 Tags » à côté des filtres caméra/jour, ouvrant une liste à cocher de tous les tags du projet (toute l'équipe confondue). Se reconstruit automatiquement dès qu'un collaborateur crée un nouveau tag (poll 15s + WebSocket), sans avoir à rouvrir le menu.
+
+## [0.3.34] — 2026-07-28
+
+### 🐛 Corrigé
+- **Un tag tapé sans validation semblait « coller » au clip suivant** : le champ de saisie des tags n'était jamais vidé au changement de clip. Un tag tapé puis quitté sans appuyer sur Entrée/virgule restait visible dans le champ en changeant de clip, donnant l'impression qu'il s'appliquait au nouveau clip — alors qu'il n'avait en réalité jamais été enregistré nulle part (d'où son absence totale en recherche). Le champ est maintenant vidé à chaque sélection de clip.
+- **Latence de recherche après ajout d'un tag** : un tag ajouté n'était poussé au serveur (et donc indexé pour la recherche) qu'à la prochaine sauvegarde périodique (jusqu'à 30s). Ajout/suppression de tag déclenche désormais une sauvegarde immédiate.
+
+## [0.3.33] — 2026-07-28
+
+### 🐛 Corrigé
+- **Son entendu uniquement sur le canal droit (Mac)** : signalé sur le Mac de Paola, jamais reproduit sur Windows, indépendant des écouteurs branchés. Le lecteur principal, le comparateur et le viewer multicam construisent tous un graphe WebAudio (`MediaElementSource` → `ChannelSplitter`/`Merger` → destination) sans jamais fixer explicitement le nombre de canaux de la destination. Sur un Mac dont la sortie audio (haut-parleurs « spatial audio » des MacBook Pro récents, ou une sortie agrégée) expose plus de 2 canaux au navigateur, un signal stéréo brut connecté tel quel se fait up-mixer par Chromium selon un layout de haut-parleurs qui ne correspond pas au signal réellement envoyé — le son peut alors se retrouver entièrement sur un seul canal de sortie. Fix : nouvelle fonction `_pinStereoDestination(ctx)` qui force `destination.channelCount = 2` (`channelCountMode: 'explicit'`) sur chaque `AudioContext` créé (lecteur, comparateur, multicam). Sans effet sur une sortie 2 canaux standard (le cas normal) — nécessite un rebuild Mac + retest pour confirmer que c'est bien la cause exacte, pas de machine Mac disponible ici pour vérifier directement.
+
+---
+
 ## [0.3.32] — 2026-07-28
 
 ### ✨ Ajouté

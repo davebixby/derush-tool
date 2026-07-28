@@ -354,6 +354,14 @@
         .fchip.active { opacity:1;background:rgba(167,139,250,.2);border-color:var(--accent); }
         .filter-selects { display:flex;gap:4px;padding:0 8px 5px; }
         .filter-selects select { flex:1;font-size:0.72em;padding:2px 4px; }
+        .tag-filter-wrap { position:relative;flex-shrink:0; }
+        #tagFilterBtn { font-size:0.72em;padding:2px 8px;white-space:nowrap; }
+        #tagFilterBtn.active-filter { color:var(--accent);border-color:var(--accent);background:rgba(167,139,250,.15); }
+        .tag-filter-menu { display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px;min-width:160px;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.35); }
+        .tag-filter-menu.open { display:block; }
+        .tag-filter-menu label { display:flex;align-items:center;gap:6px;font-size:0.78em;padding:3px 4px;border-radius:4px;cursor:pointer;white-space:nowrap; }
+        .tag-filter-menu label:hover { background:rgba(167,139,250,.12); }
+        .tag-filter-menu .tfm-empty { font-size:0.75em;color:var(--dim);padding:4px;white-space:normal; }
         /* Multi-user panel */
         .mu-row { display:flex;align-items:center;gap:6px;padding:2px 0;font-size:0.75em; }
         .mu-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block; }
@@ -647,6 +655,10 @@
             <div class="filter-selects">
                 <select id="filterCam" onchange="renderClipList();renderSavedFilters()"><option value="">All</option></select>
                 <select id="filterDay" onchange="renderClipList();renderSavedFilters()"><option value="">All</option></select>
+                <div class="tag-filter-wrap">
+                    <button id="tagFilterBtn" type="button" onclick="_toggleTagFilterMenu()" title="Filtrer par tags (toute l'équipe)">🏷 Tags</button>
+                    <div id="tagFilterMenu" class="tag-filter-menu"></div>
+                </div>
             </div>
             <div id="savedFiltersRow"></div>
         </div>
@@ -1084,6 +1096,7 @@
                             <div id="tagsDisplay" class="tags-area" style="display:contents;"></div>
                             <input id="tagInput" placeholder="+ tag (Entrée)…" onkeydown="handleTagInput(event)">
                         </div>
+                        <div id="teamTagsDisplay" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;"></div>
                     </div>
                 </div>
             </div>
@@ -1292,6 +1305,72 @@ let _searchHits = null;       // Set<clip_id> when FTS search is active, null ot
 let _searchSnippets = {};     // clip_id → snippet HTML (for badge tooltip)
 let _searchTimer = null;
 let currentSpeed = 1;
+
+// ─── Filtre par tags (coché, toute l'équipe) ────────────────────────────────
+// allNotes contient déjà les notes de tous les users (chargées avec le projet),
+// donc le vocabulaire de tags et le filtrage se font 100% côté client, sans
+// appel serveur dédié. La liste se reconstruit à chaque changement de allNotes
+// (poll, WebSocket, ajout/suppression local d'un tag) pour rester à jour en
+// direct quand un collaborateur crée un nouveau tag.
+let _tagFilterSelected = new Set();
+
+function _allProjectTags() {
+    const set = new Set();
+    Object.values(allNotes).forEach(byClip => {
+        Object.values(byClip || {}).forEach(cn => (cn.tags || []).forEach(t => set.add(t)));
+    });
+    return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+function _rebuildTagFilterMenu() {
+    const menu = document.getElementById('tagFilterMenu');
+    const btn = document.getElementById('tagFilterBtn');
+    if(!menu || !btn) return;
+    const allTags = _allProjectTags();
+    const allSet = new Set(allTags);
+    // Un tag sélectionné qui a disparu (dernier clip le portant démarqué) sort du filtre.
+    let dirty = false;
+    for (const t of [..._tagFilterSelected]) if(!allSet.has(t)) { _tagFilterSelected.delete(t); dirty = true; }
+    menu.innerHTML = allTags.length ? allTags.map(t =>
+        `<label><input type="checkbox" ${_tagFilterSelected.has(t) ? 'checked' : ''} onchange="_toggleTagFilterOption('${t.replace(/'/g,"\\'")}')">${escapeHtml(t)}</label>`
+    ).join('') : `<div class="tfm-empty">Aucun tag pour l'instant</div>`;
+    btn.textContent = _tagFilterSelected.size ? `🏷 Tags (${_tagFilterSelected.size})` : '🏷 Tags';
+    btn.classList.toggle('active-filter', _tagFilterSelected.size > 0);
+    if (dirty) renderClipList();
+}
+
+// Contrairement au combo du comparateur (sélection unique → fermeture immédiate),
+// ce menu doit rester ouvert tant qu'on coche des cases : on ignore les clics à
+// l'intérieur du menu (ou sur le bouton lui-même) et on ne ferme que sur un vrai
+// clic extérieur.
+function _tagFilterOutsideClick(ev) {
+    const menu = document.getElementById('tagFilterMenu');
+    const btn = document.getElementById('tagFilterBtn');
+    if (!menu) return;
+    if (menu.contains(ev.target) || ev.target === btn) return;
+    menu.classList.remove('open');
+    document.removeEventListener('click', _tagFilterOutsideClick, true);
+}
+
+function _toggleTagFilterMenu() {
+    const menu = document.getElementById('tagFilterMenu');
+    if(!menu) return;
+    const willOpen = !menu.classList.contains('open');
+    menu.classList.toggle('open', willOpen);
+    document.removeEventListener('click', _tagFilterOutsideClick, true);
+    if (willOpen) {
+        _rebuildTagFilterMenu();
+        document.addEventListener('click', _tagFilterOutsideClick, true);
+    }
+}
+
+function _toggleTagFilterOption(tag) {
+    if (_tagFilterSelected.has(tag)) _tagFilterSelected.delete(tag);
+    else _tagFilterSelected.add(tag);
+    _rebuildTagFilterMenu();
+    renderClipList();
+    renderSavedFilters();
+}
 // Auto-save
 let lastSavedHash = null;
 
@@ -1594,8 +1673,10 @@ async function enterWorkspace(pid) {
     const daySel = document.getElementById('filterDay');
     if(camSel) camSel.innerHTML = '<option value="">All</option>';
     if(daySel) daySel.innerHTML = '<option value="">All</option>';
+    _tagFilterSelected = new Set();
     showScreen('screenWork');
     renderClipList();
+    _rebuildTagFilterMenu();
     applyRoleUI(currentSession.role || (currentSession.is_admin ? 'admin' : 'annotator'));
     // Si root_path vide → demander à l'utilisateur (premier accès sur cette machine)
     if(!currentSession.root_path) {
@@ -1917,9 +1998,12 @@ function renderClipList() {
             if (_searchHits) {
                 if (!_searchHits.has(c.id)) return;
             } else {
-                const tags = (n.tags || []).join(' ').toLowerCase();
-                const hay = (c.stem + ' ' + (c.camera || '') + ' ' + (c.day || '') + ' ' + tags).toLowerCase();
-                if(!hay.includes(activeSearch)) return;
+                // Recherche locale (query <2 caractères ou FTS indisponible) : uniquement
+                // sur les tags (toute l'équipe), jamais sur le nom de fichier/caméra/jour —
+                // sinon un tag "drift" ressort noyé sous tous les clips DRIFT_avril00xx.
+                const tagHay = [];
+                Object.values(allNotes).forEach(byClip => (byClip[c.id]?.tags || []).forEach(t => tagHay.push(t)));
+                if(!tagHay.join(' ').toLowerCase().includes(activeSearch)) return;
             }
         }
         if(activeFilter === 'disagree') {
@@ -1927,6 +2011,13 @@ function renderClipList() {
                 .map(u => { const key = u.id || u.username || u.name; return ((allNotes[key] || {})[c.id] || {}).rating; })
                 .filter(r => r);
             if(ratings.length < 2 || ratings.every(r => r === ratings[0])) return;
+        }
+        if(_tagFilterSelected.size) {
+            const clipTagSet = new Set();
+            Object.values(allNotes).forEach(byClip => (byClip[c.id]?.tags || []).forEach(t => clipTagSet.add(t)));
+            let hit = false;
+            for (const t of _tagFilterSelected) if (clipTagSet.has(t)) { hit = true; break; }
+            if (!hit) return;
         }
 
         // Day separator header
@@ -1960,6 +2051,11 @@ function renderClipList() {
                 return `<span class="team-rating-chip${isRejected ? ' rejected' : ''}" style="color:${col};border-color:${col};" title="${label} : ${RATING_LABELS[un.rating]||un.rating}">${label} ${RATING_LABELS[un.rating]||un.rating}</span>`;
             }).join('');
         const tagsBadge = (n.tags||[]).length ? `<span style="font-size:0.7em;color:#a78bfa;">🏷${(n.tags||[]).length}</span>` : '';
+        // Tags de toute l'équipe (soi-même inclus), colorés par auteur — visible
+        // directement dans la liste, sans devoir ouvrir chaque clip.
+        const teamTags = _clipTagEntries(c.id)
+            .map(e => `<span class="team-rating-chip" style="color:${e.color};border-color:${e.color};" title="${e.label} : ${e.tag}">🏷${e.tag}</span>`)
+            .join('');
         let mcBadge = '';
         for (const g of (_mcGroups.groups || [])) {
             if ((g.clip_ids || []).includes(c.id)) {
@@ -1969,7 +2065,7 @@ function renderClipList() {
         }
         const snippet = (activeSearch && _searchSnippets[c.id])
             ? `<div class="search-snippet">${_searchSnippets[c.id]}</div>` : '';
-        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}</div>${teamRatings ? `<div class="team-ratings-row">${teamRatings}</div>` : ''}${snippet}</div>`;
+        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}</div>${teamRatings ? `<div class="team-ratings-row">${teamRatings}</div>` : ''}${teamTags ? `<div class="team-ratings-row">${teamTags}</div>` : ''}${snippet}</div>`;
         if(rating === 'X') div.style.opacity = '0.4';
         div.onclick = () => selectClip(c);
 
@@ -2051,12 +2147,29 @@ let _playerAudioCtx = null;
 let _playerGainStereo = null;
 let _playerGainMonoR = null;
 
+// Certains Mac (haut-parleurs "spatial audio" des MacBook Pro récents, ou une sortie
+// agrégée) exposent une destination audio à plus de 2 canaux au navigateur. Une source
+// stéréo connectée telle quelle à cette destination se fait alors up-mixer par Chromium
+// selon un layout de haut-parleurs qui ne correspond pas — le son peut se retrouver
+// entièrement sur un seul canal de sortie. On fige la destination à 2 canaux explicites
+// pour empêcher cet up-mix, quel que soit le device de sortie choisi par l'OS.
+function _pinStereoDestination(ctx) {
+    try {
+        const dest = ctx.destination;
+        const maxCh = dest.maxChannelCount || 2;
+        dest.channelCount = Math.min(2, maxCh);
+        dest.channelCountMode = 'explicit';
+        dest.channelInterpretation = 'speakers';
+    } catch(e) {}
+}
+
 function _attachPlayerAudio() {
     const video = document.getElementById('player');
     if (!video || video._audioAttached) return;
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         _playerAudioCtx = ctx;
+        _pinStereoDestination(ctx);
         const src = ctx.createMediaElementSource(video);
         const splitter = ctx.createChannelSplitter(2);
         src.connect(splitter);
@@ -2436,6 +2549,32 @@ function renderTags() {
     ).join('');
 }
 
+// Tags des autres collaborateurs sur le clip actif — lecture seule, colorés par
+// utilisateur (allNotes contient déjà toutes les notes de tout le monde, chargées
+// avec le projet : simple affichage, aucun nouvel appel serveur nécessaire).
+function _clipTagEntries(clipId) {
+    const entries = [];
+    (currentProject && currentProject.users || []).forEach(u => {
+        const k = u.id || u.username || u.name;
+        const tags = ((allNotes[k] || {})[clipId] || {}).tags || [];
+        const label = u.username || u.name || k;
+        const color = u.color || '#888';
+        tags.forEach(t => entries.push({tag: t, uid: k, color, label}));
+    });
+    return entries;
+}
+
+function renderTeamTags() {
+    const disp = document.getElementById('teamTagsDisplay');
+    if(!disp) return;
+    if(!activeClip || !currentSession || !currentProject) { disp.innerHTML = ''; return; }
+    const uid = currentSession.user_id || currentSession.username;
+    const entries = _clipTagEntries(activeClip.id).filter(e => String(e.uid) !== String(uid));
+    disp.innerHTML = entries.map(e =>
+        `<span class="tag-chip team-tag-chip" style="border-color:${e.color};color:${e.color};background:${e.color}22;" title="${escapeHtml(e.label)}">${escapeHtml(e.tag)}</span>`
+    ).join('');
+}
+
 function handleTagInput(e) {
     if(e.key !== 'Enter' && e.key !== ',') return;
     e.preventDefault();
@@ -2446,7 +2585,14 @@ function handleTagInput(e) {
     if(!allNotes[uid][activeClip.id]) allNotes[uid][activeClip.id] = {};
     const n = allNotes[uid][activeClip.id];
     if(!n.tags) n.tags = [];
-    if(!n.tags.includes(tag)) { pushUndo(); n.tags.push(tag); renderTags(); renderClipList(); }
+    if(!n.tags.includes(tag)) {
+        pushUndo(); n.tags.push(tag); renderTags(); renderClipList();
+        _rebuildTagFilterMenu();
+        // Sauvegarde immédiate (pas d'attente des 30s d'auto-save) : un tag tout
+        // juste tapé doit être trouvable en recherche en quelques secondes, pas
+        // jusqu'à la prochaine sauvegarde périodique.
+        saveNotes(true);
+    }
     e.target.value = '';
 }
 
@@ -2458,6 +2604,8 @@ function removeTag(tag) {
     pushUndo();
     n.tags = n.tags.filter(t => t !== tag);
     renderTags(); renderClipList();
+    _rebuildTagFilterMenu();
+    saveNotes(true);
 }
 
 // ─── Sync ────────────────────────────────────────────────────────────────────
@@ -2539,7 +2687,7 @@ function startWebSocket() {
                             allNotes[k] = v; changed = true;
                         }
                     }
-                    if(changed) { renderClipList(); if(activeClip) { renderMultiUser(); renderMarkers(); } showSaveStatus('↻ Live', '#60a5fa'); }
+                    if(changed) { _rebuildTagFilterMenu(); renderClipList(); if(activeClip) { renderMultiUser(); renderMarkers(); renderTeamTags(); } showSaveStatus('↻ Live', '#60a5fa'); }
                 } else if(msg.type === 'discussion_updated') {
                     const r = await apiFetch(`/api/project/${currentProjectId}/discussions`);
                     if(r.ok) { allDiscussions = await r.json(); _checkMentionNotifs(allDiscussions); if(activeClip) { renderMultiUser(); renderMarkers(); } }
@@ -2709,9 +2857,10 @@ function startNotesPolling() {
             }
             _checkMentionNotifs(allDiscussions);
             if(changed) {
+                _rebuildTagFilterMenu();
                 renderClipList();
                 renderUserProgress();
-                if(activeClip) { renderMultiUser(); renderMarkers(); }
+                if(activeClip) { renderMultiUser(); renderMarkers(); renderTeamTags(); }
                 showSaveStatus('↻ Sync', '#60a5fa');
             }
         } catch(e) {}

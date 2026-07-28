@@ -16,7 +16,10 @@ function _attachCmpSlotAudio(slot) {
     const video = document.getElementById(`cmpVid${slot}`);
     if (!video || video._cmpAudioAttached) return;
     try {
-        if (!_cmpAudioCtx) _cmpAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!_cmpAudioCtx) {
+            _cmpAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (typeof _pinStereoDestination === 'function') _pinStereoDestination(_cmpAudioCtx);
+        }
         if (_cmpAudioCtx.state === 'suspended') _cmpAudioCtx.resume().catch(() => {});
         const src = _cmpAudioCtx.createMediaElementSource(video);
         const splitter = _cmpAudioCtx.createChannelSplitter(2);
