@@ -4,6 +4,13 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.32] — 2026-07-28
+
+### ✨ Ajouté
+- **Fil de discussion façon forum sous l'avis général (rating + note) de chaque collaborateur** : jusqu'ici on ne pouvait répondre qu'aux markers d'un collaborateur, pas à son avis global sur le clip. Chaque bloc « Avis de X » dans le panneau « Avis des autres » a maintenant son propre fil de réponses, y compris quand ce collaborateur n'a pas encore annoté (pour pouvoir le relancer). Réutilise le mécanisme de réponse déjà existant (même endpoint, même sync/merge) — zéro changement serveur.
+
+---
+
 ## [0.3.31] — 2026-07-28
 
 ### ✨ Ajouté

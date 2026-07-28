@@ -2743,8 +2743,24 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="mu-note-thread">
+  <div class="entry-header">
+    <span class="entry-date">28 juillet 2026 · v0.3.32</span>
+    <span class="entry-title">Fil de discussion façon forum sous l'avis général d'un collaborateur</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : pouvoir répondre « en mode forum » sous les avis des autres. Clarification faite avec l'utilisateur — pas un fil général par clip, pas des réponses imbriquées sur les markers existants, mais un vrai formulaire de réponse rattaché à l'avis global (rating + note) de chaque collaborateur, indépendamment de ses markers.</p>
+
+  <div class="box box-why"><strong>Implémentation :</strong> le système de réponses existait déjà pour les markers (<code>proj['discussions'][clip_id][marker_id]</code>, endpoint <code>/reply</code>, merge par union de timestamps) — entièrement générique sur la valeur de <code>marker_id</code>, sans validation qu'un marker de cet id existe réellement. Réutilisé tel quel avec un id synthétique <code>'note_' + ukey</code> (où <code>ukey</code> = la même clé d'identité que <code>user_note_key()</code> côté serveur) pour représenter le fil « avis général » de ce collaborateur sur ce clip. <strong>Zéro changement serveur</strong> — uniquement <code>renderMultiUser()</code> côté frontend : chaque bloc <code>.mu-block</code> reçoit son <code>.mu-note-thread</code> (réponses + formulaire), y compris dans le cas « pas encore annoté » pour pouvoir relancer un collaborateur avant même qu'il ait noté le clip.</p>
+
+  <p>Le rafraîchissement temps réel existant (<code>discussion_updated</code> WebSocket → <code>renderMultiUser()</code>) couvre ce nouveau fil sans modification, puisque <code>renderMultiUser()</code> reconstruit toujours l'intégralité du HTML depuis <code>allDiscussions</code> à chaque appel.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 28 juillet 2026 (v0.3.31 — markers des collaborateurs cliquables pour seek)
+  Derush Tool · Journal de développement · Dernière mise à jour 28 juillet 2026 (v0.3.32 — fil de discussion forum sous l'avis général d'un collaborateur)
 </div>
 
 </main>

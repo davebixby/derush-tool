@@ -273,7 +273,7 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 | `renderTags()` | affiche les tags du clip actif comme chips cliquables |
 | `handleTagInput(e)` | Entrée ou virgule → ajoute tag dans allNotes + renderTags |
 | `removeTag(tag)` | supprime tag avec pushUndo |
-| `renderMultiUser()` | panneau "Avis des autres" : rating + note + markers (cliquables → seek) + replies |
+| `renderMultiUser()` | panneau "Avis des autres" : rating + note (+ fil de discussion forum) + markers (cliquables → seek, + replies) |
 | `_muSeekMarker(time, e)` | clic sur un marker d'un collaborateur dans "Avis des autres" → `player.currentTime = time`. Ignore les clics dans `.mu-reply-form` imbriqué |
 | `submitReply(btn, clipId, markerId)` | POST reply → refresh discussions |
 | `loadWaveform(clip)` | fetch /waveform/, stocke peaks, appelle drawWaveform |
@@ -1695,3 +1695,15 @@ Les markers des collaborateurs apparaissaient déjà (avec réponses) dans le pa
 `renderMultiUser()` (`derush_app.html`) : chaque bloc `.mu-marker` reçoit `onclick="_muSeekMarker(m.time, event)"`. Nouvelle fonction `_muSeekMarker(time, e)` (juste avant `submitReply`) : pose `player.currentTime = time`, sauf si le clic vient du formulaire de réponse imbriqué (`e.target.closest('.mu-reply-form')`) — pour ne pas voler le focus de l'input quand on répond à un marker. CSS `.mu-marker` : `cursor:pointer` + surbrillance au survol (clair/sombre).
 
 Portée volontairement limitée au panneau « Avis des autres » : les markers de l'utilisateur courant (`renderMarkers()`) avaient déjà ce comportement (`div.onclick` sur `.marker-row` et `mousedown` sur les pins timeline), aucun changement nécessaire là.
+
+# État au 28 juillet 2026 (suite) — v0.3.32 : fil de discussion forum sous l'avis général
+
+## Demande + clarification
+« Je trouverais ça bien aussi qu'on puisse répondre sous les avis des autres, un peu en mode forum. » Ambigu — clarifié par question à choix : pas un fil général par clip, pas des réponses imbriquées sur les markers existants, mais un formulaire de réponse rattaché à l'**avis global** (rating + note) de chaque collaborateur, en plus des réponses déjà possibles sur ses markers.
+
+## Implémentation — zéro changement serveur
+Le mécanisme de réponse (`proj['discussions'][clip_id][marker_id]`, endpoint `POST /reply`, merge par union de timestamps dans `merge_projects`) est déjà générique : rien ne valide qu'un marker de cet id existe réellement dans les notes du clip. Réutilisé tel quel avec un id synthétique **`'note_' + ukey`** (`ukey` = même clé d'identité que `user_note_key()` côté serveur — `id`/`username`/`name`) pour porter le fil « avis général » d'un collaborateur sur un clip.
+
+`renderMultiUser()` (`derush_app.html`) : chaque bloc `.mu-block` reçoit un `.mu-note-thread` (réponses existantes + `<input>`/bouton ↩, même markup que `.mu-reply-form` des markers) après la note et les markers — y compris dans le cas « pas encore annoté » (permet de relancer un collaborateur avant même qu'il ait noté le clip). CSS : `.mu-note-thread .mu-replies` a une bordure gauche en pointillés pour se distinguer visuellement des réponses de marker (bordure pleine).
+
+Le rafraîchissement temps réel (`discussion_updated` WebSocket → `renderMultiUser()` + `renderMarkers()`, déjà en place depuis la v0.3.21) couvre ce nouveau fil sans modification : `renderMultiUser()` reconstruit tout son HTML depuis `allDiscussions` à chaque appel, qu'il s'agisse d'un `marker_id` réel ou synthétique.

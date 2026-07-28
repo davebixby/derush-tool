@@ -370,6 +370,8 @@
         .mu-reply-form { display:flex;gap:4px;margin-top:4px; }
         .mu-reply-form input { flex:1;font-size:0.75em;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;color:var(--fg);min-width:0; }
         .mu-reply-form button { font-size:0.72em;padding:2px 8px;flex-shrink:0; }
+        .mu-note-thread { margin-top:4px; }
+        .mu-note-thread .mu-replies { border-left-style:dashed; }
         .mu-ext-block { border-left-color:#34d399; background:rgba(52,211,153,.04); border-radius:0 4px 4px 0; padding-right:8px; }
         .mu-ext-comment { background:rgba(52,211,153,.07); border-radius:4px; padding:6px 8px; margin-top:4px; }
         .mu-ext-head { display:flex; gap:8px; align-items:baseline; margin-bottom:2px; }
@@ -3444,7 +3446,21 @@ function renderMultiUser() {
         const uLabel = u.username || u.name || ukey;
         const un = (allNotes[ukey] || {})[activeClip.id] || {};
         const hasAnything = un.rating || (un.notes || '').trim() || (un.markers || []).length;
-        if(!hasAnything) return `<div class="mu-block"><div class="mu-user-header"><span class="mu-dot" style="background:${u.color||'#888'};"></span><strong style="color:${u.color||'#888'};">${uLabel}</strong><span style="color:var(--dim);font-size:0.75em;">— pas encore annoté</span></div></div>`;
+        const clipId = activeClip.id;
+
+        // Fil de discussion "forum" attaché à l'avis général (rating + note) de ce
+        // collaborateur pour ce clip — pas lié à un marker précis. Réutilise le même
+        // mécanisme reply/discussions que les markers, avec un marker_id synthétique
+        // (le endpoint /reply et merge_projects sont génériques sur n'importe quelle
+        // string, aucun changement serveur nécessaire).
+        const noteThreadId = 'note_' + ukey;
+        const noteReplies = (allDiscussions[clipId] || {})[noteThreadId] || [];
+        const noteRepliesHtml = noteReplies.map(r =>
+            `<div class="mu-reply"><strong style="color:${r.color}">${r.user_name}</strong> ${r.text}</div>`
+        ).join('');
+        const noteThreadHtml = `<div class="mu-note-thread"><div class="mu-replies">${noteRepliesHtml}<div class="mu-reply-form"><input type="text" placeholder="Répondre à ${uLabel}…" onkeydown="if(event.key==='Enter')submitReply(this.nextElementSibling,'${clipId}','${noteThreadId}')"><button onclick="submitReply(this,'${clipId}','${noteThreadId}')">↩</button></div></div></div>`;
+
+        if(!hasAnything) return `<div class="mu-block"><div class="mu-user-header"><span class="mu-dot" style="background:${u.color||'#888'};"></span><strong style="color:${u.color||'#888'};">${uLabel}</strong><span style="color:var(--dim);font-size:0.75em;">— pas encore annoté</span></div>${noteThreadHtml}</div>`;
 
         const r = RATING_LABELS[un.rating] || '';
         const note = (un.notes || '').trim();
@@ -3453,7 +3469,6 @@ function renderMultiUser() {
         const markersHtml = markers.length ? markers.map(m => {
             const col = CAT_COLORS[m.cat] || '#888';
             const lbl = CAT_LABELS[m.cat] || m.cat;
-            const clipId = activeClip.id;
             const replies = m.id ? ((allDiscussions[clipId] || {})[m.id] || []) : [];
             const repliesHtml = replies.map(r =>
                 `<div class="mu-reply"><strong style="color:${r.color}">${r.user_name}</strong> ${r.text}</div>`
@@ -3472,6 +3487,7 @@ function renderMultiUser() {
             </div>
             ${note ? `<div class="mu-note">${note}</div>` : ''}
             ${markersHtml}
+            ${noteThreadHtml}
         </div>`;
     }).join('');
 
