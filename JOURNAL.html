@@ -240,6 +240,23 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 26 juillet 2026 (v0.3.20)</div>
   <a href="#ltc-restart">Redémarrage nécessaire après Décoder LTC</a>
+
+  <div class="nav-section">Session 28 juillet 2026 (v0.3.31-32)</div>
+  <a href="#mu-marker-seek">Cliquer sur un marker d'un collaborateur déplace la lecture</a>
+  <a href="#mu-note-thread">Fil de discussion façon forum sous l'avis général</a>
+
+  <div class="nav-section">Session 28 juillet 2026 (v0.3.33-36)</div>
+  <a href="#audio-right-channel-mac">Son entendu uniquement à droite sur Mac</a>
+  <a href="#tag-input-not-cleared">Un tag tapé sans validation « colle » au clip suivant</a>
+  <a href="#team-tags-visibility">Tags collaboratifs : visibles, colorés, filtrables</a>
+  <a href="#search-drop-filename">La recherche ne matche plus le nom de fichier</a>
+
+  <div class="nav-section">Session 30 juillet 2026 (v0.3.37-41)</div>
+  <a href="#selects-basket">Sélections in/out + panier — pré-monter dans Derush</a>
+  <a href="#basket-autoadd-thumbs">Retour terrain : auto-ajout + vraies vignettes</a>
+  <a href="#basket-viewer-scrub-tags">2e retour terrain : visionneuse, scrub, tags suggérés</a>
+  <a href="#basket-timeline-layout">3e retour terrain : disposition 1/3+2/3, timeline de séquence</a>
+  <a href="#basket-audio-space-resize">4e retour terrain : audio FS5, Espace, redimensionner</a>
 </nav>
 
 <main>
@@ -2833,10 +2850,100 @@ result['users'] = [u for u in result.get('users', [])
   <p>Pour retrouver un clip par son nom de fichier, les filtres caméra/jour existants restent le bon outil — volontairement pas remplacés par la recherche texte, qui devient un outil dédié au contenu écrit par l'équipe.</p>
 </div>
 
+<div class="entry" id="selects-basket">
+  <div class="entry-header">
+    <span class="entry-date">30 juillet 2026 · v0.3.37</span>
+    <span class="entry-title">Sélections in/out + panier — le dérushage se met à pré-monter</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Jusqu'ici l'outil ne faisait que <em>rapporter</em> ce qui était bon (rating, marqueurs, tags) — jamais <em>assembler</em> une sélection jouable. Nouvelle brique demandée après une discussion sur les pistes d'amélioration possibles du dérushage : une <strong>sélection</strong> est un segment in/out nommé et taggué sur un clip ; un <strong>panier</strong> est une bobine personnelle réordonnable de ces sélections, jouable bout-à-bout dans le lecteur et exportable en séquence NLE.</p>
+
+  <p><strong>Créer une sélection</strong> — pendant la lecture, <code>[</code> pose le point d'entrée (ligne orange sur la timeline), <code>]</code> pose la sortie et ouvre un popup pour nommer/tagger le segment. Un nouveau panneau <strong>✂️ Sélections</strong>, sous les marqueurs, liste les sélections du clip actif avec aperçu, ajout au panier, édition et suppression (undo compris, comme les marqueurs).</p>
+
+  <p><strong>Le panier</strong> — bouton 📽️ dans la barre d'outils, badge = nombre de sélections retenues. L'overlay affiche une liste glisser-déposer réordonnable, avec lecture bout-à-bout (chaque sélection s'enchaîne automatiquement sur la suivante dans le lecteur principal) et export direct en FCPXML (DaVinci) ou XML (Premiere) — contenu et ordre 100% décidés par l'utilisateur, sans filtre rating contrairement à l'export DaVinci classique.</p>
+
+  <div class="box box-why"><strong>Décision de design :</strong> panier personnel (comme les marqueurs — zéro conflit de fusion sur l'ordre) mais <strong>visible par toute l'équipe</strong> en lecture (menu déroulant pour consulter le panier d'un collaborateur), modifiable seulement par son auteur. Choix explicite de l'utilisateur, différent de la première suggestion (panier partagé collectif) — cohérent avec le principe déjà en place pour les notes/tags : tout le monde charge tout, chacun n'écrit que sa propre clé.</p>
+
+  <p>Côté données : les sélections vivent dans le même objet que les marqueurs (<code>notes[uid][clip_id].selects</code>) — undo et sauvegarde les couvrent gratuitement. Le panier est un nouveau champ <code>baskets[uid]</code>, une liste de références (clip + select), fusionné en sync exactement comme les notes (chaque machine ne republie que son propre panier). Deux nouvelles fonctions d'export (<code>export_basket_fcpxml</code>/<code>export_basket_xml_fcp7</code>) et deux endpoints (<code>GET</code>/<code>POST /basket</code>) — testés en conditions réelles contre un vrai serveur HTTP avant livraison (y compris une entrée de panier orpheline volontaire, ignorée silencieusement).</p>
+
+  <p style="color: var(--muted); font-size: 0.9em;">Pas d'environnement de test navigateur disponible dans cette session pour un clic-through complet — vérifié par contre : import serveur propre, export XML bien formé, fusion testée, syntaxe JS de tous les modules validée, et vérification croisée automatisée que chaque identifiant DOM et chaque fonction référencée dans le HTML existe bien. À confirmer manuellement (créer une sélection, glisser-déposer le panier, lire bout-à-bout, exporter) avant diffusion à l'équipe.</p>
+</div>
+
+<div class="entry" id="basket-autoadd-thumbs">
+  <div class="entry-header">
+    <span class="entry-date">30 juillet 2026 · v0.3.38</span>
+    <span class="entry-title">Premier retour terrain sur le panier : auto-ajout + vraies vignettes</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Premier test réel du build v0.3.37 : « j'ai bien sélectionné une portion de clip (c'est bien en vert dans la timeline) mais je ne le vois pas dans panier. » La sélection se créait bien, mais l'ajout au panier nécessitait un clic sur un bouton 📽️ séparé, visible seulement au survol de la ligne dans le panneau ✂️ Sélections — une étape supplémentaire non découverte, vécue comme un bug plutôt qu'une action volontaire.</p>
+
+  <div class="box box-why"><strong>Fix :</strong> une sélection nouvellement créée est désormais ajoutée <strong>automatiquement</strong> au panier de son auteur (toast combiné « ✂️ Sélection créée et ajoutée au panier 📽️ »). Le bouton 📽️ manuel reste disponible pour ré-ajouter une sélection retirée du panier depuis l'overlay. Nouvelle fonction interne <code>_pushToBasket()</code> partagée entre le clic manuel et l'auto-ajout.</div>
+
+  <p>Deuxième demande dans le même retour : « ça serait bien aussi dans panier d'avoir une prévisualisation. » Le panier affichait la vignette générique du clip (même image pour toutes les sélections d'un même clip — peu utile dès qu'on a plusieurs sélections sur un même long plan). Chaque sélection affiche maintenant une vignette extraite à son propre point d'entrée, dans le panneau ✂️ Sélections comme dans le panier, en réutilisant l'endpoint de scrub déjà existant (<code>?t=&lt;secondes&gt;</code>) — zéro changement serveur.</p>
+</div>
+
+<div class="entry" id="basket-viewer-scrub-tags">
+  <div class="entry-header">
+    <span class="entry-date">30 juillet 2026 · v0.3.39</span>
+    <span class="entry-title">Deuxième retour terrain : un vrai bug caché derrière une demande de « visionneuse »</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Quatre demandes dans le même message : vignette plus grande dans le panier, défilement des images au survol d'une sélection, « une visionneuse dans le panier », renommer « Panier » en « Pré-montage », et proposer les tags déjà utilisés par l'équipe directement dans le popup de création d'une sélection.</p>
+
+  <p><strong>Renommage</strong> — uniquement le texte affiché (boutons, titre d'overlay, toasts, guide). Les identifiants internes (<code>allBaskets</code>, <code>/api/.../basket</code>, le champ JSON <code>baskets[uid]</code>) restent inchangés : aucune migration nécessaire, et ça garde la cohérence avec tout le code déjà écrit sur les deux sessions précédentes.</p>
+
+  <p><strong>Vignette + défilement</strong> — la vignette passe de 64×36 à 128×72px. Le défilement réutilise le popup flottant déjà construit pour le survol de la sidebar (<code>#scrub-preview</code>), alimenté par un nouveau générateur serveur <code>compute_select_strip()</code> : contrairement à la bande-contact existante (12 frames sur <em>tout</em> le clip, inutile pour une sélection de quelques secondes dans un plan de 20 minutes), celle-ci échantillonne uniquement entre le point d'entrée et le point de sortie de la sélection.</p>
+
+  <div class="box box-why"><strong>La vraie trouvaille de cette session :</strong> en creusant la demande de « visionneuse », découverte que le panier ne jouait en réalité <strong>rien de visible</strong>. L'overlay du panier est plein écran et opaque — il masque complètement le lecteur principal derrière lui. Le bouton « ▶ Lire tout » de la v0.3.37 pilotait pourtant ce lecteur caché : la lecture démarrait bel et bien, mais personne ne pouvait la voir tant qu'on ne fermait pas le panier. Un bug fonctionnel resté invisible parce qu'aucun navigateur n'était disponible pour tester le clic-through au moment de la 0.3.37 (limite documentée à l'époque) — le tout premier vrai test humain l'a débusqué immédiatement, sous la forme d'une demande de fonctionnalité plutôt que d'un rapport de bug. Fix : un lecteur vidéo dédié apparaît maintenant en haut de l'overlay pendant la lecture, indépendant du lecteur principal.</div>
+
+  <p><strong>Tags suggérés</strong> — le simple champ texte du popup de sélection devient un système de chips avec suggestions cliquables : tous les tags déjà utilisés par n'importe quel collaborateur (sur des clips ou d'autres sélections) apparaissent en dessous, en plus de la possibilité d'en taper un nouveau.</p>
+</div>
+
+<div class="entry" id="basket-timeline-layout">
+  <div class="entry-header">
+    <span class="entry-date">30 juillet 2026 · v0.3.40</span>
+    <span class="entry-title">Troisième retour terrain : disposition 1/3+2/3, vraie timeline de séquence, cadre, scrub en place</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Cinq demandes précises sur l'overlay tout juste refondu en 0.3.39 : disposition avec la liste à gauche (1/3) et la visionneuse à droite (le reste) ; une vraie timeline dans la visionneuse qui montre les clips « collés » et permet d'y naviguer ; réordonner la liste doit se répercuter dans la visionneuse ; le cadre / format d'image choisi doit s'appliquer aussi là ; et le survol d'une sélection doit prendre en compte toute la carte (pas seulement la petite vignette) tout en défilant directement sur cette vignette, sans recréer un aperçu flottant à côté.</p>
+
+  <p><strong>Disposition</strong> — nouveau conteneur `.basket-main` en flex-row : la liste réordonnable passe de pleine largeur centrée à un tiers fixe, la visionneuse occupe le reste et n'est plus un bandeau caché/affiché conditionnellement (0.3.39) mais fait partie du layout en permanence, avec un texte d'invite tant que rien n'est chargé.</p>
+
+  <p><strong>Timeline de séquence</strong> — nouvelle piste sous la vidéo : chaque sélection du pré-montage y est représentée par un segment collé aux autres, largeur proportionnelle à sa durée, vignette et nom en fond. Cliquer ou glisser n'importe où sur cette piste navigue dans <em>toute</em> la bobine assemblée, pas juste la sélection affichée à l'instant — exactement le comportement d'une vraie timeline de montage, en miniature.</p>
+
+  <div class="box box-why"><strong>Unification du moteur de lecture :</strong> pour que "Lire tout", le clic sur une vignette, l'avance automatique en fin de segment et le scrub de la nouvelle timeline se comportent tous pareil (même façon de changer de clip, même gestion du cadre), tout passe désormais par une seule fonction centrale plutôt que plusieurs chemins de code parallèles qui auraient fini par diverger.</div>
+
+  <p><strong>Réordonner pendant la lecture</strong> — jusqu'ici la position lue était suivie par index dans la liste, qui devient faux dès qu'un glisser-déposer change l'ordre. Corrigé en suivant l'item par son identité propre plutôt que sa position : réordonner en cours de lecture met bien à jour la timeline sans faire sauter la lecture vers un autre clip par accident.</p>
+
+  <p><strong>Cadre appliqué à la visionneuse</strong> — réutilise exactement le mécanisme déjà en place pour le lecteur principal, le comparateur et le viewer multicam (même fonction centrale de redessin, juste étendue avec un bloc pour ce nouveau lecteur).</p>
+
+  <p><strong>Survol : toute la carte, scrub en place</strong> — deux ajustements sur le comportement du 0.3.39 : le survol ne se déclenchait que sur la petite vignette (maintenant toute la ligne compte), et le défilement des images utilisait un aperçu flottant séparé façon sidebar (rejeté explicitement — le défilement se fait maintenant directement sur la vignette elle-même, sans rien recréer à côté).</p>
+</div>
+
+<div class="entry" id="basket-audio-space-resize">
+  <div class="entry-header">
+    <span class="entry-date">30 juillet 2026 · v0.3.41</span>
+    <span class="entry-title">Quatrième retour terrain : audio FS5, Espace, redimensionner une sélection</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Trois demandes : le pré-montage joue le mauvais son sur les clips FS5 (le bruit de TC au lieu du micro), Espace devrait lire/mettre en pause le fichier chargé dans la visionneuse, et pouvoir redimensionner une sélection existante en réduisant/agrandissant la bande verte directement sur la timeline.</p>
+
+  <div class="box box-why"><strong>Audio FS5 :</strong> le lecteur dédié de la visionneuse (ajouté en 0.3.39) n'avait jamais reçu le routage audio spécial qu'utilisent déjà le lecteur principal et le comparateur pour les clips FS5 — ceux-ci ont le signal de timecode sur le canal gauche du proxy et le micro sur le droit ; sans routage, on entend le mélange brut des deux, dont le bruit de TC caractéristique. Même mécanisme maintenant appliqué à la visionneuse du pré-montage : le canal droit (micro) est dupliqué sur les deux canaux de sortie, le gauche (TC) est coupé.</div>
+
+  <p><strong>Espace</strong> pilotait le lecteur principal, cache derrière l'overlay plein écran du pré-montage — un oubli du même type que la visionneuse manquante en 0.3.37 (déjà découverte lors d'un précédent retour), cette fois côté clavier plutôt que côté clic. Espace agit maintenant sur le fichier chargé dans la visionneuse, et Échap ferme l'overlay (cohérent avec les autres vues plein écran de l'app).</p>
+
+  <p><strong>Redimensionner une sélection</strong> — deux poignées ajoutées aux extrémités de chaque bande verte sur la timeline : les glisser réduit ou agrandit le point d'entrée ou de sortie sans repasser par le popup de nommage. Annulable avec Ctrl+Z comme le reste des annotations.</p>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 28 juillet 2026 (v0.3.36 — la recherche ne matche plus le nom de fichier des clips)
+  Derush Tool · Journal de développement · Dernière mise à jour 30 juillet 2026 (v0.3.41 — audio FS5, Espace, redimensionnement de sélection)
 </div>
 
 </main>

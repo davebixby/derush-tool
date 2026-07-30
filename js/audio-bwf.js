@@ -221,6 +221,11 @@ function selectClip(c) {
     const _prevPlayer = document.getElementById('player');
     if (activeClip && _prevPlayer) _clipResumeTime[activeClip.id] = _prevPlayer.currentTime || 0;
     if(activeClip) saveClipNotes();
+    // Un point d'entrée posé (touche [) sur le clip qu'on quitte n'a plus de sens
+    // sur le nouveau clip — l'annuler silencieusement plutôt que le laisser traîner.
+    if (typeof cancelPendingSelect === 'function' && typeof _pendingSelectIn !== 'undefined' && _pendingSelectIn !== null) {
+        cancelPendingSelect();
+    }
     activeClip = c;
     renderClipList();
     

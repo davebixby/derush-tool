@@ -103,6 +103,7 @@
         .clip-scrub-bar { position: absolute; bottom: 0; left: 0; height: 2px; background: rgba(167,139,250,.9); width: 0%; pointer-events: none; }
         .clip-scrub-tc { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-family: monospace; font-size: 0.52em; color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000; opacity: 0; pointer-events: none; transition: opacity .1s; }
         .clip-thumb-wrap:hover .clip-scrub-tc { opacity: 1; }
+        .clip-select-dot { position: absolute; top: 3px; left: 3px; width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 4px rgba(52,211,153,.85); z-index: 2; }
         .clip-item-body { flex: 1; min-width: 0; }
         .search-snippet { font-size: 0.72em; color: var(--muted); line-height: 1.4; margin-top: 3px; overflow: hidden; max-height: 2.8em; word-break: break-word; }
         .search-snippet b { color: var(--accent); font-weight: 600; }
@@ -285,6 +286,52 @@
         .cmp-combo-item:hover { background: rgba(167,139,250,.15); }
         .cmp-combo-item.cmp-combo-selected { background: rgba(167,139,250,.22); }
         .cmp-combo-item img { width: 44px; height: 25px; object-fit: cover; border-radius: 2px; background: #000; flex-shrink: 0; }
+
+        /* Pré-montage (panier) — 1/3 liste réordonnable à gauche, 2/3 visionneuse à droite */
+        #basketOverlay { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 150; flex-direction: column; }
+        #basketOverlay.active { display: flex; }
+        .basket-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .basket-main { flex: 1; display: flex; min-height: 0; }
+        .basket-body { width: 33.333%; flex-shrink: 0; overflow-y: auto; padding: 12px; box-sizing: border-box; border-right: 1px solid var(--border); }
+        .basket-item { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; cursor: grab; }
+        .basket-item.dragging { opacity: 0.4; }
+        .basket-item.drag-over { border-color: #34d399; }
+        .basket-item.playing { border-color: #34d399; box-shadow: 0 0 0 1px #34d399; }
+        /* Vignette : background-image manipulé directement (pas d'<img>) pour que le
+           défilement au survol (voir _wireBasketThumbHover) se voie SUR la vignette
+           elle-même, sans créer de popup flottant à côté — demande explicite. */
+        .basket-item-thumb-wrap { position: relative; width: 112px; height: 63px; flex-shrink: 0; border-radius: 5px; overflow: hidden; background: #000 center/cover no-repeat; cursor: pointer; }
+        .basket-item-thumb-wrap .bi-scrub-bar { position: absolute; bottom: 0; left: 0; height: 3px; background: rgba(52,211,153,.9); width: 0%; pointer-events: none; }
+        .basket-item-thumb-wrap .bi-scrub-tc { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-family: monospace; font-size: 0.68em; color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000; opacity: 0; pointer-events: none; transition: opacity .1s; }
+        .basket-item.hovering .bi-scrub-tc { opacity: 1; }
+        .basket-item-thumb-wrap .bi-play-badge { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1.5em; color: #fff; background: rgba(0,0,0,.22); opacity: 0; transition: opacity .1s; pointer-events: none; text-shadow: 0 0 8px #000; }
+        .basket-item.hovering .bi-play-badge { opacity: 1; }
+        .basket-item-info { flex: 1; min-width: 0; }
+        .basket-item-name { font-size: 0.88em; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .basket-item-meta { font-size: 0.74em; color: var(--dim); font-family: monospace; margin-top: 2px; }
+        .basket-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
+        .basket-item-actions button { font-size: 0.85em; padding: 3px 6px; }
+        /* Visionneuse : lecteur vidéo dédié occupant les 2/3 restants — les sélections
+           s'y jouent bout à bout sur une vraie timeline de séquence "collée". */
+        .basket-viewer { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #000; }
+        .basket-viewer-videowrap { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .basket-viewer-videowrap video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; display: block; }
+        .basket-viewer-videowrap video[src=""], .basket-viewer-videowrap video:not([src]) { display: none; }
+        .basket-viewer-info { color: #e5e5ec; font-size: 0.85em; padding: 8px 14px 2px; flex-shrink: 0; }
+        .basket-viewer-info .bv-name { font-weight: 600; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .basket-viewer-info .bv-meta { font-family: monospace; color: rgba(255,255,255,.6); font-size: 0.85em; }
+        /* Timeline de séquence : les segments sont "collés" bord à bord, largeur
+           proportionnelle à la durée retenue de chaque sélection. Cliquer/glisser
+           navigue dans TOUTE la séquence assemblée, pas juste le segment courant. */
+        .basket-seq-timeline { position: relative; height: 44px; margin: 6px 14px; background: rgba(255,255,255,.06); border-radius: 4px; display: flex; overflow: hidden; cursor: pointer; flex-shrink: 0; }
+        .basket-seq-seg { position: relative; height: 100%; background: center/cover no-repeat #1a1a24; border-right: 1px solid rgba(0,0,0,.55); display: flex; align-items: flex-end; box-sizing: border-box; }
+        .basket-seq-seg:last-child { border-right: none; }
+        .basket-seq-seg.active { outline: 2px solid #34d399; outline-offset: -2px; z-index: 1; }
+        .basket-seq-seg::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.15); }
+        .basket-seq-seg-label { position: relative; z-index: 1; font-size: 0.62em; color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 2px; margin: 2px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .basket-seq-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 5px #000; pointer-events: none; left: 0%; z-index: 2; }
+        .basket-seq-tc { text-align: center; font-family: monospace; font-size: 0.78em; color: rgba(255,255,255,.65); padding: 0 0 10px; flex-shrink: 0; }
+        #basketViewerPlaceholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 30px; pointer-events: none; }
         .cmp-combo-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; position: relative; }
         /* Box 16:9 (= ratio du fichier, identique pour les deux clips) → MÊME taille et
@@ -320,11 +367,38 @@
         .marker-popup .cat-btns button.selected { opacity: 1; outline: 2px solid var(--accent); transform: scale(1.05); }
         .marker-popup textarea { width: 100%; height: 70px; margin-bottom: 12px; }
         .marker-popup .popup-actions { display: flex; gap: 8px; justify-content: flex-end; }
+        .sp-tag-suggest { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; max-height: 74px; overflow-y: auto; }
+        .sp-tag-suggest .sp-tag-pill { font-size: 0.72em; padding: 2px 9px; border-radius: 10px; background: transparent; border: 1px dashed rgba(167,139,250,.4); color: #a78bfa; cursor: pointer; }
+        .sp-tag-suggest .sp-tag-pill:hover { background: rgba(167,139,250,.15); border-style: solid; }
+        .sp-tag-suggest-empty { font-size: 0.72em; color: var(--dim); }
 
         .notes-panel { height: 370px; background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; }
         .notes-header { padding: 6px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
         .notes-body { flex: 1; display: flex; overflow: hidden; }
-        .markers-list { width: 50%; border-right: 1px solid var(--border); overflow-y: auto; padding: 6px; }
+        .annotations-col { width: 50%; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+        .markers-list { flex: 1 1 55%; overflow-y: auto; padding: 6px; min-height: 0; }
+        .selects-panel { flex: 1 1 45%; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border); }
+        .selects-panel-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 6px 2px; flex-shrink: 0; }
+        .selects-list { flex: 1; overflow-y: auto; padding: 4px 6px 6px; }
+        .select-row { font-size: 0.78em; padding: 5px 6px; border-bottom: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+        .select-row:hover { background: rgba(52,211,153,.08); }
+        .select-row-main { display: flex; gap: 6px; align-items: center; }
+        .select-thumb { width: 42px; height: 24px; object-fit: cover; border-radius: 3px; background: #000; flex-shrink: 0; }
+        .select-tc { font-family: monospace; color: #34d399; flex-shrink: 0; }
+        .select-name { color: var(--text); flex: 1; font-weight: 600; word-break: break-word; }
+        .select-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+        .select-row:hover .select-actions { opacity: 1; }
+        .select-actions button { font-size: 0.75em; padding: 1px 5px; opacity: 0.7; background: transparent; }
+        .select-actions button:hover { opacity: 1; background: rgba(255,255,255,.08); }
+        .select-tags { margin-top: 2px; display: flex; gap: 4px; flex-wrap: wrap; }
+        .select-tags span { font-size: 0.68em; padding: 0 5px; border-radius: 8px; background: rgba(52,211,153,.12); color: #34d399; }
+        .timeline-select-range { position: absolute; bottom: 12px; height: 8px; background: rgba(52,211,153,.28); border: 1px solid rgba(52,211,153,.65); border-radius: 3px; cursor: pointer; z-index: 1; }
+        .timeline-select-range:hover { background: rgba(52,211,153,.42); }
+        .tsr-handle { position: absolute; top: -4px; bottom: -4px; width: 8px; cursor: ew-resize; z-index: 2; }
+        .tsr-handle-in { left: -3px; }
+        .tsr-handle-out { right: -3px; }
+        .tsr-handle:hover { background: rgba(255,255,255,.3); border-radius: 2px; }
+        #pendingSelectInMarker { position: absolute; bottom: 10px; width: 2px; height: 12px; background: #f59e0b; box-shadow: 0 0 4px #f59e0b; z-index: 2; pointer-events: none; }
         .marker-row { font-size: 0.78em; padding: 5px 6px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 6px; align-items: center; border-radius: 4px; }
         .marker-row:hover { background: rgba(167,139,250,.08); }
         .marker-tc { font-family: monospace; color: var(--accent); flex-shrink: 0; }
@@ -824,6 +898,8 @@
                 <div class="kbd-row"><span class="kbd">M</span><span class="kbd-desc">Ajouter un marker 📌</span></div>
                 <div class="kbd-row"><span class="kbd">I</span><span class="kbd-desc">Marker problème image 👁️</span></div>
                 <div class="kbd-row"><span class="kbd">S</span><span class="kbd-desc">Marker problème son 🎵</span></div>
+                <div class="kbd-row"><span class="kbd">[</span><span class="kbd-desc">Sélection : point d'entrée ✂️</span></div>
+                <div class="kbd-row"><span class="kbd">]</span><span class="kbd-desc">Sélection : point de sortie (ouvre le nommage)</span></div>
                 <div class="kbd-row"><span class="kbd">Espace</span><span class="kbd-desc">Play / Pause</span></div>
                 <div class="kbd-row"><span class="kbd">J</span><span class="kbd-desc">Lecture arrière (×1 → ×2 → ×4)</span></div>
                 <div class="kbd-row"><span class="kbd">K</span><span class="kbd-desc">Stop / Pause</span></div>
@@ -985,7 +1061,8 @@
                 <button id="lutBtn" onclick="toggleLUT()" title="Activer/désactiver la LUT" style="display:none;">🎨</button>
                 <input type="file" id="lutFileInput" accept=".cube" style="display:none;" onchange="onLUTFileSelected(event)">
                 <button onclick="document.getElementById('lutFileInput').click()" title="Charger une LUT .cube">📂</button>
-                <button onclick="openMulticamModal()" title="Détecter et gérer les groupes multi-caméra">🎥</button>
+                <button onclick="openMulticamModal()" title="Détecter et gérer les groupes multi-caméra">🔄</button>
+                <button id="basketBtn" onclick="openBasket()" title="Pré-montage (bobine de sélections)" style="position:relative;">📽️<span id="basketBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#34d399;color:#0a0a14;font-size:0.55em;font-weight:700;border-radius:8px;padding:1px 4px;line-height:1.3;">0</span></button>
                 <!-- Auto-détection désactivée (résultats trop approximatifs) — code conservé dans js/auto-detect.js, modal #autoDetectModal et backend pour réactivation future. -->
                 <button id="sessionBtn" onclick="toggleSession()" title="Session live : diriger ou suivre">🎬</button>
                 <button onclick="openExportModal()" title="Exporter vers DaVinci Resolve">📤</button>
@@ -1007,6 +1084,7 @@
             <button onclick="skip(1)" title="+1s">1s▶</button>
             <button onclick="skip(5)" title="+5s">5s▶</button>
             <button onclick="promptAddMarker()" style="color:#f59e0b;border-color:#f59e0b44;">📌 Marker</button>
+            <button id="selectMarkBtn" onclick="handleSelectMarkClick()" title="Marquer une sélection : entrée [ puis sortie ]" style="color:#34d399;border-color:#34d39944;">✂️ Sélection</button>
             <button onclick="startDrawing()">🖌 Dessin</button>
             <button onclick="toggleFullscreen()" title="Plein écran (Touche Echap pour quitter)" style="font-size:1.1em;">⤢</button>
             <button id="bwfBtn" onclick="toggleSingleBwf()" title="Lire le son BWF de l'ingé en sync" style="display:none;">🔊 Son ingé</button>
@@ -1057,6 +1135,21 @@
             </div>
         </div>
 
+        <!-- Select (in/out) popup -->
+        <div class="popup-overlay" id="selectPopupOverlay"></div>
+        <div class="marker-popup" id="selectPopup">
+            <h3>✂️ Nouvelle sélection <span id="selectPopupTc" style="font-family:monospace;font-size:0.85em;color:var(--dim);"></span></h3>
+            <input type="text" id="selectPopupName" placeholder="Nom de la sélection..." style="width:100%;margin-bottom:10px;box-sizing:border-box;">
+            <div id="selectPopupTagsChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;"></div>
+            <input type="text" id="selectPopupTagInput" placeholder="Ajouter un tag (Entrée ou virgule)..." style="width:100%;margin-bottom:6px;box-sizing:border-box;" onkeydown="_spTagInputKeydown(event)">
+            <div id="selectPopupTagSuggest" class="sp-tag-suggest"></div>
+            <textarea id="selectPopupDesc" placeholder="Commentaire (optionnel)..." style="height:56px;"></textarea>
+            <div class="popup-actions">
+                <button onclick="cancelSelectPopup()">Annuler</button>
+                <button class="btn-primary" id="selectPopupConfirmBtn" onclick="confirmSelect()">Créer la sélection</button>
+            </div>
+        </div>
+
         <div class="notes-panel">
             <div class="notes-header">
                 <div style="display:flex;flex-direction:column;gap:1px;flex:1;min-width:0;">
@@ -1075,7 +1168,16 @@
                 </div>
             </div>
             <div class="notes-body">
-                <div class="markers-list" id="markersList"></div>
+                <div class="annotations-col">
+                    <div class="markers-list" id="markersList"></div>
+                    <div class="selects-panel" id="selectsPanel" style="display:none;">
+                        <div class="selects-panel-header">
+                            <label style="font-size:0.7em;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;">✂️ Sélections</label>
+                            <span id="selectPendingHint" style="display:none;font-size:0.72em;color:#f59e0b;">Point d'entrée posé — <span class="kbd" style="font-size:0.9em;">]</span> pour la sortie, <span class="kbd" style="font-size:0.9em;">Échap</span> pour annuler</span>
+                        </div>
+                        <div class="selects-list" id="selectsList"></div>
+                    </div>
+                </div>
                 <div class="note-area">
                     <div id="anglesPanelWrap" style="display:none;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -1595,11 +1697,12 @@ async function doLogout() {
     _jklStopRev(); _jklSpeed = 0;
     closeCompare();
     closeMcViewer();
+    if (typeof closeBasket === 'function') closeBasket();
     await apiFetch('/api/logout', {method:'POST'});
     currentSession = null;
     currentProjectId = null;
     localStorage.removeItem('derush_session');
-    activeClip = null; clips = []; allNotes = {}; allDiscussions = {};
+    activeClip = null; clips = []; allNotes = {}; allDiscussions = {}; allBaskets = {}; _pendingSelectIn = null;
     showScreen('screenLogin');
     document.getElementById('loginUser').value = '';
     document.getElementById('loginPass').value = '';
@@ -1635,6 +1738,9 @@ async function enterWorkspace(pid) {
     if(myKey && !allNotes[myKey]) allNotes[myKey] = {};
     const discRes = await apiFetch(`/api/project/${pid}/discussions`);
     allDiscussions = discRes.ok ? await discRes.json() : {};
+    const basketRes = await apiFetch(`/api/project/${pid}/basket`);
+    allBaskets = basketRes.ok ? await basketRes.json() : {};
+    if (typeof _updateBasketBadge === 'function') _updateBasketBadge();
     // Load share state (lien partagé + commentaires externes)
     _shareState = null;
     try {
@@ -1983,6 +2089,7 @@ function renderClipList() {
         const rating = n.rating;
         const ratingNum = parseInt(rating) || 0;
         const markerCount = (n.markers || []).filter(m => m.cat !== 'X').length;
+        const hasSelect = (n.selects || []).length > 0;
         const hasAnyNote = rating || markerCount || (n.notes || '').trim();
         const isSeen = seenClipIds.has(c.id);
 
@@ -2065,7 +2172,7 @@ function renderClipList() {
         }
         const snippet = (activeSearch && _searchSnippets[c.id])
             ? `<div class="search-snippet">${_searchSnippets[c.id]}</div>` : '';
-        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div></div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}</div>${teamRatings ? `<div class="team-ratings-row">${teamRatings}</div>` : ''}${teamTags ? `<div class="team-ratings-row">${teamTags}</div>` : ''}${snippet}</div>`;
+        div.innerHTML = `<div class="clip-thumb-wrap"><img class="clip-thumb" src="/api/project/${currentProjectId}/thumbnail/${c.id}" loading="lazy" onload="_thumbDone(this,true)" onerror="_thumbDone(this,false)"><div class="clip-scrub-bar"></div><div class="clip-scrub-tc"></div>${hasSelect ? '<span class="clip-select-dot" title="Sélection(s) enregistrée(s) sur ce clip"></span>' : ''}</div><div class="clip-item-body"><div class="name" style="display:flex;justify-content:space-between;align-items:center;">${c.stem}<span style="display:flex;gap:4px;align-items:center;">${ratingBadge}${markerBadge}${tagsBadge}${mcBadge}</span></div><div class="meta"><span>${c.camera||c.day}</span><span>${c.duration_tc}</span>${statusBadge}</div>${teamRatings ? `<div class="team-ratings-row">${teamRatings}</div>` : ''}${teamTags ? `<div class="team-ratings-row">${teamTags}</div>` : ''}${snippet}</div>`;
         if(rating === 'X') div.style.opacity = '0.4';
         div.onclick = () => selectClip(c);
 
@@ -2392,6 +2499,7 @@ function renderMarkers() {
             track.appendChild(pin);
         }
     });
+    if (typeof renderSelects === 'function') renderSelects();
 }
 
 // Marker Popup Logic
@@ -2691,6 +2799,14 @@ function startWebSocket() {
                 } else if(msg.type === 'discussion_updated') {
                     const r = await apiFetch(`/api/project/${currentProjectId}/discussions`);
                     if(r.ok) { allDiscussions = await r.json(); _checkMentionNotifs(allDiscussions); if(activeClip) { renderMultiUser(); renderMarkers(); } }
+                } else if(msg.type === 'basket_updated') {
+                    const r = await apiFetch(`/api/project/${currentProjectId}/basket`);
+                    if(r.ok) {
+                        allBaskets = await r.json();
+                        if (typeof _updateBasketBadge === 'function') _updateBasketBadge();
+                        const ov = document.getElementById('basketOverlay');
+                        if (ov && ov.classList.contains('active') && typeof renderBasketOverlay === 'function') renderBasketOverlay();
+                    }
                 } else if(msg.type === 'session_state' || msg.type === 'session_action') {
                     if(typeof handleSessionWsMessage === 'function') handleSessionWsMessage(msg);
                 }
@@ -2839,6 +2955,18 @@ function startNotesPolling() {
                     changed = true;
                 }
             }
+            const bRes = await apiFetch(`/api/project/${currentProjectId}/basket`);
+            if(bRes.ok) {
+                const freshB = await bRes.json();
+                for(const key of Object.keys(freshB)) {
+                    if(key === uid) continue; // préserve le panier local non sauvegardé
+                    if(JSON.stringify(allBaskets[key]) !== JSON.stringify(freshB[key])) {
+                        allBaskets[key] = freshB[key];
+                        changed = true;
+                        if (typeof _updateBasketBadge === 'function') _updateBasketBadge();
+                    }
+                }
+            }
             // Auto-pull commentaires externes si share actif, puis refresh state local
             if (_shareState && _shareState.share) {
                 try {
@@ -2861,6 +2989,8 @@ function startNotesPolling() {
                 renderClipList();
                 renderUserProgress();
                 if(activeClip) { renderMultiUser(); renderMarkers(); renderTeamTags(); }
+                const bov = document.getElementById('basketOverlay');
+                if(bov && bov.classList.contains('active') && typeof renderBasketOverlay === 'function') renderBasketOverlay();
                 showSaveStatus('↻ Sync', '#60a5fa');
             }
         } catch(e) {}
@@ -3287,6 +3417,12 @@ function refreshAllAspectOverlays() {
     }
     if (typeof _mcView !== 'undefined' && _mcView && _mcView.angles) {
         _mcView.angles.forEach(a => { if (a.vidEl && a.wrapEl) _drawAspOn(a.vidEl, a.wrapEl, a.cid); });
+    }
+    const bo = document.getElementById('basketOverlay');
+    if (bo && bo.classList.contains('active')) {
+        const bv = document.getElementById('basketVid');
+        const bvWrap = document.getElementById('basketViewerVideoWrap');
+        if (bv && bvWrap) _drawAspOn(bv, bvWrap, bv.dataset.clipId || null);
     }
 }
 window.addEventListener('resize', refreshAllAspectOverlays);
@@ -3885,6 +4021,8 @@ document.addEventListener('keydown', e => {
     if (_mcView) return;
     // Le compare overlay gère ses propres touches via _cmpKeydown (capture phase)
     if (document.getElementById('compareOverlay').classList.contains('active')) return;
+    // Le pré-montage gère ses propres touches via _basketKeydown (capture phase)
+    if (document.getElementById('basketOverlay').classList.contains('active')) return;
 
     const tag = e.target.tagName;
     if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -3899,6 +4037,8 @@ document.addEventListener('keydown', e => {
         case 'm': case 'M': promptAddMarker(); break;
         case 'i': case 'I': promptAddMarkerWithCat('T'); break;
         case 's': case 'S': promptAddMarkerWithCat('S'); break;
+        case '[': markSelectIn(); break;
+        case ']': markSelectOut(); break;
         case 'n': case 'N': {
             const idx = clips.findIndex(c => c.id === (activeClip && activeClip.id));
             if(idx < clips.length - 1) selectClip(clips[idx + 1]);
@@ -3942,7 +4082,9 @@ document.addEventListener('keydown', e => {
             }
             break;
         case 'Escape':
-            if(selectedMarkerId) {
+            if(_pendingSelectIn !== null) {
+                cancelPendingSelect();
+            } else if(selectedMarkerId) {
                 selectedMarkerId = null;
                 document.querySelectorAll('.timeline-marker-pin').forEach(p => p.classList.remove('selected'));
                 document.querySelectorAll('.marker-row').forEach(r => r.classList.remove('selected'));
@@ -4143,6 +4285,7 @@ function _checkMentionNotifs(discussions) {
 <script src="js/auto-detect.js"></script>
 <script src="js/session-live.js"></script>
 <script src="js/stats.js"></script>
+<script src="js/selects.js"></script>
 
 <!-- Bootstrap final : init() une fois tous les modules chargés -->
 <script>
@@ -4206,6 +4349,45 @@ _loadVersionAndChangelog();
                 <div class="cmp-tl-head" id="cmpHead1" style="left:0%"></div>
             </div>
             <div class="compare-info" id="cmpInfo1"><span style="color:var(--dim);font-size:0.85em;">Sélectionnez un clip</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- Pré-montage : bobine de sélections -->
+<div id="basketOverlay">
+    <div class="basket-toolbar">
+        <strong style="font-size:0.9em;">📽️ Pré-montage</strong>
+        <select id="basketUserSel" onchange="_basketSwitchUser(this.value)" style="margin-left:10px;font-size:0.82em;"></select>
+        <span id="basketDurTotal" style="font-size:0.78em;color:var(--dim);margin-left:10px;"></span>
+        <div style="flex:1;"></div>
+        <button id="basketPlayBtn" onclick="_basketTogglePlay()" title="Lire tout le pré-montage bout à bout">▶ Lire tout</button>
+        <div style="position:relative;display:inline-block;">
+            <button id="basketExportBtn" onclick="_basketToggleExportMenu(event)" title="Exporter le pré-montage">📤 Exporter</button>
+            <div id="basketExportMenu" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;min-width:190px;box-shadow:0 12px 32px rgba(0,0,0,.5);">
+                <button style="width:100%;text-align:left;" onclick="_basketExport('fcpxml')">📥 FCPXML (DaVinci)</button>
+                <button style="width:100%;text-align:left;margin-top:4px;" onclick="_basketExport('xml_fcp7')">📥 XML (Premiere)</button>
+            </div>
+        </div>
+        <button id="basketClearBtn" onclick="_basketClear()" style="color:#ef4444;border-color:rgba(239,68,68,.3);">🗑 Vider</button>
+        <button onclick="closeBasket()" style="color:var(--red);border-color:rgba(239,68,68,.3);">✕ Fermer</button>
+    </div>
+    <div class="basket-main">
+        <div class="basket-body" id="basketBody">
+            <p style="color:var(--dim);text-align:center;margin-top:30px;">Pré-montage vide — ajoute des sélections depuis le panneau ✂️ Sélections d'un clip.</p>
+        </div>
+        <div class="basket-viewer" id="basketViewer">
+            <div class="basket-viewer-videowrap" id="basketViewerVideoWrap">
+                <video id="basketVid" playsinline></video>
+                <p id="basketViewerPlaceholder" style="color:rgba(255,255,255,.4);font-size:0.85em;position:absolute;">Clique une sélection à gauche pour la charger ici</p>
+            </div>
+            <div class="basket-viewer-info">
+                <div class="bv-name" id="basketViewerName">—</div>
+                <div class="bv-meta" id="basketViewerMeta">--:--:--:-- → --:--:--:--</div>
+            </div>
+            <div class="basket-seq-timeline" id="basketSeqTimeline" onmousedown="_basketSeqMouseDown(event)">
+                <div class="basket-seq-head" id="basketSeqHead"></div>
+            </div>
+            <div class="basket-seq-tc" id="basketSeqTc">00:00 / 00:00</div>
         </div>
     </div>
 </div>

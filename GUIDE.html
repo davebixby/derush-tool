@@ -70,6 +70,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <a href="#interface">L'interface</a>
   <a href="#rating">Rating &amp; statut</a>
   <a href="#markers">Marqueurs</a>
+  <a href="#selects">Sélections &amp; Pré-montage</a>
   <a href="#tags">Tags</a>
   <a href="#team">Avis de l'équipe</a>
   <a href="#permissions">Rôles &amp; permissions</a>
@@ -219,6 +220,29 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <h3>Dessin sur image</h3>
 <p>Activez le mode dessin (<strong>🖌 Dessin</strong>), trace tes formes (cercle/flèche/libre), puis clique <strong>✅ Valider</strong>. Un popup s'ouvre pour entrer une description — le dessin sera attaché au marker créé. Le pin sur la timeline aura une icône 🖌 indiquant la présence d'un dessin.</p>
 
+<h2 id="selects">Sélections &amp; Pré-montage</h2>
+<p>Les marqueurs signalent un instant précis ; les <strong>sélections</strong> découpent un segment (entrée → sortie) que vous pouvez nommer, décrire, tagger, prévisualiser et rassembler dans un <strong>pré-montage</strong> jouable, sans quitter Derush.</p>
+<h3>Créer une sélection</h3>
+<p>Pendant la lecture :</p>
+<table>
+  <tr><th>Touche</th><th>Action</th></tr>
+  <tr><td><code>[</code></td><td>Pose le point d'entrée (une ligne orange apparaît sur la timeline)</td></tr>
+  <tr><td><code>]</code></td><td>Pose le point de sortie et ouvre le popup de nommage</td></tr>
+  <tr><td><code>Échap</code></td><td>Annule un point d'entrée posé avant d'avoir validé la sortie</td></tr>
+</table>
+<p>Le bouton <strong>✂️ Sélection</strong> dans la barre de transport fait la même chose au clic (il change de libellé en <strong>✂️ Fin →</strong> une fois le point d'entrée posé). Dans le popup, donnez un nom (obligatoire) puis un ou plusieurs tags : les tags déjà utilisés par vous ou vos collaborateurs (sur des clips ou d'autres sélections) apparaissent en suggestions cliquables juste sous le champ, ou tapez-en un nouveau suivi de <code>Entrée</code>/<code>,</code>. Un commentaire optionnel complète le tout. Une sélection nouvellement créée rejoint <strong>automatiquement</strong> votre pré-montage.</p>
+<h3>Panneau Sélections</h3>
+<p>Sous la liste des marqueurs, un nouveau panneau <strong>✂️ Sélections</strong> liste toutes les sélections du clip actif, avec une vignette (prise à son point d'entrée), la durée, le nom et les tags. Chaque ligne propose : <strong>▶</strong> aperçu (lecture bornée au segment), <strong>📽️</strong> présence dans le pré-montage (✓ si déjà dedans), <strong>✏️</strong> édition (nom/tags/commentaire), <strong>🗑</strong> suppression (annulable avec Ctrl+Z, comme les marqueurs). Les sélections apparaissent aussi comme des bandes vertes translucides sur la timeline — <strong>glissez le bord gauche ou droit d'une bande</strong> pour réduire ou agrandir son point d'entrée/sortie directement (annulable avec Ctrl+Z).</p>
+<h3>Le pré-montage</h3>
+<p>Le bouton <strong>📽️</strong> (barre d'outils flottante) ouvre votre bobine personnelle, en deux volets : la <strong>liste réordonnable à gauche</strong> (1/3 de l'écran) et une <strong>visionneuse à droite</strong> (le reste), toujours visible. Survolez n'importe où sur une ligne de la liste (pas juste la vignette) pour voir défiler les images de cette sélection <strong>directement sur sa vignette</strong>. <strong>Glissez-déposez</strong> les lignes pour les réordonner — la visionneuse et sa timeline se mettent à jour immédiatement, y compris en cours de lecture. Le pré-montage de chaque collaborateur est <strong>visible par toute l'équipe</strong> (menu déroulant en haut de l'overlay pour consulter celui d'un autre) mais chacun ne peut modifier que le sien. Dans la visionneuse, <code>Espace</code> lit/met en pause le fichier chargé et <code>Échap</code> ferme l'overlay.</p>
+<p>La visionneuse a sa propre <strong>timeline de séquence</strong>, sous la vidéo : toutes vos sélections y sont représentées « collées » bout à bout, chacune avec sa vignette et son nom, largeur proportionnelle à sa durée. <strong>Cliquez ou glissez n'importe où sur cette timeline</strong> pour naviguer directement dans l'ensemble de la bobine assemblée, pas seulement dans la sélection en cours. Le cadre / format d'image que vous avez choisi (🎞, cf. section dédiée) s'applique aussi ici, comme sur le lecteur principal.</p>
+<ul>
+  <li><strong>▶ Lire tout</strong> (ou clic sur une ligne de la liste) : lit bout-à-bout, chaque sélection s'enchaînant automatiquement sur la suivante — pratique pour juger le rythme d'un ours sans quitter Derush.</li>
+  <li><strong>📤 Exporter</strong> : génère une timeline avec exactement le contenu et l'ordre du pré-montage (pas de filtre rating, c'est votre sélection assumée), en FCPXML (DaVinci Resolve) ou XML (Adobe Premiere).</li>
+  <li><strong>🗑 Vider</strong> : reclique dans les 8 secondes pour confirmer (pas de popup de confirmation bloquant, cf. section dessin).</li>
+</ul>
+<div class="tip"><strong>Différence avec l'export DaVinci classique</strong> (section suivante) : celui-ci infère la sélection depuis les ratings/marqueurs de toute l'équipe. Le pré-montage, lui, est une décision explicite et personnelle — ce que vous avez choisi de mettre dedans, dans l'ordre où vous l'avez rangé.</div>
+
 <h2 id="tags">Tags</h2>
 <p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de recherche — celle-ci ne matche jamais le nom de fichier des clips, uniquement ce qui a été écrit (tags, notes, marqueurs, réponses), pour éviter qu'un tag comme « drift » ne remonte tous les clips dont le nom contient ce mot.</p>
 <div class="tip"><strong>Important :</strong> un tag ne compte que si vous validez avec <code>Entrée</code> ou <code>,</code> — il apparaît alors sous forme de puce colorée. Si vous tapez du texte puis changez de clip sans valider, ce texte est simplement effacé (il n'a jamais été enregistré).</div>
@@ -273,7 +297,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder via le bouton ci-dessous), sinon il retombe sur le tag <code>format.timecode</code>.</div>
 
 <h3>Étape 1 — 🎶 Décoder LTC (à faire une fois par projet)</h3>
-<p>Dans la modale <strong>🎥 Multi-cam</strong>, cadre <em>🎶 LTC</em>, cliquez sur <strong>🎶 Décoder LTC</strong>. Le serveur scanne tous les clips, extrait l'audio canal L de leur proxy, détecte les signaux LTC, et stocke le vrai TC dans le projet.</p>
+<p>Dans la modale <strong>🔄 Multi-cam</strong>, cadre <em>🎶 LTC</em>, cliquez sur <strong>🎶 Décoder LTC</strong>. Le serveur scanne tous les clips, extrait l'audio canal L de leur proxy, détecte les signaux LTC, et stocke le vrai TC dans le projet.</p>
 
 <div class="step"><div class="step-num">1</div><div class="step-body">Le bouton lance un job en background. Progress bar avec le nom du clip en cours.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Quand fini, message du type <em>"45 avec LTC · 12 sans LTC"</em>. Les clips sans LTC sont ceux dont l'audio ne contient pas de signal LTC (caméra non connectée à la multiprise, GoPro, FX6 dont le TC est dans les métadonnées, etc.).</div></div>
@@ -390,6 +414,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 
 <h2 id="export">Exporter vers DaVinci Resolve</h2>
 <p>Cliquez sur <strong>📤 Exporter</strong> en haut de la zone principale.</p>
+<div class="tip">Pour exporter <em>votre</em> pré-montage (cf. <a href="#selects">Sélections &amp; Pré-montage</a>) plutôt qu'une timeline inférée depuis les ratings de l'équipe, utilisez le bouton 📤 Exporter à l'intérieur de l'overlay 📽️ — même formats FCPXML/Premiere, mais contenu et ordre 100% sous votre contrôle.</div>
 <h3>Workflow complet (recommandé)</h3>
 <div class="step"><div class="step-num">1</div><div class="step-body">Téléchargez le <strong>FCPXML complet</strong> et importez-le dans DaVinci : <em>File › Import › Timeline…</em></div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Téléchargez le <strong>Markers EDL</strong> et importez-le : clic droit timeline › <em>Timelines › Import › Timeline Markers from EDL</em></div></div>
@@ -479,8 +504,10 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
   <tr><td><code>S</code></td><td>Marqueur problème son</td></tr>
   <tr><td><code>T</code></td><td>Marqueur problème image</td></tr>
   <tr><td><code>X</code></td><td>Marqueur zone à couper</td></tr>
+  <tr><td><code>[</code></td><td>Sélection : point d'entrée</td></tr>
+  <tr><td><code>]</code></td><td>Sélection : point de sortie (ouvre le nommage)</td></tr>
   <tr><td><code>Delete</code></td><td>Supprimer le marqueur sélectionné</td></tr>
-  <tr><td><code>Escape</code></td><td>Désélectionner</td></tr>
+  <tr><td><code>Escape</code></td><td>Désélectionner / annuler un point d'entrée en attente</td></tr>
   <tr><td><code>Ctrl+Z</code></td><td>Annuler la dernière action</td></tr>
 </table>
 <h3>Interface</h3>

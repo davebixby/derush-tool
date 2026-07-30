@@ -4,6 +4,47 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.41] — 2026-07-30
+
+### 🐛 Corrigé
+- **Son de TC (BZZZZ) entendu dans la visionneuse du pré-montage sur les clips FS5** : le lecteur dédié du pré-montage jouait le stéréo brut du proxy (L=LTC, R=micro) sans le routage WebAudio mono-R qu'appliquent déjà le lecteur principal, le comparateur et le viewer multicam. Corrigé.
+- **Espace ne pilotait pas le pré-montage** : la touche jouait/mettait en pause le lecteur principal caché derrière l'overlay au lieu de la visionneuse. Espace agit désormais sur le fichier en cours dans le pré-montage (Échap ferme l'overlay).
+
+### ✨ Ajouté
+- **Redimensionner une sélection existante directement sur la timeline** : la bande verte a maintenant deux poignées (bords gauche/droite) à glisser pour réduire ou agrandir le point d'entrée/sortie, sans repasser par le popup. Annulable avec Ctrl+Z.
+
+## [0.3.40] — 2026-07-30
+
+### ✨ Ajouté
+- **Refonte de l'overlay Pré-montage : disposition 1/3 liste + 2/3 visionneuse.** La liste réordonnable occupe le tiers gauche, la visionneuse (toujours visible, plus besoin d'une vidéo cachée) le reste.
+- **Timeline de séquence navigable** dans la visionneuse : les sélections sont représentées "collées" bout à bout, largeur proportionnelle à leur durée, avec vignette et nom par segment. Cliquer ou glisser n'importe où navigue dans toute la bobine assemblée, pas juste le segment courant.
+- **Réordonner la liste met à jour la visionneuse en direct** : l'item en cours de lecture est suivi par identité (pas par position), donc un glisser-déposer pendant la lecture ne fait pas sauter vers un autre clip.
+- **Le cadre / format d'image sélectionné (🎞) s'applique aussi à la visionneuse du pré-montage**, comme sur le lecteur principal, le comparateur et le viewer multicam.
+
+### 🔧 Modifié
+- **Survol des sélections dans le pré-montage** : toute la carte déclenche désormais le défilement (pas seulement la vignette), et les frames défilent directement sur la vignette elle-même — plus de popup flottant séparé à côté.
+
+## [0.3.39] — 2026-07-30
+
+### ✨ Ajouté
+- **Panier renommé « Pré-montage »** dans toute l'interface (bouton, overlay, messages) — les identifiants internes ne changent pas, aucune migration de données nécessaire.
+- **Visionneuse dans le pré-montage** : l'overlay étant plein écran et masquait le lecteur principal, « ▶ Lire tout » jouait la vidéo de façon invisible. Un lecteur vidéo dédié apparaît maintenant en haut de l'overlay pendant la lecture bout-à-bout.
+- **Vignettes agrandies + défilement au survol** : les vignettes du pré-montage sont plus grandes, et survoler une ligne fait défiler les images de la sélection (comme le survol des clips dans la sidebar) — nouvel endpoint serveur `select_strip` qui échantillonne des frames bornées à la plage in/out de la sélection (pas tout le clip).
+- **Tags suggérés dans le popup de sélection** : à la création/édition d'une sélection, les tags déjà utilisés par n'importe quel collaborateur (sur des clips ou d'autres sélections) apparaissent en suggestions cliquables, avec toujours la possibilité d'en taper un nouveau.
+
+## [0.3.38] — 2026-07-30
+
+### 🐛 Corrigé
+- **Une sélection créée n'apparaissait pas dans le panier** : retour terrain immédiat sur la v0.3.37 — poser une entrée/sortie créait bien le segment (visible en vert sur la timeline) mais il fallait ensuite trouver et cliquer un bouton 📽️ séparé (visible seulement au survol de la ligne) pour l'ajouter au panier, une étape non évidente. Une sélection nouvellement créée est désormais **ajoutée automatiquement au panier** de son auteur.
+
+### ✨ Ajouté
+- **Vignettes réelles dans le panneau Sélections et le panier** : jusqu'ici le panier affichait la vignette générique du clip (identique pour toutes les sélections d'un même clip). Chaque sélection affiche maintenant une vignette extraite à son propre point d'entrée (`/thumbnail/<clip_id>?t=<in>`), aussi bien dans le panneau ✂️ Sélections que dans l'overlay 📽️ Panier.
+
+## [0.3.37] — 2026-07-30
+
+### ✨ Ajouté
+- **Sélections in/out + panier de bobine** : le dérushage ne se limite plus à noter/marquer, on peut maintenant pré-monter. Nouveaux raccourcis `[`/`]` (ou bouton « ✂️ Sélection ») pour poser un point d'entrée/sortie pendant la lecture → popup pour nommer/tagger le segment. Chaque sélection est visible dans un nouveau panneau « ✂️ Sélections » sous les marqueurs, avec aperçu, ajout au panier, édition, suppression (undo compris). Nouveau bouton « 📽️ Panier » : bobine personnelle réordonnable (glisser-déposer) des sélections retenues — lecture bout-à-bout dans le lecteur principal, export direct en FCPXML (DaVinci) ou XML Premiere. Le panier de chaque collaborateur est visible par toute l'équipe (menu déroulant dans l'overlay) mais seul son auteur peut le modifier. Sync temps réel (WebSocket + poll 15s), même mécanique de fusion que les notes (chacun ne publie que le sien).
+
 ## [0.3.36] — 2026-07-28
 
 ### 🔧 Modifié

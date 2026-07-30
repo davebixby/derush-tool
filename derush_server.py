@@ -30,7 +30,8 @@ from derush_core import (hash_password, is_legacy_hash, verify_password,
                         find_project_user, user_note_key)
 from derush_exports import (export_fcpxml, export_xml_fcp7, export_subclips_fcpxml,
                             export_rough_cut_fcpxml, export_report_html,
-                            export_edl, export_markers_edl, export_csv)
+                            export_edl, export_markers_edl, export_csv,
+                            export_basket_fcpxml, export_basket_xml_fcp7)
 
 # ─── Heartbeat / auto-shutdown ───
 _last_heartbeat = _time.time()
@@ -1178,30 +1179,31 @@ def compute_thumbnail_scrub(file_path, clip_id, t_sec):
     _dedupe_compute(f"thumb_scrub:{clip_id}:{t_key}", _do)
     return thumb if thumb.exists() else None
 
-def compute_strip(file_path, clip_id, duration_sec, n=12):
-    """Bande-contact : n frames équidistantes en parallèle → un seul JPEG horizontal caché.
+def _compute_strip_generic(file_path, cache_path, dedupe_key, t_start, t_end, n):
+    """Cœur partagé de compute_strip/compute_select_strip : n frames équidistantes
+    entre t_start et t_end, en parallèle → un seul JPEG horizontal caché.
 
     Le _dedupe_compute évite que 2 requêtes concurrentes pour la même strip lancent 2x
     n ffmpeg ; le _ffmpeg_run interne plafonne déjà le parallélisme global. Le résultat :
-    un hover rapide sur 20 clips n'inonde plus le système — chaque strip est calculée
-    une seule fois, dans la limite des slots ffmpeg disponibles."""
-    strip = THUMBNAILS_DIR / f"{clip_id}_strip{n}.jpg"
-    if strip.exists():
-        return strip
+    un hover rapide sur 20 clips (ou 20 sélections) n'inonde plus le système — chaque
+    strip est calculée une seule fois, dans la limite des slots ffmpeg disponibles."""
+    if cache_path.exists():
+        return cache_path
     try:
         from PIL import Image as _PIL
     except ImportError:
         return None
 
     src = _lighter_decode_source(file_path)
+    span = max(0.01, t_end - t_start)
     def _do():
         from concurrent.futures import ThreadPoolExecutor
         W, H = 320, 180
         frames = [None] * n
 
         def _gen(i):
-            t = max(0.0, i * duration_sec / n)
-            tmp = THUMBNAILS_DIR / f"{clip_id}_stmp{i}.jpg"
+            t = max(0.0, t_start + i * span / n)
+            tmp = cache_path.parent / f"{cache_path.stem}_tmp{i}.jpg"
             try:
                 cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error',
                        '-analyzeduration', '1M', '-probesize', '5M',
@@ -1235,10 +1237,25 @@ def compute_strip(file_path, clip_id, duration_sec, n=12):
         out = _PIL.new('RGB', (W * n, H))
         for i, img in enumerate(imgs):
             out.paste(img, (i * W, 0))
-        out.save(str(strip), 'JPEG', quality=82)
+        out.save(str(cache_path), 'JPEG', quality=82)
 
-    _dedupe_compute(f"strip:{clip_id}:{n}", _do, wait_timeout=180)
-    return strip if strip.exists() else None
+    _dedupe_compute(dedupe_key, _do, wait_timeout=180)
+    return cache_path if cache_path.exists() else None
+
+
+def compute_strip(file_path, clip_id, duration_sec, n=12):
+    """Bande-contact sur tout le clip (0 → duration_sec) — sidebar/scrub hover."""
+    strip = THUMBNAILS_DIR / f"{clip_id}_strip{n}.jpg"
+    return _compute_strip_generic(file_path, strip, f"strip:{clip_id}:{n}", 0.0, duration_sec, n)
+
+
+def compute_select_strip(file_path, clip_id, select_id, in_sec, out_sec, n=8):
+    """Bande-contact bornée à une sélection (in_sec → out_sec), pas tout le clip —
+    utilisée par le hover du panier/pré-montage : une sélection de quelques secondes
+    dans un plan de 20 minutes doit montrer SES frames, pas 12 frames dont la plupart
+    tombent hors de la plage sélectionnée."""
+    strip = THUMBNAILS_DIR / f"{clip_id}_sel{select_id}_strip{n}.jpg"
+    return _compute_strip_generic(file_path, strip, f"strip_sel:{clip_id}:{select_id}:{n}", in_sec, out_sec, n)
 
 
 def compute_waveform_peaks(file_path, num_buckets=800, pan_filter=None):
@@ -2575,8 +2592,17 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
             return
 
-        if re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7)$', path):
-            m = re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7)$', path)
+        if re.match(r'^/api/project/([^/]+)/basket$', path):
+            pid = re.match(r'^/api/project/([^/]+)/basket$', path).group(1)
+            proj = load_project(pid)
+            if proj:
+                self._json_response(proj.get('baskets', {}))
+            else:
+                self.send_error(404)
+            return
+
+        if re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7)$', path):
+            m = re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7)$', path)
             pid, fmt = m.group(1), m.group(2)
             proj = load_project(pid)
             if not proj:
@@ -2628,6 +2654,22 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.end_headers()
                 self.wfile.write(content.encode('utf-8'))
+            elif fmt == 'basket_fcpxml':
+                user_key = qs.get('user', [''])[0]
+                if not user_key:
+                    self._json_response({'error': 'Paramètre user requis'}, 400)
+                    return
+                label = qs.get('label', [proj['name']])[0]
+                content = export_basket_fcpxml(proj, user_key)
+                self._text_response(content, f"{label}_panier.fcpxml", 'application/xml')
+            elif fmt == 'basket_xml_fcp7':
+                user_key = qs.get('user', [''])[0]
+                if not user_key:
+                    self._json_response({'error': 'Paramètre user requis'}, 400)
+                    return
+                label = qs.get('label', [proj['name']])[0]
+                content = export_basket_xml_fcp7(proj, user_key)
+                self._text_response(content, f"{label}_panier_premiere.xml", 'application/xml')
             return
 
         if re.match(r'^/api/project/([^/]+)/health$', path):
@@ -2939,6 +2981,35 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                             if resolved is not None: file_path = resolved; break
                 if not file_path: self.send_error(404); return
                 compute_strip(str(file_path), clip_id, clip.get('duration_sec', 10), n=n_frames)
+                if not strip.exists(): self.send_error(404); return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.send_header('Cache-Control', 'public, max-age=86400')
+            self.end_headers()
+            self.wfile.write(strip.read_bytes())
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/select_strip/(.+)$', path)
+        if m:
+            pid, clip_id = m.group(1), m.group(2)
+            select_id = qs.get('select_id', [''])[0]
+            try:
+                in_sec = float(qs.get('in', ['0'])[0])
+                out_sec = float(qs.get('out', ['0'])[0])
+            except (ValueError, TypeError):
+                self.send_error(400); return
+            n_frames = int(qs.get('n', ['8'])[0]) if qs.get('n') else 8
+            if not select_id or out_sec <= in_sec:
+                self.send_error(400); return
+            strip = THUMBNAILS_DIR / f"{clip_id}_sel{select_id}_strip{n_frames}.jpg"
+            if not strip.exists():
+                proj = load_project(pid)
+                if not proj: self.send_error(404); return
+                clip = next((c for c in proj.get('clips', []) if c['id'] == clip_id), None)
+                if not clip: self.send_error(404); return
+                file_path = _resolve_clip_local_path(proj, clip)
+                if not file_path: self.send_error(404); return
+                compute_select_strip(str(file_path), clip_id, select_id, in_sec, out_sec, n=n_frames)
                 if not strip.exists(): self.send_error(404); return
             self.send_response(200)
             self.send_header('Content-Type', 'image/jpeg')
@@ -3468,6 +3539,29 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             _ws_broadcast(pid, {'type': 'notes_updated', 'user': user_key},
                           exclude_token=self.headers.get('Authorization', '')[7:])
             # Push cloud debounced : ~3s après la dernière save, un sync part en bg.
+            _schedule_sync_push(pid)
+            self._json_response({'ok': True})
+            return
+
+        if re.match(r'^/api/project/([^/]+)/basket$', path):
+            pid = re.match(r'^/api/project/([^/]+)/basket$', path).group(1)
+            s = require_auth(self)
+            if not s: return
+            proj = load_project(pid)
+            if not proj:
+                self.send_error(404)
+                return
+            # Même résolution de clé que /notes — panier personnel, un user ne
+            # peut écrire que sa propre entrée (celle résolue depuis sa session).
+            _pu = find_project_user(proj, s.get('username') or s.get('name') or s.get('user_id') or '')
+            user_key = user_note_key(_pu) if _pu else (s.get('user_id') or s.get('username', ''))
+            basket = body.get('basket', [])
+            if not proj.get('baskets'):
+                proj['baskets'] = {}
+            proj['baskets'][user_key] = basket
+            save_project(pid, proj)
+            _ws_broadcast(pid, {'type': 'basket_updated', 'user': user_key},
+                          exclude_token=self.headers.get('Authorization', '')[7:])
             _schedule_sync_push(pid)
             self._json_response({'ok': True})
             return
@@ -4059,6 +4153,19 @@ def merge_projects(local, remote, own_uid=None):
         for uid, unotes in local_notes.items():
             merged_notes[uid] = unotes
     result['notes'] = merged_notes
+
+    # Paniers (selects) : même règle que les notes — chaque machine ne publie
+    # que le panier de son propre user, garde la version cloud pour les autres.
+    # Visible par toute l'équipe (lecture), modifiable seulement par son auteur.
+    merged_baskets = copy.deepcopy(remote.get('baskets', {}))
+    local_baskets = local.get('baskets', {})
+    if own_uid is not None:
+        if own_uid in local_baskets:
+            merged_baskets[own_uid] = local_baskets[own_uid]
+    else:
+        for uid, ubasket in local_baskets.items():
+            merged_baskets[uid] = ubasket
+    result['baskets'] = merged_baskets
 
     # Discussions : ajoute les replies du remote absentes en local (clé = timestamp)
     remote_disc = remote.get('discussions', {})

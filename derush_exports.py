@@ -211,6 +211,28 @@ def export_fcpxml(project, filter_config=None):
     return xml_str
 
 
+def _fcp7_rate_elem(fps_int):
+    """<rate><timebase>N</timebase><ntsc>FALSE</ntsc></rate>"""
+    # NTSC fractional rates : 23.976, 29.97, 59.94 → ntsc=TRUE
+    # Ici on traite des fps entiers depuis round(clip.fps), donc ntsc=FALSE
+    e = ET.Element('rate')
+    ET.SubElement(e, 'timebase').text = str(fps_int)
+    ET.SubElement(e, 'ntsc').text = 'FALSE'
+    return e
+
+
+def _fcp7_tc_elem(tc_sec, fps_int):
+    """<timecode><rate>…</rate><string>HH:MM:SS:FF</string><frame>N</frame>…"""
+    frames = int(round(tc_sec * fps_int))
+    tc_str = seconds_to_tc(tc_sec, fps_int)
+    e = ET.Element('timecode')
+    e.append(_fcp7_rate_elem(fps_int))
+    ET.SubElement(e, 'string').text = tc_str
+    ET.SubElement(e, 'frame').text = str(frames)
+    ET.SubElement(e, 'displayformat').text = 'NDF'
+    return e
+
+
 def export_xml_fcp7(project, filter_config=None):
     """
     Export Adobe Premiere Pro XML (Final Cut Pro 7 XML Interchange Format, v5).
@@ -224,26 +246,8 @@ def export_xml_fcp7(project, filter_config=None):
     fc_min_rating = int(filter_config['min_rating']) if filter_config and filter_config.get('min_rating') else None
     fc_cats = filter_config.get('cats') if filter_config else None
     fc_rejected_only = bool(filter_config.get('rejected_only')) if filter_config else False
-
-    def _rate_elem(fps_int):
-        """<rate><timebase>N</timebase><ntsc>FALSE</ntsc></rate>"""
-        # NTSC fractional rates : 23.976, 29.97, 59.94 → ntsc=TRUE
-        # Ici on traite des fps entiers depuis round(clip.fps), donc ntsc=FALSE
-        e = ET.Element('rate')
-        ET.SubElement(e, 'timebase').text = str(fps_int)
-        ET.SubElement(e, 'ntsc').text = 'FALSE'
-        return e
-
-    def _tc_elem(tc_sec, fps_int):
-        """<timecode><rate>…</rate><string>HH:MM:SS:FF</string><frame>N</frame>…"""
-        frames = int(round(tc_sec * fps_int))
-        tc_str = seconds_to_tc(tc_sec, fps_int)
-        e = ET.Element('timecode')
-        e.append(_rate_elem(fps_int))
-        ET.SubElement(e, 'string').text = tc_str
-        ET.SubElement(e, 'frame').text = str(frames)
-        ET.SubElement(e, 'displayformat').text = 'NDF'
-        return e
+    _rate_elem = _fcp7_rate_elem
+    _tc_elem = _fcp7_tc_elem
 
     # Détermine fps de séquence (majoritaire) + dims max
     seq_fps = 25
@@ -692,6 +696,234 @@ def export_rough_cut_fcpxml(project, min_rating=2, user_filter=None):
     xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n'
     xml_str += ET.tostring(root, encoding='unicode', xml_declaration=False)
     return xml_str
+
+
+def _basket_entries(project, user_key):
+    """Résout le panier personnel d'un user en une liste ordonnée [(clip, select)],
+    en ignorant silencieusement les entrées orphelines (clip ou select supprimé
+    depuis l'ajout au panier)."""
+    clips_by_id = {c['id']: c for c in project.get('clips', [])}
+    user_notes = project.get('notes', {}).get(user_key, {})
+    basket = (project.get('baskets', {}) or {}).get(user_key, [])
+    entries = []
+    for item in basket:
+        clip = clips_by_id.get(item.get('clip_id'))
+        if not clip:
+            continue
+        selects = (user_notes.get(item.get('clip_id')) or {}).get('selects', [])
+        sel = next((s for s in selects if s.get('id') == item.get('select_id')), None)
+        if not sel:
+            continue
+        entries.append((clip, sel))
+    return entries
+
+
+def export_basket_fcpxml(project, user_key):
+    """Export du panier personnel d'un utilisateur : une séquence FCPXML avec
+    exactement les sélections (in/out) qu'il a retenues, dans l'ordre où il les
+    a rangées — pas de filtre rating/X ici, l'ordre et le contenu sont sa
+    décision explicite (contrairement à export_fcpxml/export_rough_cut_fcpxml
+    qui infèrent la sélection depuis les notes d'équipe)."""
+    entries = _basket_entries(project, user_key)
+
+    root = ET.Element('fcpxml', version='1.8')
+    resources = ET.SubElement(root, 'resources')
+
+    formats = {}
+    for clip, _sel in entries:
+        res = clip.get('resolution') or '1920x1080'
+        fps_int = round(clip.get('fps', 25))
+        key = (res, fps_int)
+        if key not in formats:
+            parts = res.split('x')
+            w, h = (parts[0], parts[1]) if len(parts) == 2 else ('1920', '1080')
+            formats[key] = {'id': f'f{len(formats)+1}', 'w': w, 'h': h, 'fps': fps_int}
+    if not formats:
+        formats[('1920x1080', 25)] = {'id': 'f1', 'w': '1920', 'h': '1080', 'fps': 25}
+    for (res, fps_int), data in formats.items():
+        ET.SubElement(resources, 'format', id=data['id'],
+                      name=f"Format_{data['w']}x{data['h']}_{fps_int}fps",
+                      frameDuration=f'1/{fps_int}s',
+                      width=str(data['w']), height=str(data['h']))
+    seq_format_id = list(formats.values())[0]['id']
+
+    library = ET.SubElement(root, 'library')
+    event = ET.SubElement(library, 'event', name=f"{project.get('name', 'Projet')} - Panier")
+    proj_el = ET.SubElement(event, 'project', name=f"Panier ({user_key})")
+    seq = ET.SubElement(proj_el, 'sequence', format=seq_format_id, tcStart='0s', tcFormat='NDF')
+    spine = ET.SubElement(seq, 'spine')
+
+    asset_ids = {}  # clip_id -> asset_id, dédup si le panier référence 2x le même clip
+    record_offset = 0.0
+    asset_idx = 0
+    for clip, sel in entries:
+        clip_fps = round(clip.get('fps', 25))
+        dur = clip.get('duration_sec', 0) or 1
+        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_frames = int(round(tc_in_sec * clip_fps))
+
+        if clip['id'] not in asset_ids:
+            asset_idx += 1
+            asset_id = f"asset_{asset_idx}"
+            asset_ids[clip['id']] = asset_id
+            dur_rational = seconds_to_rational(dur, clip_fps)
+            src_path = clip.get('path', '')
+            src_uri = src_path.replace(chr(92), '/')
+            if not src_uri.startswith('/'):
+                src_uri = '/' + src_uri
+            src_uri = 'file://localhost' + src_uri
+            clip_res = clip.get('resolution') or '1920x1080'
+            fmt_id = formats.get((clip_res, clip_fps), list(formats.values())[0])['id']
+            tc_in_rational = f'{tc_in_frames}/{clip_fps}s' if tc_in_frames > 0 else '0s'
+            ET.SubElement(resources, 'asset', id=asset_id,
+                          src=src_uri, start=tc_in_rational, duration=dur_rational,
+                          format=fmt_id, name=clip.get('filename', ''), hasVideo='1', hasAudio='1')
+        asset_id = asset_ids[clip['id']]
+
+        seg_start = float(sel.get('in', 0) or 0)
+        seg_end = float(sel.get('out', dur) or dur)
+        seg_dur = max(0.04, seg_end - seg_start)
+        seg_start_frames = int(round(seg_start * clip_fps))
+        seg_dur_rational = seconds_to_rational(seg_dur, clip_fps)
+        seg_tc_start_frames = tc_in_frames + seg_start_frames
+        seg_tc_rational = f'{seg_tc_start_frames}/{clip_fps}s' if seg_tc_start_frames > 0 else '0s'
+
+        name = sel.get('name') or clip.get('filename', '')
+        ac_attrs = {
+            'ref': asset_id,
+            'offset': seconds_to_rational(record_offset, clip_fps),
+            'duration': seg_dur_rational,
+            'start': seg_tc_rational,
+            'name': name,
+        }
+        note_parts = []
+        if sel.get('desc'):
+            note_parts.append(sel['desc'])
+        if sel.get('tags'):
+            note_parts.append('#' + ' #'.join(sel['tags']))
+        if note_parts:
+            ac_attrs['note'] = ' — '.join(note_parts)
+        ET.SubElement(spine, 'asset-clip', **ac_attrs)
+        record_offset += seg_dur
+
+    xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n'
+    xml_str += ET.tostring(root, encoding='unicode', xml_declaration=False)
+    return xml_str
+
+
+def export_basket_xml_fcp7(project, user_key):
+    """Panier personnel en Adobe Premiere XML (FCP7 Interchange), même source
+    (_basket_entries) et même logique d'ordre/segments que export_basket_fcpxml."""
+    entries = _basket_entries(project, user_key)
+
+    seq_fps = 25
+    seq_w, seq_h = 1920, 1080
+    if entries:
+        fps_count = {}
+        for c, _sel in entries:
+            fps_count[round(c.get('fps', 25))] = fps_count.get(round(c.get('fps', 25)), 0) + 1
+        seq_fps = max(fps_count.items(), key=lambda x: x[1])[0]
+        for c, _sel in entries:
+            res = c.get('resolution') or '1920x1080'
+            parts = res.split('x')
+            if len(parts) == 2:
+                try:
+                    w, h = int(parts[0]), int(parts[1])
+                    if w * h > seq_w * seq_h:
+                        seq_w, seq_h = w, h
+                except ValueError:
+                    pass
+
+    root = ET.Element('xmeml', version='5')
+    seq = ET.SubElement(root, 'sequence', id='sequence-1')
+    ET.SubElement(seq, 'name').text = f"{project.get('name', 'Projet')} - Panier ({user_key})"
+
+    seq_duration_el = ET.SubElement(seq, 'duration')
+    seq.append(_fcp7_rate_elem(seq_fps))
+    seq.append(_fcp7_tc_elem(0, seq_fps))
+
+    media = ET.SubElement(seq, 'media')
+    video = ET.SubElement(media, 'video')
+    fmt = ET.SubElement(video, 'format')
+    sc = ET.SubElement(fmt, 'samplecharacteristics')
+    sc.append(_fcp7_rate_elem(seq_fps))
+    ET.SubElement(sc, 'width').text = str(seq_w)
+    ET.SubElement(sc, 'height').text = str(seq_h)
+    ET.SubElement(sc, 'pixelaspectratio').text = 'square'
+    track = ET.SubElement(video, 'track')
+
+    file_ids_emitted = set()
+    record_frames = 0
+    for idx, (clip, sel) in enumerate(entries, 1):
+        clip_fps = round(clip.get('fps', 25))
+        dur_sec = clip.get('duration_sec', 0) or 1
+        dur_frames = int(round(dur_sec * clip_fps))
+        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_frames = int(round(tc_in_sec * clip_fps))
+
+        src_path = clip.get('path', '')
+        src_uri = src_path.replace(chr(92), '/')
+        if not src_uri.startswith('/'):
+            src_uri = '/' + src_uri
+        src_uri = 'file://localhost' + src_uri
+
+        file_id = f"file-{clip['id']}"
+        first_emit = file_id not in file_ids_emitted
+        file_ids_emitted.add(file_id)
+
+        seg_start = float(sel.get('in', 0) or 0)
+        seg_end = float(sel.get('out', dur_sec) or dur_sec)
+        seg_in = int(round(seg_start * clip_fps))
+        seg_out = max(seg_in + 1, int(round(seg_end * clip_fps)))
+        seg_dur_frames = seg_out - seg_in
+
+        ci = ET.SubElement(track, 'clipitem', id=f"clipitem-{idx}-{int(seg_start*1000)}")
+        ET.SubElement(ci, 'name').text = sel.get('name') or clip.get('filename', clip.get('id', ''))
+        ET.SubElement(ci, 'duration').text = str(dur_frames)
+        ci.append(_fcp7_rate_elem(clip_fps))
+        ET.SubElement(ci, 'in').text = str(seg_in)
+        ET.SubElement(ci, 'out').text = str(seg_out)
+        ET.SubElement(ci, 'start').text = str(record_frames)
+        ET.SubElement(ci, 'end').text = str(record_frames + seg_dur_frames)
+
+        if first_emit:
+            f = ET.SubElement(ci, 'file', id=file_id)
+            ET.SubElement(f, 'name').text = clip.get('filename', '')
+            ET.SubElement(f, 'pathurl').text = src_uri
+            f.append(_fcp7_rate_elem(clip_fps))
+            ET.SubElement(f, 'duration').text = str(dur_frames)
+            f.append(_fcp7_tc_elem(tc_in_sec, clip_fps))
+            fmedia = ET.SubElement(f, 'media')
+            fvideo = ET.SubElement(fmedia, 'video')
+            fsc = ET.SubElement(fvideo, 'samplecharacteristics')
+            fsc.append(_fcp7_rate_elem(clip_fps))
+            cres = clip.get('resolution') or f'{seq_w}x{seq_h}'
+            cparts = cres.split('x')
+            cw, ch = (cparts[0], cparts[1]) if len(cparts) == 2 else (str(seq_w), str(seq_h))
+            ET.SubElement(fsc, 'width').text = cw
+            ET.SubElement(fsc, 'height').text = ch
+            ET.SubElement(fmedia, 'audio')
+        else:
+            ET.SubElement(ci, 'file', id=file_id)
+
+        note_parts = []
+        if sel.get('desc'):
+            note_parts.append(sel['desc'])
+        if sel.get('tags'):
+            note_parts.append('#' + ' #'.join(sel['tags']))
+        if note_parts:
+            comments = ET.SubElement(ci, 'comments')
+            mc = ET.SubElement(comments, 'mastercomment1')
+            mc.text = ' — '.join(note_parts)
+
+        record_frames += seg_dur_frames
+
+    seq_duration_el.text = str(record_frames)
+
+    xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n'
+    xml_str += ET.tostring(root, encoding='unicode', xml_declaration=False)
+    return xml_str
+
 
 def export_report_html(project):
     clips = project.get('clips', [])
