@@ -750,6 +750,7 @@ Plus de cache fingerprint, plus de seuils audio xcorr/GCC.
 | `_clip_origination_date(clip)` | extrait `YYYY-MM-DD` depuis `creation_date` ou regex sur `id`/`path` |
 | `_bwf_origination_date(af)` | normalise depuis `audio_clips`, fallback lecture à la volée |
 | `_bwf_candidates_for_clips(...)` | retourne BWF qui CONTIENNENT strictement les clips (grace ±2s) ET match la date, triés par compacité — utilisé seulement par `/group_bwf` pour le playback |
+| `_resolve_audio_clip_path(ac, proj)` | résout `ac['path']` (absolu, stocké tel quel au scan) sur le disque courant : match littéral d'abord, sinon retrouve le nom du dossier racine projet dans les segments du chemin stocké (résilient à un changement de lettre de lecteur) puis délègue à `_resolve_relpath_tolerant` — v0.3.46 |
 
 ### Fonctions multicam (`derush_server.py`)
 | Fonction | Rôle |
@@ -2034,3 +2035,29 @@ Le panneau « Avis des autres » (`#multiUserPanel`, dans `#multiUserPanelWrap`,
 
 ## Enseignement général
 Face à un signalement de géométrie/overflow, ne pas supposer que le mécanisme de scroll lui-même est cassé sans le mesurer — ici il fonctionnait parfaitement, y compris dans des conditions extrêmes. Le vrai problème était un contenu non borné poussant un élément important loin de sa position naturelle. La mesure directe (au lieu de la simple lecture de CSS) a permis d'identifier PRÉCISÉMENT quel bloc était responsable et de combien, plutôt que d'appliquer un correctif générique (par exemple réduire `.notes-panel` ou changer sa position) qui aurait pu ne pas cibler la vraie cause.
+
+# État au 31 juillet 2026 (suite) — v0.3.46 : Son ingé (BWF) en 404 après changement de lettre de lecteur
+
+## Signalement
+Erreurs console : `GET /api/project/drift_club/bwf_audio/MIROIRT01` (et `MIROIRT02`, `REC_B_003`) → 404. « Le son ingé ne se lit plus quand je le sélectionne, alors que le chemin d'accès est celui-ci : `E:\DRIFT_CLUB\J01_2026_04_07\SON\26Y04M07\MIROIRT01.WAV` » (fichier confirmé présent sur disque à cet endroit). Accompagné d'un `401` sur `/api/me`.
+
+## Le 401 : pas un bug
+`SESSIONS` est un dict en mémoire, vidé à chaque redémarrage du serveur. Après les rebuilds/relances successifs de cette session, l'ancien token en `localStorage` du navigateur n'était plus reconnu → `init()` (`derush_app.html`) détecte le 401, nettoie le storage et redirige vers l'écran de connexion — comportement normal, aucun correctif nécessaire.
+
+## Le 404 : même classe de bug que l'incident "v0.3.11" (clips vidéo), jamais corrigée côté BWF
+`_resolve_audio_clip_path(ac, proj)` (`derush_server.py`) ne gérait qu'un match **littéral** : le chemin stocké (`ac['path']`, absolu, capturé tel quel par `scan_son_dir` au moment du scan initial du dossier Son) devait commencer par une des racines connues (`proj['root_path']` ou un `user['root_path']`) pour en déduire un chemin relatif à réappliquer sur le disque courant. Si le disque de rushs a changé de lettre depuis ce scan (`D:` → `E:`, exactement le scénario déjà documenté pour les clips vidéo), le chemin stocké (`D:\DRIFT_CLUB\...`) ne matche plus AUCUNE racine connue (toutes en `E:\...` désormais) → résolution abandonnée → 404, alors que le fichier existe à l'identique sous la nouvelle lettre.
+
+**Pourquoi les clips vidéo n'ont jamais ce problème** : `_resolve_relpath_tolerant()` prend un chemin déjà **relatif** (`clip['rel_path']`, stocké séparément dès le scan), jamais un absolu à décomposer — la question de la lettre de lecteur ne se pose donc pas pour eux. Les `audio_clips`, eux, n'ont jamais stocké de `rel_path` du tout, seulement le chemin absolu complet.
+
+## Fix
+`_resolve_audio_clip_path()` étendu avec un repli : si le match littéral échoue, recherche le **nom du dossier racine du projet** (dernier segment de `root_path`, ex. `DRIFT_CLUB`) n'importe où dans les segments du chemin stocké — peu importe ce qui précède (lettre de lecteur, structure de disque totalement différente). Tout ce qui suit ce segment devient le chemin relatif, résolu ensuite via `_resolve_relpath_tolerant()` (même fonction que pour les clips — offre gratuitement la tolérance au zero-padding en prime).
+
+## Vérification en conditions réelles
+
+**Attention à ne pas toucher l'instance live de l'utilisateur** : au moment du diagnostic, une vraie session `DerushTool.exe` de l'utilisateur tournait déjà sur le port 8765 (confirmé via `Get-Process` sur le PID qui écoutait ce port avant de lancer quoi que ce soit) — le harness de test a été démarré sur le **port 8766** (`ds.PORT = 8766` avant `ds.run()`) pour ne jamais risquer d'interférer avec elle.
+
+1. **Premier test en isolation, trompeur** : `root_path` de test fixé directement à `D:\DRIFT_CLUB` (la même lettre que le chemin stocké) — passait, mais n'exerçait que le match littéral déjà existant, pas le nouveau repli. Corrigé en nommant le dossier de test racine `DRIFT_CLUB` mais sous un chemin totalement différent de celui stocké (ex. `...\scratch\...\DRIFT_CLUB`) — seul moyen de vraiment exercer la recherche par nom de dossier plutôt que par préfixe littéral.
+2. **Vraie requête HTTP** (pas juste la fonction en isolation) : projet jetable avec un `audio_clip` au chemin stocké pointant vers un `D:` inexistant, fichier réel placé sous la structure relative attendue au nouveau `root_path`. Avant fix : `GET /bwf_audio/MIROIRT01` → 404. Après fix : → 200, `Content-Type: audio/wav`.
+
+## Portée non couverte
+Seul `_resolve_audio_clip_path()` (utilisé par `/bwf_audio/<id>` et indirectement par `/clip_bwf/<clip_id>`) a été corrigé. Si d'autres endpoints résolvent un jour des chemins BWF absolus par une autre voie, appliquer le même repli.

@@ -1674,14 +1674,18 @@ def _bwf_origination_date(af):
     return None
 
 def _resolve_audio_clip_path(ac, proj):
-    """Resolve an audio clip's path, handling cross-platform migration.
-    Stored paths may be Windows absolute paths (D:\\DRIFT_CLUB\\...) that don't
-    exist on macOS. Strips the stored root and retries with each user's root_path."""
+    """Resolve an audio clip's path, handling cross-platform migration AND the
+    disk-remounted-under-a-different-drive-letter case (cf. incident "v0.3.11 —
+    perte de clips au rescan" : un disque externe qui se rebranche sous une
+    nouvelle lettre Windows). Stored paths may be Windows absolute paths
+    (D:\\DRIFT_CLUB\\...) that don't exist on macOS, or that don't exist anymore
+    even on Windows si le lecteur a changé de lettre depuis le scan_son."""
     stored = ac.get('path', '')
     fp = Path(stored)
     if fp.exists():
         return fp
     stored_norm = stored.replace('\\', '/')
+    stored_segments = [s for s in stored_norm.split('/') if s]
     # Collect all candidate roots to try stripping
     all_roots = []
     proj_root = proj.get('root_path', '')
@@ -1694,15 +1698,35 @@ def _resolve_audio_clip_path(ac, proj):
     for base in all_roots:
         if not base:
             continue
+        rel = None
+        # 1. Match littéral : le chemin stocké commence par CE root (même lettre
+        #    de lecteur / même chemin) — cas rapide, le plus courant.
         if stored_norm.lower().startswith(base.lower() + '/'):
             rel = stored_norm[len(base) + 1:]
-            for u in proj.get('users', []):
-                rp = u.get('root_path', '')
-                if not rp:
-                    continue
-                candidate = Path(rp) / rel
-                if candidate.exists():
-                    return candidate
+        else:
+            # 2. Match tolérant à un changement de lettre de lecteur : on
+            #    retrouve le NOM du dossier racine du projet (dernier segment
+            #    de `base`, ex. "DRIFT_CLUB") quelque part dans le chemin
+            #    stocké, peu importe le préfixe avant (D:/ vs E:/ vs autre
+            #    arborescence) — tout ce qui suit ce segment est le chemin
+            #    relatif à utiliser.
+            base_name = base.rstrip('/').split('/')[-1].lower()
+            if base_name:
+                lower_segments = [s.lower() for s in stored_segments]
+                if base_name in lower_segments:
+                    idx = lower_segments.index(base_name)
+                    rel = '/'.join(stored_segments[idx + 1:])
+        if not rel:
+            continue
+        for u in proj.get('users', []):
+            rp = u.get('root_path', '')
+            if not rp:
+                continue
+            # _resolve_relpath_tolerant donne aussi gratuitement la tolérance
+            # au zero-padding (SON/01 vs SON/1) déjà utilisée pour les clips.
+            candidate = _resolve_relpath_tolerant(rp, rel)
+            if candidate:
+                return candidate
     return None
 
 

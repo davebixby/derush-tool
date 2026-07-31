@@ -4,6 +4,11 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.46] — 2026-07-31
+
+### 🐛 Corrigé
+- **Son ingé (BWF) en 404 après un changement de lettre de lecteur** : le résolveur de chemin des fichiers BWF exigeait une correspondance littérale de lettre de lecteur entre le chemin stocké et le chemin courant — un disque externe rebranché sous une autre lettre (ex. `D:` → `E:`) rendait tous les BWF introuvables. Corrigé pour retrouver le dossier projet dans le chemin stocké quelle que soit la lettre, comme c'est déjà le cas pour les rushs vidéo.
+
 ## [0.3.45] — 2026-07-31
 
 ### 🐛 Corrigé

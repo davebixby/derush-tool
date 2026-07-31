@@ -258,12 +258,13 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#basket-timeline-layout">3e retour terrain : disposition 1/3+2/3, timeline de séquence</a>
   <a href="#basket-audio-space-resize">4e retour terrain : audio FS5, Espace, redimensionner</a>
 
-  <div class="nav-section">Session 31 juillet 2026 (v0.3.42-45)</div>
+  <div class="nav-section">Session 31 juillet 2026 (v0.3.42-46)</div>
   <a href="#resize-basket-refresh-false-alarm">Fausse alerte : redimensionner ne mettait pas à jour le pré-montage</a>
   <a href="#basket-handles-crossfade-zoom">5e retour terrain : poignées, crossfade, trim de séquence, zoom molette</a>
   <a href="#basket-trim-preview-frame">6e retour terrain : image en direct dans la visionneuse pendant le trim</a>
   <a href="#basket-undo">Ctrl+Z dans le pré-montage</a>
   <a href="#tag-input-offscreen">Champ de tag inatteignable en scrollant</a>
+  <a href="#bwf-drive-letter-404">Son ingé (BWF) en 404 après changement de lettre de lecteur</a>
 </nav>
 
 <main>
@@ -3033,10 +3034,33 @@ result['users'] = [u for u in result.get('users', [])
   <p><strong>Fix</strong> : `#multiUserPanel` plafonné à `max-height:180px` avec son propre `overflow-y:auto` — un mini-scroll dédié pour parcourir les avis de l'équipe, indépendant du reste du panneau. Revérifié après fix : le `scrollHeight` de `.note-area` diminue de la quantité exacte économisée (109px de moins dans le scénario testé), réduisant d'autant le défilement nécessaire pour atteindre le champ de tag.</p>
 </div>
 
+<div class="entry" id="bwf-drive-letter-404">
+  <div class="entry-header">
+    <span class="entry-date">31 juillet 2026 · v0.3.46</span>
+    <span class="entry-title">Son ingé (BWF) en 404 après un changement de lettre de lecteur</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Signalement avec erreurs console (<code>bwf_audio/MIROIRT01</code>, <code>MIROIRT02</code>, <code>REC_B_003</code> → 404) : le son ingé ne se lit plus en le sélectionnant, alors que le fichier existe bien sur disque à <code>E:\DRIFT_CLUB\J01_2026_04_07\SON\26Y04M07\MIROIRT01.WAV</code>.</p>
+
+  <p><strong>Cause</strong> : `_resolve_audio_clip_path()` (`derush_server.py`) exigeait que le chemin stocké commence <em>littéralement</em> par un des chemins racine connus (`root_path` du projet ou d'un user) pour en déduire le chemin relatif. Si le disque de rushs a changé de lettre depuis le dernier scan du dossier Son (ex. <code>D:</code> → <code>E:</code> — exactement l'incident déjà documenté pour les clips vidéo, section « v0.3.11 »), le chemin stocké (<code>D:\DRIFT_CLUB\...</code>) ne correspond plus littéralement à AUCUNE racine connue (toutes en <code>E:\DRIFT_CLUB</code> désormais) → échec de résolution → 404, quand bien même le fichier existe parfaitement à l'identique sous la nouvelle lettre.</p>
+
+  <div class="box box-why"><strong>Pourquoi les clips vidéo n'ont jamais ce problème :</strong> `_resolve_relpath_tolerant()` (déjà utilisé pour les clips) prend directement un chemin RELATIF stocké séparément (`clip['rel_path']`), jamais un chemin absolu à décomposer — la question de la lettre de lecteur ne se pose donc pas pour eux. Les fichiers BWF, eux, n'ont jamais stocké de `rel_path` : seulement un chemin absolu complet (`ac['path']`), capturé tel quel au moment du scan du dossier Son (`scan_son_dir`).</div>
+
+  <p><strong>Fix</strong> : `_resolve_audio_clip_path()` tente d'abord le match littéral (inchangé, cas rapide), puis en repli, retrouve le <strong>nom du dossier racine du projet</strong> (dernier segment de `root_path`, ex. <code>DRIFT_CLUB</code>) n'importe où dans les segments du chemin stocké, peu importe ce qui précède (lettre de lecteur, structure de disque) — tout ce qui suit ce segment devient le chemin relatif, ensuite résolu via `_resolve_relpath_tolerant()` (qui offre gratuitement, en prime, la même tolérance au zero-padding déjà utilisée pour les clips).</p>
+
+  <p><strong>Vérifié par vraie requête HTTP</strong> (pas juste en isolation) : projet jetable avec un `audio_clip` dont le chemin stocké pointe vers un lecteur <code>D:</code> inexistant, `root_path` réel sous un autre chemin se terminant par <code>DRIFT_CLUB</code>, fichier présent à la structure relative attendue. Avant le fix : `GET /bwf_audio/MIROIRT01` → 404. Après : → 200, `Content-Type: audio/wav`.</p>
+
+  <p><strong>Piège de test rencontré</strong> : premier essai de vérification en isolation avec un <code>root_path</code> de test défini directement à <code>D:\DRIFT_CLUB</code> (la même lettre que le chemin stocké) — passait à tort, sans exercer le VRAI chemin de repli (juste le match littéral déjà existant). Reproduction corrigée en nommant le dossier de test racine <code>DRIFT_CLUB</code> mais sous un chemin totalement différent de celui stocké, seul moyen de vraiment exercer la recherche par nom de dossier plutôt que par préfixe littéral.</p>
+
+  <h3>Le 401 sur /api/me qui accompagnait le signalement</h3>
+  <p>Pas un bug : `SESSIONS` est un dict en mémoire, remis à zéro à chaque redémarrage du serveur. Après plusieurs rebuilds/relances de l'app pendant cette session, l'ancien token en `localStorage` n'était plus valide → 401 → l'app redirige automatiquement vers l'écran de connexion (comportement normal de `init()`, pas de correctif nécessaire).</p>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 31 juillet 2026 (v0.3.45 — hauteur plafonnée sur « Avis des autres »)
+  Derush Tool · Journal de développement · Dernière mise à jour 31 juillet 2026 (v0.3.46 — son ingé résilient au changement de lettre de lecteur)
 </div>
 
 </main>
