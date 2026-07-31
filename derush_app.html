@@ -315,22 +315,47 @@
            s'y jouent bout à bout sur une vraie timeline de séquence "collée". */
         .basket-viewer { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #000; }
         .basket-viewer-videowrap { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .basket-viewer-videowrap video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; display: block; }
-        .basket-viewer-videowrap video[src=""], .basket-viewer-videowrap video:not([src]) { display: none; }
+        /* Deux <video> superposées (voir js/selects.js — _basketGoto/_basketSwapActiveVideo) :
+           pendant la lecture bout-à-bout, le clip SUIVANT est préchargé et pré-seeké
+           dans la vidéo inactive avant d'y arriver, puis un simple crossfade opacité
+           bascule l'affichage — plus de flash noir au changement de plan (retour
+           terrain 31/07/2026, cf. l'ancien code à <video> unique qui rechargeait sa
+           source à chaque changement de clip). */
+        .basket-viewer-videowrap video { position: absolute; max-width: 100%; max-height: 100%; object-fit: contain; background: #000; opacity: 0; pointer-events: none; transition: opacity .15s linear; }
+        .basket-viewer-videowrap video.bv-active { opacity: 1; pointer-events: auto; }
         .basket-viewer-info { color: #e5e5ec; font-size: 0.85em; padding: 8px 14px 2px; flex-shrink: 0; }
         .basket-viewer-info .bv-name { font-weight: 600; margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .basket-viewer-info .bv-meta { font-family: monospace; color: rgba(255,255,255,.6); font-size: 0.85em; }
         /* Timeline de séquence : les segments sont "collés" bord à bord, largeur
            proportionnelle à la durée retenue de chaque sélection. Cliquer/glisser
-           navigue dans TOUTE la séquence assemblée, pas juste le segment courant. */
-        .basket-seq-timeline { position: relative; height: 44px; margin: 6px 14px; background: rgba(255,255,255,.06); border-radius: 4px; display: flex; overflow: hidden; cursor: pointer; flex-shrink: 0; }
-        .basket-seq-seg { position: relative; height: 100%; background: center/cover no-repeat #1a1a24; border-right: 1px solid rgba(0,0,0,.55); display: flex; align-items: flex-end; box-sizing: border-box; }
+           navigue dans TOUTE la séquence assemblée, pas juste le segment courant.
+           Molette = zoom (_basketSeqWheel, js/selects.js) : le scroll wrapper a une
+           largeur fixe visible, la track à l'intérieur s'élargit (width:N*100%) —
+           les largeurs en % des segments restent relatives à LEUR parent (la track),
+           donc se recalculent automatiquement au zoom sans toucher au JS de rendu. */
+        .basket-seq-timeline-scroll { margin: 6px 14px; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; }
+        .basket-seq-timeline { position: relative; height: 44px; width: 100%; background: rgba(255,255,255,.06); border-radius: 4px; display: flex; overflow: hidden; cursor: pointer; }
+        .basket-seq-seg { position: relative; height: 100%; background: center/cover no-repeat #1a1a24; border-right: 1px solid rgba(0,0,0,.55); display: flex; align-items: flex-end; box-sizing: border-box; flex-shrink: 0; }
         .basket-seq-seg:last-child { border-right: none; }
         .basket-seq-seg.active { outline: 2px solid #34d399; outline-offset: -2px; z-index: 1; }
         .basket-seq-seg::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.15); }
         .basket-seq-seg-label { position: relative; z-index: 1; font-size: 0.62em; color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 2px; margin: 2px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .basket-seq-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 5px #000; pointer-events: none; left: 0%; z-index: 2; }
         .basket-seq-tc { text-align: center; font-family: monospace; font-size: 0.78em; color: rgba(255,255,255,.65); padding: 0 0 10px; flex-shrink: 0; }
+        /* Poignées de trim par segment (façon DaVinci) : discrètes, révélées au survol
+           du segment pour ne pas polluer la vue quand il y a beaucoup de clips.
+           ENTIÈREMENT à l'intérieur de la boîte du segment (pas de -Npx qui déborde
+           sur le voisin) : le handle-out d'un segment et le handle-in du suivant se
+           chevauchaient sinon pile à la jointure, et le dernier peint dans le DOM
+           (le handle-in du voisin, segment suivant) volait systématiquement le clic
+           destiné au handle-out — bug trouvé par test réel, pas visible en lecture
+           de code (elementFromPoint confirmait un mousedown livré au mauvais handle). */
+        .bseq-handle { position: absolute; top: 0; bottom: 0; width: 10px; cursor: ew-resize; z-index: 3; }
+        .bseq-handle-in { left: 0; }
+        .bseq-handle-out { right: 0; }
+        .bseq-handle::after { content: ''; position: absolute; top: 5px; bottom: 5px; left: 50%; width: 3px; margin-left: -1.5px; background: transparent; border-radius: 2px; transition: background .1s; }
+        .basket-seq-seg:hover .bseq-handle::after { background: rgba(255,255,255,.5); }
+        .bseq-handle:hover::after { background: #fff !important; }
         #basketViewerPlaceholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 30px; pointer-events: none; }
         .cmp-combo-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; position: relative; }
@@ -394,10 +419,14 @@
         .select-tags span { font-size: 0.68em; padding: 0 5px; border-radius: 8px; background: rgba(52,211,153,.12); color: #34d399; }
         .timeline-select-range { position: absolute; bottom: 12px; height: 8px; background: rgba(52,211,153,.28); border: 1px solid rgba(52,211,153,.65); border-radius: 3px; cursor: pointer; z-index: 1; }
         .timeline-select-range:hover { background: rgba(52,211,153,.42); }
-        .tsr-handle { position: absolute; top: -4px; bottom: -4px; width: 8px; cursor: ew-resize; z-index: 2; }
-        .tsr-handle-in { left: -3px; }
-        .tsr-handle-out { right: -3px; }
-        .tsr-handle:hover { background: rgba(255,255,255,.3); border-radius: 2px; }
+        /* Zone de préhension élargie (14px) sans épaissir le trait visuel (3px,
+           via ::after) — l'ancienne zone de 8px était trop fine pour viser sans
+           déclencher un drag de piste par erreur (retour terrain 31/07/2026). */
+        .tsr-handle { position: absolute; top: -7px; bottom: -7px; width: 14px; cursor: ew-resize; z-index: 2; }
+        .tsr-handle-in { left: -7px; }
+        .tsr-handle-out { right: -7px; }
+        .tsr-handle::after { content: ''; position: absolute; top: 5px; bottom: 5px; left: 50%; width: 3px; margin-left: -1.5px; background: rgba(255,255,255,.55); border-radius: 2px; }
+        .tsr-handle:hover::after { background: #fff; }
         #pendingSelectInMarker { position: absolute; bottom: 10px; width: 2px; height: 12px; background: #f59e0b; box-shadow: 0 0 4px #f59e0b; z-index: 2; pointer-events: none; }
         .marker-row { font-size: 0.78em; padding: 5px 6px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 6px; align-items: center; border-radius: 4px; }
         .marker-row:hover { background: rgba(167,139,250,.08); }
@@ -1188,7 +1217,12 @@
                     </div>
                     <div id="multiUserPanelWrap" style="display:none;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px;">
                         <label style="font-size:0.7em;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;">Avis des autres</label>
-                        <div id="multiUserPanel" style="margin-top:4px;"></div>
+                        <!-- Hauteur plafonnée + scroll propre : sans ça, l'avis de chaque
+                             collaborateur (rating + note + markers + fil de discussion) fait
+                             grandir ce bloc sans limite et repousse Notes/Tags hors champ,
+                             obligeant à scroller loin dans .note-area pour retrouver le champ
+                             de saisie manuelle de tag (retour terrain 31/07/2026). -->
+                        <div id="multiUserPanel" style="margin-top:4px;max-height:180px;overflow-y:auto;"></div>
                     </div>
                     <label style="font-size:0.75em;color:var(--dim);">Notes globales</label>
                     <textarea id="clipNotes"></textarea>
@@ -3420,7 +3454,7 @@ function refreshAllAspectOverlays() {
     }
     const bo = document.getElementById('basketOverlay');
     if (bo && bo.classList.contains('active')) {
-        const bv = document.getElementById('basketVid');
+        const bv = typeof _basketActiveVid === 'function' ? _basketActiveVid() : document.getElementById('basketVid');
         const bvWrap = document.getElementById('basketViewerVideoWrap');
         if (bv && bvWrap) _drawAspOn(bv, bvWrap, bv.dataset.clipId || null);
     }
@@ -3976,16 +4010,44 @@ function promptAddMarkerWithCat(cat) {
 }
 
 // --- UNDO ---
-function pushUndo() {
-    if(!activeClip || !currentSession) return;
+// clipId optionnel : par défaut le clip actif du lecteur principal, mais certains
+// éditeurs (trim des segments dans la timeline de séquence du pré-montage) modifient
+// un clip qui n'est pas forcément celui affiché dans le lecteur — undo() restaure déjà
+// génériquement allNotes[uid][clipId] quel qu'il soit, seul le snapshot doit cibler le bon.
+function pushUndo(clipId) {
+    if(!currentSession) return;
+    const cid = clipId || (activeClip && activeClip.id);
+    if(!cid) return;
     const uid = currentSession.user_id;
-    const n = JSON.parse(JSON.stringify((allNotes[uid] || {})[activeClip.id] || {}));
-    undoStack.push({ clipId: activeClip.id, uid, state: n });
+    const n = JSON.parse(JSON.stringify((allNotes[uid] || {})[cid] || {}));
+    undoStack.push({ clipId: cid, uid, state: n });
+}
+
+// Snapshot d'une mutation sur allBaskets[uid] (réordonner/retirer/vider/ajouter
+// dans le pré-montage) — poussé sur la MÊME pile que pushUndo() (undoStack),
+// discriminé par `type: 'basket'`, pour que Ctrl+Z annule les actions du
+// pré-montage dans leur ordre chronologique réel, entrelacées avec les autres
+// annulations (markers, notes, trim de sélection) si besoin.
+function _pushBasketUndo() {
+    if(!currentSession) return;
+    const uid = currentSession.user_id;
+    const state = JSON.parse(JSON.stringify(allBaskets[uid] || []));
+    undoStack.push({ type: 'basket', uid, state });
 }
 
 function undo() {
     if(!undoStack.length) { showSaveStatus('Rien à annuler', '#f59e0b'); return; }
     const last = undoStack.pop();
+    if(last.type === 'basket') {
+        allBaskets[last.uid] = last.state;
+        if(typeof _updateBasketBadge === 'function') _updateBasketBadge();
+        if(activeClip && typeof renderSelects === 'function') renderSelects();  // badge 📽️✓/+ du panneau ✂️ Sélections
+        const bov = document.getElementById('basketOverlay');
+        if(bov && bov.classList.contains('active') && typeof renderBasketOverlay === 'function') renderBasketOverlay();
+        if(typeof saveBasket === 'function') saveBasket();
+        showSaveStatus('↩ Annulé', '#a78bfa');
+        return;
+    }
     if(!allNotes[last.uid]) allNotes[last.uid] = {};
     allNotes[last.uid][last.clipId] = last.state;
     if(activeClip && activeClip.id === last.clipId) {
@@ -3996,6 +4058,12 @@ function undo() {
         renderTags();
     }
     renderClipList();
+    // Le pré-montage lit ses sélections en direct depuis allNotes (pas de copie,
+    // cf. CLAUDE.md) : une annulation de trim (poussée par _wireBasketSeqHandle
+    // avec pushUndo(clipId)) doit donc aussi rafraîchir l'overlay s'il est ouvert,
+    // sinon la restauration reste invisible tant qu'on ne le referme/rouvre pas.
+    const bov = document.getElementById('basketOverlay');
+    if(bov && bov.classList.contains('active') && typeof renderBasketOverlay === 'function') renderBasketOverlay();
     showSaveStatus('↩ Annulé', '#a78bfa');
 }
 
@@ -4377,15 +4445,18 @@ _loadVersionAndChangelog();
         </div>
         <div class="basket-viewer" id="basketViewer">
             <div class="basket-viewer-videowrap" id="basketViewerVideoWrap">
-                <video id="basketVid" playsinline></video>
+                <video id="basketVid" class="bv-active" playsinline></video>
+                <video id="basketVidB" playsinline></video>
                 <p id="basketViewerPlaceholder" style="color:rgba(255,255,255,.4);font-size:0.85em;position:absolute;">Clique une sélection à gauche pour la charger ici</p>
             </div>
             <div class="basket-viewer-info">
                 <div class="bv-name" id="basketViewerName">—</div>
                 <div class="bv-meta" id="basketViewerMeta">--:--:--:-- → --:--:--:--</div>
             </div>
-            <div class="basket-seq-timeline" id="basketSeqTimeline" onmousedown="_basketSeqMouseDown(event)">
-                <div class="basket-seq-head" id="basketSeqHead"></div>
+            <div class="basket-seq-timeline-scroll" id="basketSeqTimelineScroll" onwheel="_basketSeqWheel(event)">
+                <div class="basket-seq-timeline" id="basketSeqTimeline" onmousedown="_basketSeqMouseDown(event)">
+                    <div class="basket-seq-head" id="basketSeqHead"></div>
+                </div>
             </div>
             <div class="basket-seq-tc" id="basketSeqTc">00:00 / 00:00</div>
         </div>

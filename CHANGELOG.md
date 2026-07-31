@@ -4,6 +4,31 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.45] — 2026-07-31
+
+### 🐛 Corrigé
+- **Champ de saisie de tag inatteignable en scrollant dans le panneau de droite** : le bloc « Avis des autres » n'avait aucune limite de hauteur — l'avis détaillé d'un seul collaborateur (note + marqueurs + rating) pouvait ajouter 300px+ et repousser Notes/Tags loin en dessous. Ce panneau a désormais sa propre hauteur plafonnée (180px) avec mini-scroll interne, pour que le champ de tag reste toujours proche et rapidement accessible.
+
+## [0.3.44] — 2026-07-31
+
+### ✨ Ajouté
+- **Ctrl+Z dans le pré-montage** : ajouter une sélection, la retirer, réordonner la liste ou redimensionner un segment sur la timeline de séquence sont désormais annulables. L'overlay se rafraîchit immédiatement pour refléter l'annulation.
+
+## [0.3.43] — 2026-07-31
+
+### ✨ Ajouté
+- **Prévisualisation en direct dans la visionneuse pendant le trim d'une sélection** : en glissant une poignée sur la timeline de séquence du pré-montage, la visionneuse affiche désormais l'image exacte au point courant du glisser (comme les poignées de sélection du lecteur principal). Si le segment trimmé n'est pas déjà celui affiché, la visionneuse bascule dessus dès le début du glisser.
+
+## [0.3.42] — 2026-07-31
+
+### ✨ Ajouté
+- **Transition fluide entre deux sélections en lecture bout-à-bout dans le pré-montage** : le plan suivant est désormais préchargé en arrière-plan (second lecteur vidéo dédié) pendant que le précédent joue, puis un fondu bascule l'affichage — plus de flash noir au changement de clip.
+- **Poignées de trim directement sur la timeline de séquence du pré-montage** (façon DaVinci) : survolez un segment pour révéler ses bords, glissez pour ajuster son entrée/sortie sans repasser par le clip lui-même. Le segment voisin se recale automatiquement, jamais écrasé. Annulable avec Ctrl+Z.
+- **Zoom à la molette sur la timeline de séquence** du pré-montage, ancré sous le curseur — utile pour viser précisément quand il y a beaucoup de sélections.
+
+### 🔧 Modifié
+- **Zone de préhension des poignées de redimensionnement** (timeline du lecteur principal) élargie (8px → 14px) pour viser plus facilement.
+
 ## [0.3.41] — 2026-07-30
 
 ### 🐛 Corrigé

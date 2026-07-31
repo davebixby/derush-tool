@@ -257,6 +257,13 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#basket-viewer-scrub-tags">2e retour terrain : visionneuse, scrub, tags suggérés</a>
   <a href="#basket-timeline-layout">3e retour terrain : disposition 1/3+2/3, timeline de séquence</a>
   <a href="#basket-audio-space-resize">4e retour terrain : audio FS5, Espace, redimensionner</a>
+
+  <div class="nav-section">Session 31 juillet 2026 (v0.3.42-45)</div>
+  <a href="#resize-basket-refresh-false-alarm">Fausse alerte : redimensionner ne mettait pas à jour le pré-montage</a>
+  <a href="#basket-handles-crossfade-zoom">5e retour terrain : poignées, crossfade, trim de séquence, zoom molette</a>
+  <a href="#basket-trim-preview-frame">6e retour terrain : image en direct dans la visionneuse pendant le trim</a>
+  <a href="#basket-undo">Ctrl+Z dans le pré-montage</a>
+  <a href="#tag-input-offscreen">Champ de tag inatteignable en scrollant</a>
 </nav>
 
 <main>
@@ -2940,10 +2947,96 @@ result['users'] = [u for u in result.get('users', [])
   <p><strong>Redimensionner une sélection</strong> — deux poignées ajoutées aux extrémités de chaque bande verte sur la timeline : les glisser réduit ou agrandit le point d'entrée ou de sortie sans repasser par le popup de nommage. Annulable avec Ctrl+Z comme le reste des annotations.</p>
 </div>
 
+<div class="entry" id="resize-basket-refresh-false-alarm">
+  <div class="entry-header">
+    <span class="entry-date">31 juillet 2026</span>
+    <span class="entry-title">Fausse alerte : « redimensionner une sélection ne met pas à jour le pré-montage »</span>
+    <span class="entry-tag tag-bug">Investigation</span>
+  </div>
+
+  <p>Signalement ferme : sur le build Electron 0.3.41, glisser les poignées d'une sélection déjà présente dans le pré-montage n'y répercutait pas le changement. Relecture du code : par conception, le pré-montage ne stocke qu'une <em>référence</em> (`clip_id`/`select_id`), jamais une copie des valeurs — redimensionner devrait donc se répercuter automatiquement, sans même besoin de fermer/rouvrir l'overlay. Le zip 0.3.41 déployé a été comparé octet pour octet à la source : identique.</p>
+
+  <div class="box box-why"><strong>Comme le code semblait correct sur le papier</strong> (schéma déjà éprouvé plusieurs fois dans ce projet — cf. les sagas heartbeat/scan/ffprobe zombie plus haut), plutôt que de continuer à deviner, reproduction en conditions réelles : vrai serveur Python démarré en process avec un projet jetable (clip synthétique généré au vol via ffmpeg, session injectée directement dans <code>SESSIONS</code>), piloté par un vrai navigateur (Playwright) qui simule le glisser de poignée pixel par pixel. Résultat : la donnée se met bien à jour et le pré-montage la reflète correctement à la réouverture — le mécanisme fonctionne comme prévu.</div>
+
+  <p>Deux allers-retours de diagnostic guidé par console DevTools ont ensuite révélé la vraie cause, ailleurs que dans le code : la sélection redimensionnée par l'utilisateur (<code>szy152y7</code>, « regard_miroir ») <strong>n'était tout simplement pas dans le pré-montage</strong> — aucune des entrées du panier ne la référençait, ni par <code>select_id</code> ni même par <code>clip_id</code>. Ce que l'utilisateur observait en rouvrant le pré-montage n'était donc pas une version périmée de sa sélection, mais simplement les mêmes autres entrées qu'avant, sans rapport. Après un nettoyage du pré-montage côté utilisateur (vider + re-tester en ajoutant bien la sélection), le comportement attendu a été confirmé fonctionnel.</p>
+</div>
+
+<div class="entry" id="basket-handles-crossfade-zoom">
+  <div class="entry-header">
+    <span class="entry-date">31 juillet 2026 · v0.3.42</span>
+    <span class="entry-title">5e retour terrain : poignées plus grandes, transition fluide, trim de séquence, zoom molette</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Quatre demandes à la suite de l'investigation ci-dessus : agrandir la zone de préhension des poignées (8px jugées trop fines à viser) ; supprimer le flash noir entre deux plans en lecture bout-à-bout dans le pré-montage ; pouvoir redimensionner une sélection directement depuis la timeline de séquence de l'overlay (comme DaVinci), sans jamais écraser le voisin ; et zoomer/dézoomer cette même timeline à la molette pour rester précis quand il y a beaucoup de clips.</p>
+
+  <p><strong>Poignées agrandies</strong> — zone de clic élargie à 14px (au lieu de 8px) sans épaissir le trait visuel : un fin repère de 3px reste affiché en <code>::after</code>, centré dans la zone de préhension désormais bien plus large.</p>
+
+  <div class="box box-why"><strong>Transition sans flash noir :</strong> le noir entre deux plans est inhérent à tout changement de <code>src</code> sur un <code>&lt;video&gt;</code> unique — même avec le fichier déjà en cache réseau, le décodeur redémarre à zéro. Seule parade fiable : deux lecteurs superposés (<code>#basketVid</code> / <code>#basketVidB</code>), un seul visible à la fois. Pendant qu'un segment joue, le suivant est silencieusement préchargé et pré-seeké dans le lecteur inactif ; à l'avance de segment, un simple crossfade d'opacité (150ms) bascule l'affichage — plus de rechargement de source au moment critique. Le routage audio WebAudio (mono-droite pour les FS5) a dû être généralisé pour fonctionner par élément plutôt que pour un seul lecteur global.</div>
+
+  <p><strong>Poignées de trim sur la timeline de séquence</strong> — chaque segment révèle au survol deux petites poignées de bord. Aucune notion de "ripple" à coder explicitement pour ne pas écraser le voisin : les segments ne sont jamais qu'un enchaînement de blocs positionnés bout à bout proportionnellement à leur propre durée — agrandir l'un repousse mécaniquement les suivants, sans jamais toucher à leurs propres bornes. Pendant le glisser, seuls les styles CSS des blocs sont ajustés (pas de mutation de données ni de refetch de vignette) ; la sélection réelle n'est écrite qu'au relâchement, pour un annulable Ctrl+Z propre — même principe déjà établi pour les poignées du lecteur principal.</p>
+
+  <div class="box box-why"><strong>Bug trouvé par le test, pas par la lecture de code :</strong> première version des poignées avec une zone de clic débordant de 5px sur le segment voisin (pour faciliter la préhension à la jointure). Un test Playwright automatisé montrait la mauvaise sélection modifiée à chaque essai — <code>document.elementFromPoint()</code> a confirmé que le clic sur le handle-out d'un segment atterrissait en réalité sur le handle-in du segment suivant, peint par-dessus au même endroit. Fix : chaque poignée reste entièrement à l'intérieur de la boîte de son propre segment, aucun chevauchement possible.</div>
+
+  <p><strong>Zoom molette</strong> — la timeline de séquence vit maintenant dans un conteneur à défilement horizontal de largeur fixe ; molette = zoom, ancré sous le curseur (comme DaVinci/Premiere). Les largeurs en pourcentage des segments restent relatives à leur parent direct (la piste), donc se recalculent automatiquement au zoom sans toucher au reste du code de rendu.</p>
+
+  <p>Vérifié par un scénario Playwright complet (2 clips synthétiques, 3 sélections, pré-montage ouvert) : zoom molette fonctionnel (facteur mesuré après 5 crans), trim d'un segment avec undo vérifié, avance automatique entre deux sélections du même clip (pas de swap nécessaire, détecté correctement) puis entre deux clips différents (bascule confirmée vers le second lecteur, opacités inversées comme attendu) — zéro erreur JS sur l'ensemble du parcours.</p>
+</div>
+
+<div class="entry" id="basket-trim-preview-frame">
+  <div class="entry-header">
+    <span class="entry-date">31 juillet 2026 · v0.3.43</span>
+    <span class="entry-title">6e retour terrain : l'image en direct dans la visionneuse pendant le trim</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Juste après les poignées de trim de la timeline de séquence (v0.3.42) : demande de voir l'image du clip se mettre à jour en direct pendant qu'on glisse une poignée, exactement comme le fait déjà le lecteur principal quand on redimensionne une sélection sur SA timeline (`v.currentTime = liveIn/liveOut` pendant le drag).</p>
+
+  <p><strong>Implémentation</strong> — au <code>mousedown</code> d'une poignée (`_wireBasketSeqHandle`), avant même le premier mouvement : une lecture en cours est stoppée (on prend la main manuellement sur la tête de lecture), le segment visé devient le « courant » du pré-montage (`_basketPlayIdx`/`_basketCurrentItemRef`, infos affichées via `_updateBasketViewerInfo`), et le clip cible est chargé dans le lecteur actif via une nouvelle fonction `_basketPreviewLoadClip(clip, thenSeekTo)` — qui réutilise le chemin rapide déjà existant (bascule vers le lecteur inactif s'il a déjà ce clip préchargé, cf. le double lecteur de la v0.3.42) plutôt que de toujours recharger une source. Puis à chaque <code>mousemove</code>, en plus de l'ajustement des largeurs déjà en place (`_basketPreviewSeqWidths`), une simple ligne <code>vid.currentTime = liveIn/liveOut</code> sur le lecteur désormais actif — coût quasi nul puisque le clip est déjà chargé, contrairement au chargement initial.</p>
+
+  <div class="box box-why"><strong>Cas cross-clip géré dès le premier geste :</strong> si la poignée trimmée appartient à un segment dont le clip n'est PAS celui actuellement affiché dans la visionneuse, `_basketPreviewLoadClip` bascule dessus et seek au point de départ AVANT même le premier <code>mousemove</code> — vérifié par test réel (glisser une poignée du 3e segment, sur un second clip synthétique, pendant qu'un autre était affiché) : la visionneuse montre le bon clip et la bonne image dès le <code>mousedown</code>, puis suit le curseur en continu pendant le glisser.</div>
+
+  <p>Vérifié par script Playwright : trim d'un segment sur le clip déjà affiché (la tête suit en direct, 2.0s → 2.25s pendant le drag) puis trim d'un segment sur un second clip pas encore chargé (bascule immédiate confirmée dès le mousedown, t=3.0s, puis suit jusqu'à 3.26s pendant le drag) — zéro erreur JS.</p>
+</div>
+
+<div class="entry" id="basket-undo">
+  <div class="entry-header">
+    <span class="entry-date">31 juillet 2026 · v0.3.44</span>
+    <span class="entry-title">Ctrl+Z dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : pouvoir annuler les actions faites dans le pré-montage avec Ctrl+Z, comme partout ailleurs dans l'app.</p>
+
+  <p><strong>Le trim d'une sélection depuis la timeline de séquence (v0.3.42) était en réalité déjà techniquement annulable</strong> — `_wireBasketSeqHandle` appelle déjà `pushUndo(seg.r.clip.id)` avant de committer, et le raccourci Ctrl+Z global n'est jamais bloqué par l'overlay du pré-montage (contrairement à Espace/Échap, qui ont leur propre handler dédié `_basketKeydown`). Le vrai manque : `undo()` ne rafraîchissait jamais `renderBasketOverlay()` après restauration — l'annulation avait bien lieu dans les données, mais restait invisible tant qu'on ne fermait/rouvrait pas l'overlay. Fix en une ligne : `undo()` appelle désormais `renderBasketOverlay()` si `#basketOverlay` est actif, juste après avoir restauré `allNotes`.</p>
+
+  <p><strong>Aucune des mutations propres au panier (`allBaskets`) n'était annulable du tout</strong> — ajouter une sélection, la retirer, réordonner par glisser-déposer, vider le pré-montage : aucune de ces actions ne poussait quoi que ce soit sur `undoStack`. Nouvelle fonction `_pushBasketUndo()` (snapshot JSON de `allBaskets[uid]`, poussé sur la MÊME pile `undoStack` que les autres annulations, discriminé par `type: 'basket'`) appelée avant chacune de ces 4 mutations. `undo()` étendu avec une branche dédiée : si `last.type === 'basket'`, restaure `allBaskets[last.uid]`, rafraîchit badge + panneau ✂️ Sélections + overlay pré-montage si ouvert, puis `saveBasket()`.</p>
+
+  <div class="box box-why"><strong>Une seule pile, pas deux :</strong> plutôt que d'ajouter un `_basketUndoStack` séparé, les entrées de type panier partagent `undoStack` avec les entrées de type notes (markers/sélections/tags) — Ctrl+Z annule donc les actions du pré-montage exactement dans leur ordre chronologique réel, y compris entrelacées avec d'autres annulations faites entre-temps sur le lecteur principal.</div>
+
+  <p>Vérifié par script Playwright sur les 4 chemins : ajout auto (création d'une sélection) → Ctrl+Z retire l'entrée du panier sans supprimer la sélection elle-même ; retrait (🗑) → Ctrl+Z la restaure à sa position d'origine ; réorganisation par <strong>vrai glisser-déposer natif</strong> (les événements souris de Playwright déclenchent bien `dragstart`/`drop` sur un élément `draggable`, pas besoin de simuler l'API HTML5 DnD séparément) → Ctrl+Z restaure l'ordre exact ; trim d'un segment → Ctrl+Z restaure la valeur ET l'affichage DOM du pré-montage (texte de durée revérifié après annulation). Zéro erreur JS sur l'ensemble.</p>
+</div>
+
+<div class="entry" id="tag-input-offscreen">
+  <div class="entry-header">
+    <span class="entry-date">31 juillet 2026 · v0.3.45</span>
+    <span class="entry-title">Champ de saisie de tag inatteignable en scrollant dans la fenêtre principale</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Signalement : « quand je scrolle en bas je n'ai plus accès au champ de saisie manuelle de tag, elle dépasse de la fenêtre. »</p>
+
+  <div class="box box-why"><strong>Mesurer avant de deviner :</strong> plutôt que de retoucher du CSS à l'aveugle, harnais serveur+navigateur réel (même pattern que les investigations précédentes) pour peupler artificiellement le clip avec beaucoup de tags, de markers, et surtout l'avis complet d'un second collaborateur (rating + note + 3 markers), puis mesurer la géométrie réelle (`getBoundingClientRect`, `scrollHeight`/`clientHeight`) à plusieurs tailles de fenêtre (700px, jusqu'à 500px de hauteur).</div>
+
+  <p><strong>Résultat surprenant : le mécanisme de scroll de `.note-area` (`overflow-y:auto`) fonctionnait déjà correctement</strong> — scroller jusqu'au `scrollTop` maximum révélait bien systématiquement le champ de tag, y compris dans les cas les plus extrêmes testés. Le vrai problème n'était donc pas un scroll cassé, mais un scroll **nécessaire dans des proportions déraisonnables** : le panneau « Avis des autres » (`#multiUserPanel`) n'avait **aucune limite de hauteur**. Dans le test, l'avis complet d'un seul collaborateur supplémentaire ajoutait à lui seul ~350px de hauteur, repoussant d'autant les Notes et les Tags. Sur un vrai projet à plusieurs collaborateurs actifs (rating + note + markers + fils de discussion pour chacun), cet empilement peut facilement atteindre plusieurs centaines de pixels, obligeant à un défilement disproportionné juste pour taguer un clip.</p>
+
+  <p><strong>Fix</strong> : `#multiUserPanel` plafonné à `max-height:180px` avec son propre `overflow-y:auto` — un mini-scroll dédié pour parcourir les avis de l'équipe, indépendant du reste du panneau. Revérifié après fix : le `scrollHeight` de `.note-area` diminue de la quantité exacte économisée (109px de moins dans le scénario testé), réduisant d'autant le défilement nécessaire pour atteindre le champ de tag.</p>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 30 juillet 2026 (v0.3.41 — audio FS5, Espace, redimensionnement de sélection)
+  Derush Tool · Journal de développement · Dernière mise à jour 31 juillet 2026 (v0.3.45 — hauteur plafonnée sur « Avis des autres »)
 </div>
 
 </main>
