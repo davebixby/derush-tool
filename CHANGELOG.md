@@ -4,6 +4,16 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.48] — 2026-08-01
+
+### 🐛 Corrigé
+- **Flip H appliqué à tous les clips au lieu du clip sélectionné** : le miroir horizontal était un réglage global, actif sur tout clip consulté ensuite après activation. Devient un réglage par clip — l'activer sur un clip n'affecte que celui-ci, les autres restent inchangés en naviguant entre eux.
+
+## [0.3.47] — 2026-08-01
+
+### ✨ Ajouté
+- **Miroir horizontal (Flip H) du lecteur** : nouveau bouton ⇋ à côté des vitesses de lecture, pour inverser gauche/droite dans l'image — utile pour vérifier un cadrage ou compenser un montage caméra inversé. Réglage d'affichage uniquement, sans effet sur le fichier ni sur les exports.
+
 ## [0.3.46] — 2026-07-31
 
 ### 🐛 Corrigé

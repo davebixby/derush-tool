@@ -20,7 +20,7 @@
         body.light-mode .preview-frame { background-color: #e0e0ea; }
         body.light-mode input, body.light-mode select { background: #f5f5f8; color: var(--text); border-color: rgba(0,0,0,.15); }
         body.light-mode textarea { background: #f5f5f8; color: var(--text); border-color: rgba(0,0,0,.15); }
-        body.light-mode .spd-btn { color: var(--dim); }
+        body.light-mode .spd-btn, body.light-mode .flip-btn { color: var(--dim); }
         body.light-mode .timeline-tc-start, body.light-mode .timeline-tc-end { color: var(--dim); }
         /* Chips et textes qui utilisent des couleurs lavande (#c4b5fd/#a78bfa) invisibles sur blanc */
         body.light-mode .tag-chip { color: #5b21b6; background: rgba(109,40,217,.12); border-color: rgba(109,40,217,.3); }
@@ -112,6 +112,8 @@
         #scrub-preview .preview-tc { font-family: monospace; font-size: 0.78em; color: rgba(255,255,255,.7); text-align: center; padding: 4px 0; background: rgba(0,0,0,.6); letter-spacing: .05em; }
         .spd-btn { padding: 1px 5px; font-size: 0.7em; border-radius: 3px; border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer; }
         .spd-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+        .flip-btn { padding: 1px 5px; font-size: 0.7em; border-radius: 3px; border: 1px solid var(--border); background: transparent; color: var(--dim); cursor: pointer; }
+        .flip-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
         input[type=range] { padding: 0; }
         .tech-meta { font-size: 0.7em; color: var(--dim); margin-top: 1px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .tags-area { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 22px; }
@@ -1123,6 +1125,7 @@
                 <input type="range" id="volSlider" min="0" max="100" step="1" value="100" oninput="setVolume(this.value/100)" title="Volume" style="width:80px;cursor:pointer;">
             </div>
             <div style="flex:1;"></div>
+            <button id="flipHBtn" class="flip-btn" onclick="toggleFlipH()" title="Miroir horizontal (inverser gauche/droite)" style="margin-right:6px;">⇋ Flip</button>
             <div style="display:flex;gap:2px;align-items:center;margin-right:4px;">
                 <button class="spd-btn active" id="spd10" onclick="setSpeed(1)">1×</button>
                 <button class="spd-btn" id="spd125" onclick="setSpeed(1.25)">1.25×</button>
@@ -1441,6 +1444,7 @@ let _searchHits = null;       // Set<clip_id> when FTS search is active, null ot
 let _searchSnippets = {};     // clip_id → snippet HTML (for badge tooltip)
 let _searchTimer = null;
 let currentSpeed = 1;
+let _flipHState = {}; // clip.id → bool, miroir horizontal par clip (pas global)
 
 // ─── Filtre par tags (coché, toute l'équipe) ────────────────────────────────
 // allNotes contient déjà les notes de tous les users (chargées avec le projet),
@@ -2679,6 +2683,29 @@ function setSpeed(rate) {
     document.querySelectorAll('.spd-btn').forEach(b => b.classList.remove('active'));
     const btn = document.getElementById(ids[rate]);
     if(btn) btn.classList.add('active');
+}
+
+// Miroir horizontal du lecteur — propre à CHAQUE clip (pas un réglage global qui
+// s'appliquerait à tout ce qu'on regarde ensuite). Flip la vidéo ET les canvas
+// superposés (LUT, dessin) — le canvas LUT redessine le frame par-dessus la vidéo
+// (pixels lus via texImage2D, donc pas affectés par le CSS transform de la vidéo
+// elle-même), sans le flip du canvas en plus le mode LUT annulerait visuellement
+// le miroir. État en mémoire seulement (pas sauvegardé dans les notes/exports),
+// perdu au rechargement de la page — comme currentSpeed.
+function toggleFlipH() {
+    if (!activeClip) return;
+    _flipHState[activeClip.id] = !_flipHState[activeClip.id];
+    _applyFlipH(_flipHState[activeClip.id]);
+}
+
+function _applyFlipH(on) {
+    const t = on ? 'scaleX(-1)' : 'none';
+    ['player', 'lutCanvas', 'drawCanvas'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.transform = t;
+    });
+    const btn = document.getElementById('flipHBtn');
+    if (btn) btn.classList.toggle('active', !!on);
 }
 
 function renderTags() {

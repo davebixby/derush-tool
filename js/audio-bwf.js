@@ -228,7 +228,11 @@ function selectClip(c) {
     }
     activeClip = c;
     renderClipList();
-    
+
+    // Miroir horizontal : propre à ce clip, pas un réglage global — applique l'état
+    // mémorisé pour CE clip (false par défaut si jamais flippé).
+    if (typeof _applyFlipH === 'function') _applyFlipH(!!_flipHState[c.id]);
+
     document.getElementById('clipTitle').textContent = c.stem;
     const techParts = [c.iso ? `ISO ${c.iso}` : '', c.aperture||'', c.shutter_angle||'', c.focal_length||''].filter(Boolean);
     const techEl = document.getElementById('techMeta');

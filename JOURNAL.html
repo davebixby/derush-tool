@@ -265,6 +265,10 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <a href="#basket-undo">Ctrl+Z dans le pré-montage</a>
   <a href="#tag-input-offscreen">Champ de tag inatteignable en scrollant</a>
   <a href="#bwf-drive-letter-404">Son ingé (BWF) en 404 après changement de lettre de lecteur</a>
+
+  <div class="nav-section">Session 1 août 2026 (v0.3.47-48)</div>
+  <a href="#flip-h">Miroir horizontal (Flip H) du lecteur</a>
+  <a href="#flip-h-per-clip">Flip H : réglage global → par clip</a>
 </nav>
 
 <main>
@@ -3057,10 +3061,42 @@ result['users'] = [u for u in result.get('users', [])
   <p>Pas un bug : `SESSIONS` est un dict en mémoire, remis à zéro à chaque redémarrage du serveur. Après plusieurs rebuilds/relances de l'app pendant cette session, l'ancien token en `localStorage` n'était plus valide → 401 → l'app redirige automatiquement vers l'écran de connexion (comportement normal de `init()`, pas de correctif nécessaire).</p>
 </div>
 
+<div class="entry" id="flip-h">
+  <div class="entry-header">
+    <span class="entry-date">1 août 2026 · v0.3.47</span>
+    <span class="entry-title">Miroir horizontal (Flip H) du lecteur</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande simple : un bouton pour retourner l'image horizontalement (inverser gauche/droite), placé à côté des boutons de vitesse de lecture — utile pour vérifier un cadrage ou compenser un montage caméra inversé sans avoir à sortir de Derush.</p>
+
+  <p><strong>Placement</strong> : nouveau bouton <code>⇋ Flip</code> (<code>#flipHBtn</code>) dans <code>.player-controls</code>, juste avant le groupe de vitesses <code>1×/1.25×/1.5×/2×</code>. <code>toggleFlipH()</code> bascule la variable globale <code>_flipH</code> et applique <code>transform: scaleX(-1)</code> (ou <code>none</code>) directement sur trois éléments : la vidéo (<code>#player</code>), le canvas LUT (<code>#lutCanvas</code>) et le canvas de dessin (<code>#drawCanvas</code>).</p>
+
+  <div class="box box-why"><strong>Pourquoi flipper 3 éléments et pas juste la vidéo :</strong> quand la preview LUT est active, <code>#lutCanvas</code> redessine le frame vidéo par-dessus (pixels lus via <code>texImage2D</code>/<code>getImageData</code>, pas affectés par le CSS transform de la vidéo source elle-même) et le recouvre entièrement. Sans son propre flip, ce canvas afficherait l'image non-inversée par-dessus la vidéo inversée en dessous, annulant visuellement le miroir dès que la LUT est activée. Les trois éléments (<code>video</code>, <code>#lutCanvas</code>, <code>#drawCanvas</code>) partagent exactement la même boîte dans <code>.video-wrapper</code> (règles CSS génériques <code>video { width:100%; height:100% }</code> / <code>canvas { position:absolute; inset:0 }</code>), donc un flip individuel de chacun reste cohérent visuellement dans toutes les combinaisons (LUT actif ou non, dessin en cours ou non).</div>
+
+  <p>Le cadre de format d'image (<code>#aspectOverlay</code>) n'a pas besoin d'être flippé séparément : sa géométrie est calculée depuis le <code>getBoundingClientRect()</code> du lecteur, qui reste identique (même boîte, juste mirroré visuellement) après un <code>scaleX(-1)</code> appliqué en place.</p>
+
+  <p><strong>Portée</strong> : réglage d'affichage uniquement — aucune donnée modifiée dans le clip ni dans les exports. État global (comme la vitesse de lecture), non persisté : reste actif pour tous les clips consultés pendant la session en cours, mais se remet à zéro au rechargement de la page.</p>
+</div>
+
+<div class="entry" id="flip-h-per-clip">
+  <div class="entry-header">
+    <span class="entry-date">1 août 2026 · v0.3.48</span>
+    <span class="entry-title">Flip H : réglage global → par clip</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour immédiat après la livraison du Flip H (v0.3.47) : le toggle était global — l'activer sur un clip le laissait actif en passant au clip suivant, alors que l'usage réel (compenser un montage caméra inversé, vérifier un cadrage) est propre à un clip précis, pas à toute une session de dérushage.</p>
+
+  <p><strong>Fix</strong> : `_flipH` (bool global) devient `_flipHState` (`{clip.id: bool}`). `toggleFlipH()` bascule l'entrée du clip actif uniquement. `selectClip()` (`js/audio-bwf.js`) appelle désormais `_applyFlipH(!!_flipHState[c.id])` juste après avoir posé <code>activeClip = c</code> — sans cet appel, le flip du clip précédent serait resté affiché sur le nouveau : l'élément <code>&lt;video&gt;</code> est réutilisé d'un clip à l'autre (pas recréé), donc son <code>style.transform</code> persiste tant que rien ne le réinitialise explicitement.</p>
+
+  <p>Portée inchangée par ailleurs : toujours un réglage d'affichage pur (aucune donnée modifiée dans le clip ni à l'export), toujours non persisté au rechargement de la page — seule la granularité change, de la session entière au clip individuel.</p>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 31 juillet 2026 (v0.3.46 — son ingé résilient au changement de lettre de lecteur)
+  Derush Tool · Journal de développement · Dernière mise à jour 1 août 2026 (v0.3.48 — Flip H par clip)
 </div>
 
 </main>
