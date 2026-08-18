@@ -1566,14 +1566,40 @@ def _decode_ltc_job(pid, force=False):
 
 # ─── BWF / Multiprise TC-sync ───
 
+def _parse_ixml_tracks(data):
+    """Parse le TRACK_LIST d'un chunk iXML BWF (Sound Devices, Zoom...) et
+    retourne une liste de noms de piste indexée 0-based sur l'ordre RÉEL des
+    canaux dans le fichier (INTERLEAVE_INDEX, 1-based dans le XML), ou None
+    si le chunk est absent/illisible."""
+    try:
+        root = ET.fromstring(data)
+        track_list = root.find('TRACK_LIST')
+        if track_list is None:
+            return None
+        names = {}
+        for tr in track_list.findall('TRACK'):
+            idx_el = tr.find('INTERLEAVE_INDEX')
+            if idx_el is None or not (idx_el.text or '').strip():
+                continue
+            idx = int(idx_el.text.strip())
+            name_el = tr.find('NAME')
+            names[idx] = (name_el.text or '').strip() if name_el is not None else ''
+        if not names:
+            return None
+        return [names.get(i, '') for i in range(1, max(names) + 1)]
+    except Exception:
+        return None
+
 def _read_bwf_bext_direct(file_path):
-    """Parse BEXT chunk directly from a WAV/BWF file (no subprocess). Returns dict or None."""
+    """Parse BEXT (+ iXML si présent) chunk directly from a WAV/BWF file (no
+    subprocess). Returns dict or None."""
     try:
         with open(file_path, 'rb') as f:
             hdr = f.read(12)
             if len(hdr) < 12 or hdr[:4] != b'RIFF' or hdr[8:12] != b'WAVE':
                 return None
             sr = channels = bits = time_ref = data_bytes = None
+            ixml_tracks = None
             while True:
                 ch = f.read(8)
                 if len(ch) < 8: break
@@ -1599,10 +1625,20 @@ def _read_bwf_bext_direct(file_path):
                             origination_date = raw_date.replace(':', '-') if len(raw_date) == 10 else None
                         except Exception:
                             origination_date = None
+                elif cid == b'iXML':
+                    try:
+                        ixml_tracks = _parse_ixml_tracks(f.read(min(csz, 200000)))
+                    except Exception:
+                        pass
                 elif cid == b'data':
                     data_bytes = csz
                 f.seek(pos + csz + (csz & 1), 0)
-                if sr and time_ref is not None and data_bytes is not None:
+                # Ne pas sortir tôt si le fichier est multicanal et qu'on n'a pas encore
+                # trouvé/tenté l'iXML (peut être placé après 'data' chez certains
+                # enregistreurs) — le seek ci-dessus ne lit jamais les octets de 'data',
+                # donc continuer jusqu'à EOF reste quasi gratuit même sur un gros fichier.
+                if (sr and time_ref is not None and data_bytes is not None
+                        and (channels is None or channels <= 2 or ixml_tracks is not None)):
                     break
         if not sr or sr <= 0 or time_ref is None:
             return None
@@ -1614,7 +1650,8 @@ def _read_bwf_bext_direct(file_path):
                 duration_sec = data_bytes / (sr * channels * bps)
         return {'tc_in_sec': round(tc_in_sec, 3), 'sample_rate': sr,
                 'channels': channels or 1, 'duration_sec': duration_sec,
-                'origination_date': locals().get('origination_date')}
+                'origination_date': locals().get('origination_date'),
+                'track_names': ixml_tracks}
     except Exception:
         return None
 
@@ -1795,6 +1832,7 @@ def scan_son_dir(son_dir):
             'sample_rate': info.get('sample_rate'),
             'channels': info.get('channels', 1),
             'origination_date': info.get('origination_date'),
+            'track_names': info.get('track_names'),
         })
     return audio_files
 
@@ -3175,6 +3213,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 'filename': chosen['filename'],
                 'tc_in_sec': chosen['tc_in_sec'],
                 'bwf_offset_sec': round(tc_clip - chosen['tc_in_sec'], 3),
+                'bwf_id': chosen['id'],
+                'channels': chosen.get('channels', 2),
+                'track_names': chosen.get('track_names'),
             })
             return
 
@@ -3209,6 +3250,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 'tc_in_sec': chosen_af['tc_in_sec'],
                 'bwf_offset_sec': round(tc_earliest - chosen_af['tc_in_sec'], 3),
                 'earliest_id': earliest_id,
+                'bwf_id': chosen_af['id'],
+                'channels': chosen_af.get('channels', 2),
+                'track_names': chosen_af.get('track_names'),
             })
             return
 
@@ -4402,6 +4446,21 @@ def detect_letterbox(file_path):
         for k in list(ins):
             if ins[k] < 0.015 or ins[k] > 0.35:
                 ins[k] = 0.0
+        # Une vraie bande incrustée (matte cinéma) est centrée sur le capteur : les deux
+        # côtés d'un même axe sont quasi égaux (top≈bottom ou left≈right). Un inset détecté
+        # sur un seul côté (l'autre à 0, ou très déséquilibré) n'est pas une bande à retirer
+        # mais un vignettage/occlusion réel de l'image (pare-soleil, capuchon, micro dans le
+        # coin...) — le cadre ne doit pas s'y caler, sous peine de décaler l'overlay
+        # visiblement vers un coin (cas observé sur DRIFT_MAI0192 : bottom+right seuls,
+        # jamais leurs opposés).
+        def _sym(a, b, tol=0.5):
+            if a == 0.0 or b == 0.0:
+                return 0.0, 0.0
+            if abs(a - b) / max(a, b) > tol:
+                return 0.0, 0.0
+            return a, b
+        ins['top'], ins['bottom'] = _sym(ins['top'], ins['bottom'])
+        ins['left'], ins['right'] = _sym(ins['left'], ins['right'])
         # Dimensions du CONTENU (après filtrage des insets) — sert au ratio côté client
         ins['cw'] = round(W * (1 - ins['left'] - ins['right']))
         ins['ch'] = round(H * (1 - ins['top'] - ins['bottom']))

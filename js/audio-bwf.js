@@ -7,6 +7,27 @@
 // quitte un clip pour un autre puis qu'on y revient, on retombe où on l'avait laissé.
 let _clipResumeTime = {};  // clip.id -> secondes
 
+// Persistance de _clipResumeTime entre relances de l'app (pas juste en mémoire pour
+// la session en cours) : sauvegardé dans localStorage par projet.
+function _persistClipResumeTime() {
+    if (!currentProjectId) return;
+    try { localStorage.setItem('derush_resume_' + currentProjectId, JSON.stringify(_clipResumeTime)); } catch(e) {}
+}
+function _loadClipResumeTime(pid) {
+    try {
+        const raw = localStorage.getItem('derush_resume_' + pid);
+        if (raw) Object.assign(_clipResumeTime, JSON.parse(raw));
+    } catch(e) {}
+}
+// Filet de sécurité : si l'app est fermée pendant qu'un clip joue (sans passer par
+// selectClip, qui est le seul autre endroit où _clipResumeTime est mis à jour), on
+// capture quand même sa position courante avant que la page ne disparaisse.
+window.addEventListener('pagehide', () => {
+    const player = document.getElementById('player');
+    if (activeClip && player) _clipResumeTime[activeClip.id] = player.currentTime || 0;
+    _persistClipResumeTime();
+});
+
 // ─── Volume control (HTML5 video.volume + mute toggle) ────────────────────
 let _playerVolume = parseFloat(localStorage.getItem('derush_volume') || '1');
 let _playerMutedBefore = _playerVolume;
@@ -17,14 +38,11 @@ function setVolume(v) {
     try { localStorage.setItem('derush_volume', String(v)); } catch(e) {}
     const video = document.getElementById('player');
     if (video) video.volume = v;
-    // BWF audio : volume via l'élément audio (fonctionne même avec WebAudio routing)
+    // BWF audio : volume via l'élément audio. Fonctionne même avec le mixeur
+    // multipiste (js/bwf-mixer.js) — audio.volume s'applique en amont du
+    // graphe WebAudio, les gains par piste restent un multiplicateur indépendant.
     if (_singleBwf && _singleBwf.audio) {
         try { _singleBwf.audio.volume = v; } catch(e) {}
-        // Synchronise aussi les gains du routing multichannel
-        if (_singleBwf.audio._bwfRouted) {
-            const r = _singleBwf.audio._bwfRouted;
-            try { r.gainL.gain.value = v / 3.0; r.gainR.gain.value = v / 3.0; } catch(e) {}
-        }
     }
     // Update UI
     const slider = document.getElementById('volSlider');
@@ -65,56 +83,17 @@ function _setPlayerVideoAudioMuted(muted) {
     }
 }
 
-// Routage WebAudio pour un BWF multipistes : mixe toutes les pistes (jusqu'à 8 canaux)
-// vers une sortie stéréo. Sans ça, le <audio> HTML ne lit que les 2 premières pistes.
-// Réutilise un AudioContext partagé pour éviter de multiplier les contextes.
-function _routeBwfMultiChannel(audio, ctx) {
-    try {
-        if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
-        const src = ctx.createMediaElementSource(audio);
-        src.channelInterpretation = 'discrete';
-        const MAX_CH = 8;
-        const splitter = ctx.createChannelSplitter(MAX_CH);
-        const merger = ctx.createChannelMerger(2);
-        const gainL = ctx.createGain();
-        const gainR = ctx.createGain();
-        // Mix simple : somme de toutes les pistes sur L et R, atténué pour éviter la satu.
-        // Le facteur 1/3 = compromis ; les canaux vides (au-delà du nb réel) restent à 0.
-        gainL.gain.value = 1.0 / 3.0;
-        gainR.gain.value = 1.0 / 3.0;
-        src.connect(splitter);
-        for (let i = 0; i < MAX_CH; i++) {
-            try { splitter.connect(gainL, i); } catch(_) {}
-            try { splitter.connect(gainR, i); } catch(_) {}
-        }
-        gainL.connect(merger, 0, 0);
-        gainR.connect(merger, 0, 1);
-        merger.connect(ctx.destination);
-        audio._bwfRouted = {src, splitter, merger, gainL, gainR};
-        return true;
-    } catch(e) {
-        console.warn('BWF WebAudio routing failed (will fallback to default stereo downmix):', e);
-        return false;
-    }
-}
-
-function _unrouteBwf(audio) {
-    if (!audio || !audio._bwfRouted) return;
-    const r = audio._bwfRouted;
-    try { r.src.disconnect(); } catch(_) {}
-    try { r.splitter.disconnect(); } catch(_) {}
-    try { r.merger.disconnect(); } catch(_) {}
-    try { r.gainL.disconnect(); } catch(_) {}
-    try { r.gainR.disconnect(); } catch(_) {}
-    audio._bwfRouted = null;
-}
+// Le routage WebAudio multipiste (mix jusqu'à 8 canaux vers une sortie stéréo,
+// sans quoi le <audio> HTML ne lirait que les 2 premières pistes) vit désormais
+// dans js/bwf-mixer.js (_bwfBuildMixerGraph / _bwfTeardownMixerGraph) : gain
+// indépendant par piste (mute/solo/fader) au lieu d'un mixdown à gain fixe.
 
 function _cleanupSingleBwf() {
     if (!_singleBwf) return;
     const v = document.getElementById('player');
     if (_singleBwf.audio) {
         try { _singleBwf.audio.pause(); } catch(e) {}
-        _unrouteBwf(_singleBwf.audio);
+        if (typeof _bwfTeardownMixerGraph === 'function') _bwfTeardownMixerGraph(_singleBwf.audio);
         try { _singleBwf.audio.src = ''; _singleBwf.audio.load(); } catch(e) {}
     }
     if (_singleBwf.listenersAttached && v) {
@@ -125,6 +104,7 @@ function _cleanupSingleBwf() {
     }
     _setPlayerVideoAudioMuted(false);
     _singleBwf = null;
+    if (typeof closeBwfMixerPanel === 'function') closeBwfMixerPanel();
     const btn = document.getElementById('bwfBtn');
     if (btn) {
         btn.style.display = 'none';
@@ -132,6 +112,8 @@ function _cleanupSingleBwf() {
         btn.classList.remove('bwf-on', 'bwf-off');
         btn.style.color = '';  // reset inline styles
     }
+    const mixBtn = document.getElementById('bwfMixerBtn');
+    if (mixBtn) mixBtn.style.display = 'none';
 }
 
 async function _loadSingleBwfForClip(clip) {
@@ -144,9 +126,10 @@ async function _loadSingleBwfForClip(clip) {
         const audio = new Audio(d.stream_url);
         audio.preload = 'auto';
         // Route multi-channel : si AudioContext player dispo, on l'utilise pour
-        // mixer toutes les pistes BWF vers stéréo. Sinon fallback downmix browser.
-        if (_playerAudioCtx) {
-            _routeBwfMultiChannel(audio, _playerAudioCtx);
+        // mixer toutes les pistes BWF vers stéréo (js/bwf-mixer.js — gain par
+        // piste). Sinon fallback downmix browser.
+        if (_playerAudioCtx && typeof _bwfBuildMixerGraph === 'function') {
+            _bwfBuildMixerGraph(audio, _playerAudioCtx, d.bwf_id, d.channels, d.track_names);
         }
         _singleBwf = {
             audio,
@@ -164,6 +147,8 @@ async function _loadSingleBwfForClip(clip) {
             btn.classList.add('bwf-off');  // par défaut : OFF (son caméra)
             btn.textContent = '🔊 Son ingé';
         }
+        const mixBtn = document.getElementById('bwfMixerBtn');
+        if (mixBtn) mixBtn.style.display = (d.channels && d.channels > 1) ? '' : 'none';
     } catch(e) {}
 }
 
@@ -220,6 +205,7 @@ function toggleSingleBwf() {
 function selectClip(c) {
     const _prevPlayer = document.getElementById('player');
     if (activeClip && _prevPlayer) _clipResumeTime[activeClip.id] = _prevPlayer.currentTime || 0;
+    _persistClipResumeTime();
     if(activeClip) saveClipNotes();
     // Un point d'entrée posé (touche [) sur le clip qu'on quitte n'a plus de sens
     // sur le nouveau clip — l'annuler silencieusement plutôt que le laisser traîner.
@@ -227,6 +213,9 @@ function selectClip(c) {
         cancelPendingSelect();
     }
     activeClip = c;
+    // Mémorise le dernier clip consulté par projet, pour y revenir au prochain
+    // lancement du logiciel (cf. enterWorkspace).
+    try { localStorage.setItem('derush_last_clip_' + currentProjectId, c.id); } catch(e) {}
     renderClipList();
 
     // Miroir horizontal : propre à ce clip, pas un réglage global — applique l'état
@@ -266,8 +255,8 @@ function selectClip(c) {
     _setPlayerMonoR(c.ltc_tc_in_sec != null);
     _restoreVolume();  // applique le volume sauvegardé au nouveau video element
 
-    // LUT : ré-évalue le scope pour ce clip (active/désactive le canvas selon la caméra)
-    if (_lut) enableLUT(_lutEnabled);
+    // LUT : ré-évalue l'assignation propre à ce clip (override clip > défaut caméra > rien)
+    if (typeof _lutRefreshForActiveClip === 'function') _lutRefreshForActiveClip();
 
     // BWF Son ingé : charge le BWF qui couvre ce clip (s'il existe). Cleanup d'abord.
     _loadSingleBwfForClip(c);
@@ -291,6 +280,7 @@ function selectClip(c) {
     // nulle part (d'où l'invisibilité totale en recherche).
     const tagInputEl = document.getElementById('tagInput');
     if (tagInputEl) tagInputEl.value = '';
+    if (typeof closeTagAutocomplete === 'function') closeTagAutocomplete();
     seenClipIds.add(c.id);
     renderMarkers();
     renderMultiUser();

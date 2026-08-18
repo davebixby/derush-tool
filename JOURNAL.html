@@ -269,6 +269,29 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
   <div class="nav-section">Session 1 août 2026 (v0.3.47-48)</div>
   <a href="#flip-h">Miroir horizontal (Flip H) du lecteur</a>
   <a href="#flip-h-per-clip">Flip H : réglage global → par clip</a>
+
+  <div class="nav-section">Session 2 août 2026 (v0.3.49)</div>
+  <a href="#letterbox-symetrie">Cadre décalé — faux positif de bandes incrustées</a>
+
+  <div class="nav-section">Session 3 août 2026 (v0.3.50-52)</div>
+  <a href="#electron-context-menu">Menu clic droit absent dans Electron (correction orthographique)</a>
+  <a href="#slow-speeds">Ralenti 0.25× / 0.5×</a>
+  <a href="#resume-last-clip">Retour au clip précédent (filtre + reprise au lancement)</a>
+
+  <div class="nav-section">Session 4 août 2026 (v0.3.53)</div>
+  <a href="#resume-position-persisted">Reprise de position : survit désormais au redémarrage</a>
+
+  <div class="nav-section">Session 4 août 2026 (v0.3.54)</div>
+  <a href="#lut-color-settings">Réglages LUT : contraste, température, teinte</a>
+
+  <div class="nav-section">Session 5 août 2026 (v0.3.55)</div>
+  <a href="#lut-per-clip">LUT propre à chaque plan</a>
+
+  <div class="nav-section">Session 6 août 2026 (v0.3.56)</div>
+  <a href="#bwf-mixer">Mixeur multipiste du son ingé (iXML, mute/solo)</a>
+
+  <div class="nav-section">Session 18 août 2026 (v0.3.57)</div>
+  <a href="#tag-autocomplete">Autocomplete des tags à la frappe</a>
 </nav>
 
 <main>
@@ -3093,10 +3116,195 @@ result['users'] = [u for u in result.get('users', [])
   <p>Portée inchangée par ailleurs : toujours un réglage d'affichage pur (aucune donnée modifiée dans le clip ni à l'export), toujours non persisté au rechargement de la page — seule la granularité change, de la session entière au clip individuel.</p>
 </div>
 
+<div class="entry" id="letterbox-symetrie">
+  <div class="entry-header">
+    <span class="entry-date">2 août 2026 · v0.3.49</span>
+    <span class="entry-title">Cadre décalé sur certains clips — faux positif de détection de bandes incrustées</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Signalement : sur <code>DRIFT_MAI0192</code>, le cadre de format d'image (🎞) s'affichait décalé dans la visionneuse, alors que le clip juste avant (<code>MAI0191</code>) n'avait aucun problème.</p>
+
+  <p><strong>Diagnostic</strong> : comparaison des deux clips dans <code>letterbox_cache.json</code> (cache disque de <code>detect_letterbox()</code>) plutôt que de retoucher le CSS à l'aveugle. <code>MAI0191</code> : insets tous à zéro. <code>MAI0192</code> : <code>bottom: 5.2%, right: 12.7%</code>, mais <code>top</code> et <code>left</code> à zéro.</p>
+
+  <div class="box box-fail"><strong>Le bug :</strong> une vraie bande incrustée (matte cinéma bakée au tournage) est par construction centrée sur le capteur — <code>top≈bottom</code> pour un letterbox, <code>left≈right</code> pour un pillarbox. Un inset détecté sur un seul côté d'un axe (l'autre resté à zéro) n'est pas une bande à retirer mais un vignettage ou une occlusion réelle de l'image (pare-soleil, capuchon d'objectif, micro dans le coin...). <code>detect_letterbox()</code> ne faisait aucune distinction entre les deux cas et traitait tout `crop=` renvoyé par `ffmpeg cropdetect` comme une bande à masquer, décalant le cadre vers le coin "amputé". En reparcourant tout le cache, 7 autres clips avaient la même signature asymétrique (<code>avril0011</code>, <code>avril0013</code>, <code>avril0035</code>, <code>avril0037</code>, <code>MAI0183</code>, <code>MAI0197</code>, <code>MAI0198</code>) — tous des faux positifs, contre les clips FX6 J01 (<code>avril0001,2,5-9</code>) où <code>top</code> et <code>bottom</code> tombent sur exactement la même valeur (0.0315) : la vraie bande documentée.</div>
+
+  <p><strong>Fix</strong> : <code>detect_letterbox()</code> (derush_server.py) rejette désormais tout inset asymétrique — si un côté d'un axe est à zéro ou diffère de plus de 50% de son opposé, les deux sont remis à zéro. Le cache existant a été réparé directement (mêmes 8 entrées) sans avoir à refaire tourner ffmpeg.</p>
+
+  <p>Aucun changement côté client : <code>_videoDisplayRect()</code> et <code>updateAspectOverlay()</code> consomment toujours <code>_contentInsets</code> tel quel, la correction est entièrement côté détection serveur.</p>
+</div>
+
+<div class="entry" id="electron-context-menu">
+  <div class="entry-header">
+    <span class="entry-date">3 août 2026 · v0.3.50</span>
+    <span class="entry-title">Menu clic droit absent dans Electron (correction orthographique)</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Demande : pouvoir corriger un mot mal orthographié (souligné en rouge) depuis un clic droit, avec des suggestions, comme dans LibreOffice Writer.</p>
+
+  <p><strong>Contexte</strong> : le soulignement rouge vient déjà du correcteur natif de Chromium sur les champs texte (<code>&lt;textarea&gt;</code>/<code>contenteditable</code>), aucune configuration requise côté <code>derush_app.html</code>. Dans un navigateur classique (Firefox/Chrome ouvert par le launcher), le clic droit affiche déjà nativement les suggestions — rien à faire.</p>
+
+  <div class="box box-fail"><strong>Le bug</strong> : dans le wrapper Electron, aucun menu contextuel n'apparaît jamais par défaut au clic droit — pas même Copier/Coller. Electron ne fournit aucun menu système "gratuit" comme un vrai navigateur ; il faut l'implémenter soi-même via l'évènement <code>context-menu</code> sur <code>webContents</code>.</div>
+
+  <p><strong>Fix</strong> (<code>electron/main.js</code>) : handler <code>mainWindow.webContents.on('context-menu', (event, params) => …)</code> qui construit un <code>Menu</code> à partir de <code>params.dictionarySuggestions</code> (jusqu'à 6 suggestions) quand <code>params.misspelledWord</code> est renseigné, plus une entrée "Ajouter au dictionnaire" (<code>session.addWordToSpellCheckerDictionary</code>), puis Couper/Copier/Coller/Tout sélectionner si le champ est éditable. Dictionnaire forcé en français via <code>session.setSpellCheckerLanguages(['fr'])</code> (Chromium ne le déduit pas toujours fiablement de la locale OS).</p>
+
+  <p>Portée : Electron uniquement, aucun changement dans <code>derush_app.html</code> ni côté serveur.</p>
+</div>
+
+<div class="entry" id="slow-speeds">
+  <div class="entry-header">
+    <span class="entry-date">3 août 2026 · v0.3.51</span>
+    <span class="entry-title">Ralenti 0.25× / 0.5×</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Le groupe de vitesses ne proposait que de l'accéléré (1×/1.25×/1.5×/2×). Deux boutons <strong>0.25×</strong> et <strong>0.5×</strong> ajoutés avant le 1×, pour ralentir un plan (vérifier une mise au point, un mouvement rapide, une synchro labiale) au lieu de seulement l'accélérer.</p>
+
+  <p><strong>Implémentation</strong> : simple extension de la table existante — <code>setSpeed(rate)</code> et sa map <code>ids</code> gèrent maintenant 6 valeurs au lieu de 4, aucune logique nouvelle. <code>video.playbackRate</code> HTML5 accepte nativement les valeurs <code>&lt;1</code> ; le son BWF de référence (<code>js/audio-bwf.js</code>) suit déjà <code>player.playbackRate</code> quelle que soit sa valeur, donc reste synchronisé au ralenti sans changement.</p>
+
+  <p>Portée : réglage d'affichage/lecture pur, comme les vitesses existantes — global à la session (pas par clip), non persisté au rechargement de la page.</p>
+</div>
+
+<div class="entry" id="resume-last-clip">
+  <div class="entry-header">
+    <span class="entry-date">3 août 2026 · v0.3.52</span>
+    <span class="entry-title">Retour au clip précédent (après un filtre, ou en rouvrant le logiciel)</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Deux signalements liés au même réflexe : "je veux revenir là où j'étais". (1) Cocher un tag dans le menu 🏷 Tags, ouvrir un clip filtré, puis décocher le tag semblait "ramener au premier clip de la liste". (2) Fermer et rouvrir le logiciel oblige à rechercher le clip qu'on regardait, à chaque fois.</p>
+
+  <div class="box box-fail"><strong>(1) Diagnostic</strong> : <code>activeClip</code> ne changeait jamais pendant un toggle de filtre — <code>_toggleTagFilterOption</code> ne fait que <code>renderClipList()</code>. Le vrai coupable : <code>renderClipList()</code> commence par <code>list.innerHTML = ''</code>, ce qui remet le <code>scrollTop</code> de la sidebar (<code>.clip-list</code>, son propre conteneur à scroll) à 0. Le clip actif reste sélectionné et surligné, mais hors champ tout en haut d'une liste redevenue longue — d'où l'impression qu'il a "sauté" au premier clip.</div>
+
+  <p><strong>Fix (1)</strong> : nouvelle fonction <code>_scrollActiveClipIntoView()</code> — <code>document.getElementById('clip_'+activeClip.id)?.scrollIntoView({block:'nearest'})</code>. Appelée après <code>renderClipList()</code> uniquement dans les handlers de changement de filtre <strong>déclenchés par l'utilisateur</strong> (<code>setFilter</code>, <code>_toggleTagFilterOption</code>, <code>onSearchInput</code>, les <code>&lt;select&gt;</code> caméra/jour) — <strong>jamais</strong> dans les rafraîchissements silencieux (polling notes 15s, WebSocket, sync auto), qui appellent aussi <code>renderClipList()</code> très souvent et casseraient le scroll manuel de l'utilisateur s'ils le faisaient aussi.</p>
+
+  <p><strong>Fix (2)</strong> : <code>selectClip(c)</code> (<code>js/audio-bwf.js</code>) persiste désormais <code>localStorage['derush_last_clip_'+currentProjectId] = c.id</code> à chaque changement de clip. <code>enterWorkspace(pid)</code> (<code>derush_app.html</code>) relit cette clé juste après le premier <code>renderClipList()</code> et rappelle <code>selectClip()</code> sur ce clip s'il existe encore dans <code>clips[]</code> (protège contre un ID de clip devenu orphelin après un rescan, cf. piège #12 de <code>CLAUDE.md</code>). <code>enterWorkspace</code> étant déjà appelé automatiquement au démarrage quand une session avec <code>project_id</code> est retrouvée dans <code>localStorage</code> (voir <code>init()</code>), fermer/rouvrir le logiciel restaure maintenant le clip consulté sans étape supplémentaire.</p>
+
+  <p>Portée : purement côté affichage (scroll + sélection), aucune donnée de projet modifiée. La clé <code>derush_last_clip_&lt;pid&gt;</code> est locale à la machine (comme les vitesses, le flip H, les filtres enregistrés) — pas synchronisée entre collaborateurs.</p>
+</div>
+
+<div class="entry" id="resume-position-persisted">
+  <div class="entry-header">
+    <span class="entry-date">4 août 2026 · v0.3.53</span>
+    <span class="entry-title">Reprise de position : survit désormais au redémarrage (+ sidebar synchronisée)</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Suite du fix précédent (v0.3.52, <a href="#resume-last-clip">Retour au clip précédent</a>) : rouvrir le logiciel retombait bien sur le bon clip, mais la lecture repartait toujours du <strong>début de la timeline</strong> au lieu de la position exacte laissée avant de quitter. La sidebar, elle, restait scrollée en haut de liste au lieu de faire défiler jusqu'au clip actif.</p>
+
+  <div class="box box-fail"><strong>Cause (1) — position perdue</strong> : <code>_clipResumeTime</code> (<code>js/audio-bwf.js</code>) n'a toujours vécu qu'en mémoire (<code>let _clipResumeTime = {}</code>), jamais écrit sur disque. Un rechargement de page repart avec un objet vide, donc <code>selectClip()</code> ne trouve rien à restaurer pour le clip rouvert — comportement documenté comme volontaire à l'époque ("pas de persistance entre relances de l'app"), mais qui ne correspondait plus à ce que l'utilisateur attendait une fois le clip lui-même mémorisé.</div>
+
+  <div class="box box-fail"><strong>Cause (2) — sidebar pas synchronisée</strong> : <code>_scrollActiveClipIntoView()</code> (créée en v0.3.52) n'avait été câblée que sur les handlers de changement de filtre déclenchés par un clic utilisateur. Le seul autre endroit qui sélectionne un clip par le code — la restauration du dernier clip consulté dans <code>enterWorkspace()</code>, au lancement — avait été oubliée. Même symptôme que le bug de filtre déjà corrigé : le clip actif était bien sélectionné et lu, mais invisible tout en haut d'une sidebar retombée à <code>scrollTop:0</code> par le <code>renderClipList()</code> interne à <code>selectClip()</code>.</div>
+
+  <p><strong>Fix (1)</strong> : deux nouvelles fonctions dans <code>js/audio-bwf.js</code>, <code>_persistClipResumeTime()</code> (écrit tout <code>_clipResumeTime</code> dans <code>localStorage['derush_resume_'+currentProjectId]</code>) et <code>_loadClipResumeTime(pid)</code> (le relit et le fusionne dans <code>_clipResumeTime</code> au chargement du projet). <code>selectClip()</code> appelle la sauvegarde à chaque changement de clip — le seul autre endroit qui touchait déjà <code>_clipResumeTime</code>. <code>enterWorkspace(pid)</code> (<code>derush_app.html</code>) appelle <code>_loadClipResumeTime(pid)</code> juste avant de rappeler <code>selectClip()</code> sur le dernier clip, pour qu'il trouve une position à restaurer.</p>
+
+  <div class="tip">Filet de sécurité ajouté en prime : <code>_clipResumeTime</code> n'est mis à jour que lorsqu'on <strong>quitte</strong> un clip pour un autre (dans <code>selectClip</code>) — si on ferme carrément l'app pendant qu'un clip joue, sans jamais en changer, rien ne l'aurait jamais écrit. Un listener <code>window.addEventListener('pagehide', …)</code> capture la position courante du lecteur juste avant que la page ne disparaisse, pour couvrir ce cas.</div>
+
+  <p><strong>Fix (2)</strong> : ajout d'un appel à <code>_scrollActiveClipIntoView()</code> juste après le <code>selectClip(lastClip)</code> de restauration dans <code>enterWorkspace()</code> — jusque-là absent de ce point d'appel précis.</p>
+
+  <p>Portée : comme le fix précédent, purement local à la machine (clé <code>derush_resume_&lt;pid&gt;</code> dans <code>localStorage</code>, pas de sync cloud) et sans effet sur les données de projet. Le comparateur et le viewer multi-cam gardent leur reprise de position en mémoire seule (pas de demande utilisateur sur ces écrans-là pour l'instant).</p>
+</div>
+
+<div class="entry" id="lut-color-settings">
+  <div class="entry-header">
+    <span class="entry-date">4 août 2026 · v0.3.54</span>
+    <span class="entry-title">Réglages LUT : contraste, température, teinte</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : le panneau de réglages manuels de la LUT (🎚️) ne proposait que 3 sliders (intensité, exposition, saturation) — pas de quoi corriger une dominante de couleur sans recharger une autre <code>.cube</code>.</p>
+
+  <p><strong>Ajout</strong> : 3 nouveaux sliders dans <code>#lutSettingsPanel</code>, sous un séparateur « Balance des couleurs » :</p>
+  <ul style="margin:8px 0 8px 20px; color: var(--muted);">
+    <li><strong>Contraste</strong> (-100% → +100%) — pivot sur le gris moyen (0.5), pente <code>1+contraste</code></li>
+    <li><strong>Température</strong> (-100 → +100) — gain différentiel rouge/bleu, comme une balance des blancs</li>
+    <li><strong>Teinte</strong> (-100 → +100, vert/magenta) — gain sur le canal vert</li>
+  </ul>
+
+  <p><strong>Implémentation</strong> (<code>js/lut.js</code>) : ces 3 valeurs rejoignent <code>_lutSettings</code> (déjà persisté dans <code>localStorage['derush_lut_settings']</code>, migration gratuite — un ancien objet sauvegardé sans ces clés retombe simplement sur leurs valeurs neutres par défaut via le spread au chargement) et 3 nouveaux <code>uniform float</code> dans le fragment shader WebGL2. Ordre d'application dans le shader : exposition → température/teinte (avant la LUT, en correction primaire façon balance des blancs) → lookup LUT 3D → intensité (mix) → <strong>contraste</strong> → saturation → dithering anti-banding. Contraste et saturation restent après le mix LUT pour agir sur le résultat final, pas sur la source brute.</p>
+
+  <div class="box box-note"><strong>Documentation à jour :</strong> en documentant ce changement, la section <code>CLAUDE.md</code> sur la preview LUT s'est révélée décrire encore l'ancien pipeline Canvas 2D (<code>getImageData</code>/<code>putImageData</code>, nearest-neighbour, capé 480px) — abandonné depuis un moment au profit d'un pipeline WebGL2 (texture 3D, trilinéaire hardware, pleine résolution, zéro readback CPU), comme l'indiquait déjà un commentaire dans <code>js/lut.js</code> ("commentaire historique caduc") jamais répercuté dans <code>CLAUDE.md</code>. Section réécrite pour refléter l'implémentation réelle.</div>
+
+  <p>Portée : réglage d'affichage pur (aucune donnée de projet modifiée, aucun impact sur l'export), persisté par machine comme les 3 sliders existants.</p>
+</div>
+
+<div class="entry" id="lut-per-clip">
+  <div class="entry-header">
+    <span class="entry-date">5 août 2026 · v0.3.55</span>
+    <span class="entry-title">LUT propre à chaque plan (fini le scope global partagé)</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : « quand j'applique une LUT sur un plan, qu'elle reste (sauf si je l'annule manuellement) et qu'elle garde ses réglages propres à chaque plan. Et que si par erreur j'affecte une LUT à tous les plans, ça n'écrase pas les LUT déjà existantes. »</p>
+
+  <div class="box box-fail"><strong>Constat sur l'ancien modèle</strong> : une seule LUT globale (<code>_lut</code>) + un seul <code>_lutScope</code> (caméras ou un clip) + des réglages globaux uniques (<code>_lutSettings</code>) partagés par tous les clips du scope. Conséquences : bouger un slider sur un plan changeait le rendu de <em>tous</em> les autres plans de la même caméra ; recharger un <code>.cube</code> pour l'assigner à une caméra remplaçait purement et simplement l'assignation précédente, sans distinction entre plans déjà réglés à la main et plans encore sur le défaut. Et rien ne survivait à un reload du navigateur — seuls le scope et les réglages étaient persistés dans <code>localStorage</code>, jamais le contenu du <code>.cube</code> lui-même.</div>
+
+  <p><strong>Nouveau modèle</strong> (<code>js/lut.js</code>) : deux structures séparées.</p>
+  <ul style="margin:8px 0 8px 20px; color: var(--muted);">
+    <li><strong>Bibliothèque</strong> <code>_lutLibrary</code> — toutes les LUTs chargées durant le projet (pas une seule), nommées par fichier. Le contenu brut est mis en cache dans <strong>IndexedDB</strong> (une LUT <code>.cube</code> peut peser plusieurs Mo, hors budget raisonnable de <code>localStorage</code>) → survit à une fermeture/réouverture de l'appli sans devoir recharger le fichier.</li>
+    <li><strong>Assignation</strong> <code>_lutAssign = {cameras: {...}, clips: {...}}</code>, persistée dans <code>localStorage</code> par projet. <code>clips[id]</code> = override explicite propre à un plan, toujours prioritaire sur <code>cameras[cam]</code> (défaut hérité par les plans de cette caméra qui n'ont pas d'override).</li>
+  </ul>
+
+  <p><strong>Comment ça règle chaque point de la demande</strong> :</p>
+  <ul style="margin:8px 0 8px 20px; color: var(--muted);">
+    <li><em>« qu'elle reste »</em> — l'assignation clip/caméra est persistée (<code>localStorage</code>) et la LUT elle-même l'est aussi (IndexedDB) : plus besoin de recharger le <code>.cube</code> à chaque relance.</li>
+    <li><em>« sauf si je l'annule manuellement »</em> — nouveau bouton <code>🗑 Retirer la LUT de ce plan</code> dans le panneau de réglages, visible seulement quand le plan a un override propre (pas pour un défaut caméra hérité) → supprime <code>_lutAssign.clips[id]</code>, retombe sur le défaut caméra s'il existe.</li>
+    <li><em>« garde ses réglages manuels propres à chaque plan »</em> — toucher un slider sur un plan qui n'a encore qu'un défaut caméra hérité <strong>fork</strong> silencieusement un override clip (<code>_lutEnsureEditableEntry()</code>, copie des réglages courants) sans jamais muter l'objet partagé par la caméra. Le plan suivant sur la même caméra n'est pas affecté.</li>
+    <li><em>« si par erreur j'affecte une LUT à tous les plans, ça n'écrase pas les LUT déjà existantes »</em> — appliquer une LUT « à des caméras » n'écrit <strong>jamais</strong> dans <code>_lutAssign.clips</code>, seulement dans <code>_lutAssign.cameras</code>. Un plan avec son propre override continue donc de résoudre vers sa propre LUT (priorité clip &gt; caméra), quel que soit ce qui est appliqué en masse ensuite. La modale de scope liste en plus, pour chaque caméra, le nombre de plans déjà protégés par un override (« 🔒 N plan(s) propre(s), non affecté(s) ») pour prévenir l'erreur avant qu'elle n'arrive.</li>
+  </ul>
+
+  <p><strong>Détails techniques</strong> : <code>_lutResolveFor(clip)</code> centralise la résolution (override clip &gt; défaut caméra &gt; rien). <code>_lutRefreshForActiveClip()</code> (async, protégée par un token <code>_lutRefreshToken</code> contre un changement de clip pendant l'attente IndexedDB — même classe de garde que <code>_activeHoverClipId</code> pour le scrubbing de la sidebar) recharge canvas/badge/panneau/bouton à chaque sélection de clip. Recharger un <code>.cube</code> du même nom de fichier met à jour la LUT partout où elle est référencée (comportement volontaire : permet de repousser un export de grade retouché sans tout ré-assigner).</p>
+
+  <p>Portée : préférence d'affichage pure, par projet (aucune donnée exportée en DaVinci/FCPXML n'est affectée). Suppression de l'état « hors scope » du bouton 🎨 (devenu sans objet : la résolution par plan filtre déjà ce qui s'affiche) et du <code>localStorage['derush_lut_settings']</code>/<code>derush_lut_scope</code> globaux introduits en v0.3.53/54, remplacés par l'assignation par projet.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="bwf-mixer">
+  <div class="entry-header">
+    <span class="entry-date">6 août 2026 · v0.3.56</span>
+    <span class="entry-title">Mixeur multipiste du son ingé (iXML, mute/solo)</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : pouvoir régler le volume de chaque piste d'un BWF multipiste (boom + HF1 + HF2 + ambiance...) séparément, pour « faire un petit mix » pendant le dérushage — plutôt que d'entendre les pistes sommées telles quelles.</p>
+
+  <div class="box box-fail"><strong>Avant vérification</strong> : rien ne garantissait que les BWF de l'ingé son soient réellement multipistes plutôt qu'un pré-mix stéréo déjà équilibré — dans ce dernier cas la demande n'aurait rien eu à mixer. Inspection de <code>audio_clips[].channels</code> sur le projet DRIFT_CLUB (211 fichiers scannés) : distribution de 1 à 8 canaux, 118 fichiers à 3 canaux ou plus, plusieurs fichiers 6 canaux dépassant 50 minutes. Confirmation directe sur les fichiers réels (<code>E:/DRIFT_CLUB</code>) : chaque BWF embarque un chunk <strong>iXML</strong> avec un <code>TRACK_LIST</code> donnant le vrai nom de chaque piste (<code>MKH8060</code>, <code>AXEL</code>, <code>FOND</code>, <code>INTERUPTEUR</code>...) — jamais lu jusqu'ici, ni serveur ni client.</div>
+
+  <p><strong>Avant</strong> : <code>_routeBwfMultiChannel(audio, ctx)</code> sommait toutes les pistes vers stéréo à <strong>gain fixe 1/3</strong>, identique pour tout le monde, sans distinction de piste.</p>
+
+  <p><strong>Après</strong> : nouveau module <code>js/bwf-mixer.js</code>. <code>_bwfBuildMixerGraph</code> construit <code>MediaElementSource → ChannelSplitter(8) → 1 GainNode indépendant par piste → ChannelMerger(2) → destination</code> au lieu du mixdown à gain fixe. Panneau flottant <strong>🎚</strong> (bouton à côté de <strong>🔊 Son ingé</strong>, lecteur principal <em>et</em> viewer multicam) : un fader (0–150%), un <strong>M</strong> (mute) et un <strong>S</strong> (solo, cumulable) par piste, avec le vrai nom de piste si l'iXML est présent. Réglages mémorisés dans <code>localStorage</code> par <strong>fichier BWF</strong> (pas par plan vidéo) — un même son ingé garde son mix sur tous les plans qu'il couvre, sur le même principe que l'assignation LUT par plan (v0.3.55). Gain par défaut identique à l'ancien comportement (1/3) : rien ne change tant qu'aucun fader n'est touché.</p>
+
+  <div class="box box-fail"><strong>Bug latent découvert en passant</strong> : <code>openMcViewer()</code> ne créait le contexte WebAudio du son ingé (<code>window._mcAudioCtx</code>) que si le groupe contenait un angle FS5 (LTC) — un groupe 100% FX6 n'avait donc jamais eu de routing multipiste correct pour le BWF (fallback downmix navigateur, 2 premières pistes seulement, muettes sur les autres). Corrigé : le contexte est désormais créé/pinné à la demande dans <code>openMcViewer()</code> quel que soit le contenu du groupe.</div>
+
+  <p>Côté serveur : <code>_parse_ixml_tracks(data)</code> (même pattern <code>ET.fromstring</code> que <code>parse_sony_xml</code>) lit le <code>TRACK_LIST</code> du chunk <code>iXML</code>, intégré au parcours RIFF existant de <code>_read_bwf_bext_direct</code>. Les endpoints <code>/clip_bwf/&lt;clip_id&gt;</code> et <code>/multicam/group_bwf</code> exposent désormais <code>bwf_id</code>, <code>channels</code>, <code>track_names</code>. Un re-scan du dossier Son est nécessaire sur un projet déjà scanné pour peupler les noms de piste.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="tag-autocomplete">
+  <div class="entry-header">
+    <span class="entry-date">18 août 2026 · v0.3.57</span>
+    <span class="entry-title">Autocomplete des tags à la frappe</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande : en tapant un tag, se voir proposer les tags déjà créés sur le projet pour éviter de recréer un quasi-doublon avec une faute de frappe (« émotionnel » vs « emotionel »), avec une sélection au clavier (↑/↓).</p>
+
+  <p>Menu déroulant <code>#tagAutocomplete</code> sous <code>#tagInput</code>, alimenté par <code>_allProjectTags()</code> (la même source déjà utilisée par le filtre 🏷 Tags de la sidebar — aucun nouvel appel serveur). Matching en <strong>sous-séquence</strong> plutôt qu'en préfixe : les lettres tapées doivent apparaître dans le tag existant dans le même ordre, pas forcément à la suite (<code>gh</code> retrouve <code>golden hour</code>) — plus tolérant qu'un préfixe strict pour rattraper une frappe partielle. Résultats triés par pertinence (étendue du match la plus courte d'abord), limités à 8, tags déjà posés sur le clip actif exclus.</p>
+
+  <p><code>↑</code>/<code>↓</code> déplacent la sélection dans le menu, <code>Entrée</code> valide l'item survolé (ou crée un tag depuis la saisie libre si le menu est vide), <code>Échap</code> ferme le menu sans toucher au texte tapé. La validation d'un tag (existant ou nouveau) est passée dans une fonction commune <code>_commitTag(tag)</code>, appelée aussi bien par la frappe manuelle que par le clic/Entrée sur une suggestion.</p>
+
+  <div class="box box-fail"><strong>Piège anticipé avant qu'il ne se manifeste</strong> : <code>#tagInput</code> vit dans <code>.note-area</code>, qui a <code>overflow-y: auto</code> (déjà documenté comme source de rognage d'éléments qui dépassent — cf. le panneau « Avis des autres » et le panneau du mixeur BWF, tous deux dans le même conteneur). Un menu en <code>position: absolute</code> aurait été coupé net dès qu'il dépasse la zone visible/scrollée. Résolu comme pour le panneau du mixeur BWF : <code>position: fixed</code>, coordonnées calculées en JS via <code>getBoundingClientRect()</code> du champ, indépendant du scroll du panneau.</div>
+
+  <div class="box box-fail"><strong>Retour terrain le jour même</strong> : « je ne vois pas les suggestions proposées ». Le piège anticipé ci-dessus réglait le rognage par <code>.note-area</code>, mais pas un second problème : le champ Tags est la <em>dernière</em> chose du panneau de notes, donc proche du bas de la fenêtre — le menu, toujours ouvert vers le bas, rendait hors de l'écran (au-delà de <code>window.innerHeight</code>), invisible sans scroller la page entière (ce que l'appli ne fait jamais). Fix : <code>renderTagAutocomplete()</code> mesure la hauteur réelle du menu une fois rempli (<code>box.offsetHeight</code>) et bascule son ouverture vers le <strong>haut</strong> du champ dès que la place manque en dessous (et qu'il y en a au-dessus) — un flip dynamique plutôt que de réserver en permanence de la place en bas du panneau, qui aurait rétréci la zone Notes pour tout le monde en continu pour un problème qui ne survient qu'en bas de page.</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 1 août 2026 (v0.3.48 — Flip H par clip)
+  Derush Tool · Journal de développement · Dernière mise à jour 18 août 2026 (v0.3.57 — Autocomplete des tags à la frappe)
 </div>
 
 </main>

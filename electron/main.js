@@ -12,7 +12,7 @@
 // http://<lan-ip>:8765 from their own browser if they want, while the local user
 // gets a controlled Chromium with HEVC support and no leak quirks.
 
-const { app, BrowserWindow, Menu, shell, dialog, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, MenuItem, shell, dialog, nativeTheme } = require('electron');
 // Force le dark mode pour que la title bar native (Win 10) soit sombre aussi
 nativeTheme.themeSource = 'dark';
 const path = require('path');
@@ -203,6 +203,10 @@ function createWindow() {
   // Hide the menu bar entirely (no File/Edit/View clutter).
   Menu.setApplicationMenu(null);
 
+  // Dictionnaire FR (l'app est utilisée en français) — Chromium ne le charge pas
+  // toujours automatiquement selon la locale OS.
+  try { mainWindow.webContents.session.setSpellCheckerLanguages(['fr']); } catch (e) {}
+
   // External links open in the system browser, not inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -210,6 +214,42 @@ function createWindow() {
   });
 
   mainWindow.loadURL(SERVER_URL);
+
+  // Menu clic droit : Electron n'affiche rien par défaut (même pas Copier/Coller).
+  // On reconstruit un menu type navigateur avec suggestions d'orthographe
+  // (params.dictionarySuggestions vient du spellchecker Chromium intégré).
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const menu = new Menu();
+
+    if (params.misspelledWord) {
+      for (const suggestion of params.dictionarySuggestions.slice(0, 6)) {
+        menu.append(new MenuItem({
+          label: suggestion,
+          click: () => mainWindow.webContents.replaceMisspelling(suggestion),
+        }));
+      }
+      if (params.dictionarySuggestions.length === 0) {
+        menu.append(new MenuItem({ label: 'Aucune suggestion', enabled: false }));
+      }
+      menu.append(new MenuItem({
+        label: 'Ajouter au dictionnaire',
+        click: () => mainWindow.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+      }));
+      menu.append(new MenuItem({ type: 'separator' }));
+    }
+
+    if (params.isEditable) {
+      menu.append(new MenuItem({ label: 'Couper', role: 'cut', enabled: params.editFlags.canCut }));
+      menu.append(new MenuItem({ label: 'Copier', role: 'copy', enabled: params.editFlags.canCopy }));
+      menu.append(new MenuItem({ label: 'Coller', role: 'paste', enabled: params.editFlags.canPaste }));
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(new MenuItem({ label: 'Tout sélectionner', role: 'selectAll' }));
+    } else if (params.selectionText) {
+      menu.append(new MenuItem({ label: 'Copier', role: 'copy' }));
+    }
+
+    if (menu.items.length > 0) menu.popup();
+  });
 
   // Dev convenience: F12 toggles DevTools.
   mainWindow.webContents.on('before-input-event', (event, input) => {

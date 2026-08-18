@@ -175,7 +175,7 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
   <li><strong>Panneau d'annotation</strong> (droite) — rating, statut, note globale, tags, marqueurs, avis équipe</li>
 </ul>
 <div class="tip"><strong>Sauvegarde automatique :</strong> vos annotations sont sauvegardées toutes les 30 secondes sur le serveur local — que la machine soit connectée à Internet ou non, tant que Derush Tool tourne. Pas besoin de cliquer sur 💾 pour ne pas perdre votre travail. La synchronisation cloud (partage avec les autres collaborateurs) est séparée : elle se fait en tâche de fond dès que la connexion revient, sans bloquer votre sauvegarde locale.</div>
-<div class="tip"><strong>Reprise de la position :</strong> si vous quittez un clip en cours de lecture pour en consulter un autre, puis revenez dessus, la lecture reprend là où vous l'aviez laissée au lieu de repartir du début. Valable aussi dans le comparateur et le viewer multi-cam. Cette mémoire ne survit pas à un redémarrage de l'app (elle est remise à zéro à chaque relance).</div>
+<div class="tip"><strong>Reprise de la position :</strong> si vous quittez un clip en cours de lecture pour en consulter un autre, puis revenez dessus, la lecture reprend là où vous l'aviez laissée au lieu de repartir du début. Valable aussi dans le comparateur et le viewer multi-cam. <strong>Cette mémoire survit désormais à une fermeture/réouverture du logiciel</strong> : au relancement, Derush Tool rouvre exactement le clip que vous consultiez, à la seconde près, et le fait défiler en vue dans la liste à gauche (préférence par machine, non partagée avec l'équipe).</div>
 <div class="tip"><strong>⇋ Flip (miroir horizontal) :</strong> inverse gauche/droite dans l'image du lecteur — utile pour vérifier un cadrage ou compenser un montage caméra inversé. C'est un réglage d'affichage uniquement (rien n'est modifié dans le fichier ni à l'export), <strong>propre à chaque clip</strong> : l'activer sur un clip ne l'active pas sur les autres, et en changer n'affecte pas ceux déjà flippés. Se remet à zéro au rechargement de la page.</div>
 
 <h2 id="rating">Rating &amp; Statut</h2>
@@ -247,7 +247,9 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 <h2 id="tags">Tags</h2>
 <p>Les tags permettent un classement libre. Dans le panneau de droite, cliquez dans la zone tags et tapez un tag suivi de <code>Entrée</code> ou <code>,</code>. Cliquez sur le × d'un tag pour le supprimer. Les tags sont recherchables dans la barre de recherche — celle-ci ne matche jamais le nom de fichier des clips, uniquement ce qui a été écrit (tags, notes, marqueurs, réponses), pour éviter qu'un tag comme « drift » ne remonte tous les clips dont le nom contient ce mot.</p>
 <div class="tip"><strong>Important :</strong> un tag ne compte que si vous validez avec <code>Entrée</code> ou <code>,</code> — il apparaît alors sous forme de puce colorée. Si vous tapez du texte puis changez de clip sans valider, ce texte est simplement effacé (il n'a jamais été enregistré).</div>
+<div class="tip"><strong>Suggestions pendant la frappe :</strong> dès que vous tapez, un menu propose les tags déjà créés sur le projet qui contiennent les lettres tapées dans le même ordre (pas besoin que ce soit le début du mot — par ex. « gh » retrouve « golden hour ») : utile pour retrouver un tag existant sans risquer une faute de frappe qui créerait un doublon. Naviguez dans la liste avec <code>↑</code> / <code>↓</code>, validez avec <code>Entrée</code> (ou cliquez dessus), <code>Échap</code> ferme le menu.</div>
 <p>Les tags sont <strong>partagés avec toute l'équipe</strong> : ceux des autres collaborateurs apparaissent sous vos propres tags (section « Tags de l'équipe »), ainsi que directement dans la liste des clips à gauche — chacun coloré selon la couleur du collaborateur qui l'a écrit, pour savoir qui a tagué quoi d'un coup d'œil.</p>
+<div class="tip"><strong>Correction orthographique :</strong> les mots mal orthographiés sont soulignés en rouge dans les notes et les tags. Faites un <strong>clic droit</strong> dessus pour voir des suggestions de correction (comme dans LibreOffice Writer ou Word) — cliquez sur une suggestion pour remplacer le mot.</div>
 <p>Le bouton <strong>🏷 Tags</strong> à côté des filtres caméra/jour ouvre une liste à cocher de tous les tags du projet (toute l'équipe confondue) : cochez-en un ou plusieurs pour ne garder que les clips portant au moins l'un d'eux. La liste se met à jour automatiquement dès qu'un collaborateur crée un nouveau tag, sans avoir besoin de rouvrir le projet.</p>
 
 <h2 id="team">Avis de l'équipe</h2>
@@ -336,6 +338,10 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
 <p>Si un BWF couvre temporellement le groupe (date + TC), un bouton <strong>🔊 Son ingé</strong> apparaît dans la toolbar. Activez-le pour entendre la piste de référence pendant que vous switchez entre les angles — toutes les pistes caméra sont alors muted. Le BWF est aligné automatiquement sur le clip le plus ancien du groupe via son TC. Aucun calage manuel possible : si le son n'est pas aligné, c'est que le BWF n'est pas le bon, ou que le TC d'une des sources est faux.</p>
 <p>Comme les rushs vidéo, les fichiers BWF retrouvent automatiquement leur chemin si votre disque se rebranche sous une <strong>autre lettre de lecteur</strong> (ex. <code>D:</code> → <code>E:</code>) — pas besoin de rescanner le dossier Son.</p>
 
+<h4>🎚 Mixeur des pistes</h4>
+<p>Quand le BWF actif contient plusieurs pistes (boom, HF1, HF2, ambiance...), un bouton <strong>🎚</strong> apparaît juste à côté de <strong>🔊 Son ingé</strong> (dans le lecteur principal comme dans le viewer multi-cam). Il ouvre un petit mixeur avec, pour chaque piste : un fader de volume (0 à 150%), un bouton <strong>M</strong> (couper cette piste) et un bouton <strong>S</strong> (l'isoler — les autres sont alors coupées ; plusieurs solos sont cumulables). Si l'enregistreur écrit les noms de piste dans le fichier (Sound Devices, Zoom...), ils sont affichés tels quels ; sinon les pistes sont juste numérotées.</p>
+<p>Le réglage est mémorisé <strong>par fichier BWF</strong> (pas par plan vidéo) : une fois le mix équilibré pour une prise du son ingé, il reste appliqué sur tous les plans qu'elle couvre. <strong>Reset</strong> dans le panneau remet la piste courante à son réglage par défaut. Si les noms de piste n'apparaissent pas sur un projet déjà scanné, il faut relancer <strong>Scanner</strong> sur le dossier Son (modale multi-cam) pour les récupérer.</p>
+
 <h4>Caler les vidéos entre elles (◄ / ►)</h4>
 <p>Si malgré un calage TC réussi vous voyez que les angles secondaires sont décalés (très rare), nudgez-les avec les boutons <strong>◄ / ►</strong> à droite du sélecteur de <em>Pas</em> (1 frame, 100 ms, 500 ms, 1 s). Cliquez <strong>💾</strong> pour sauvegarder les nouveaux offsets du groupe — ils seront restaurés à la prochaine ouverture.</p>
 
@@ -345,20 +351,28 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
 <div class="step"><div class="step-num">1</div><div class="step-body">Cliquez sur <strong>📂</strong> dans la barre d'outils verticale en haut à droite du lecteur.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Sélectionnez un fichier <code>.cube</code> (format ASCII standard).</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">La LUT s'applique immédiatement sur la vidéo en cours. Un badge <strong>LUT</strong> apparaît sur l'image.</div></div>
-<h3>Scope par caméra</h3>
-<p>Une LUT Rec709 ne doit s'appliquer que sur les caméras log (FS5 par exemple), pas sur les caméras Rec709 natif (FX6/GoPro). Au chargement d'une <code>.cube</code>, un popup demande à quelles <strong>caméras</strong> appliquer la LUT (ou « ce rush uniquement »). Les FS5 sont pré-cochées par défaut. La LUT s'active/désactive automatiquement quand tu changes de clip selon sa caméra.</p>
+<h3>Scope par caméra ou par plan</h3>
+<p>Une LUT Rec709 ne doit s'appliquer que sur les caméras log (FS5 par exemple), pas sur les caméras Rec709 natif (FX6/GoPro). Au chargement d'une <code>.cube</code>, un popup demande à quelles <strong>caméras</strong> appliquer la LUT (ou « ce rush uniquement »). Les FS5 sont pré-cochées par défaut.</p>
+<p>Choisir des caméras définit un <strong>défaut</strong> : tous les plans de ces caméras qui n'ont pas déjà leur propre LUT l'affichent automatiquement en changeant de clip. Le popup indique, pour chaque caméra, combien de plans ont déjà leur propre LUT (« 🔒 N plan(s) propre(s), non affecté(s) ») — ceux-là ne sont <strong>jamais</strong> touchés par une application groupée, même accidentelle.</p>
+
+<h3>Chaque plan garde sa LUT et ses réglages</h3>
+<p>Dès que vous touchez un des sliders de réglage (intensité, exposition…) sur un plan, ce plan devient <strong>autonome</strong> : il garde sa propre copie de la LUT + des réglages, indépendamment de ce qui se passe sur les autres plans de la même caméra. Choisir « ce rush uniquement » dans le popup a le même effet immédiatement. Cette assignation <strong>reste</strong> tant que vous ne l'annulez pas manuellement — y compris après avoir fermé et rouvert l'application.</p>
+<p>Pour annuler la LUT propre à un plan et revenir au défaut de sa caméra, ouvrez le panneau de réglages et cliquez sur <strong>🗑 Retirer la LUT de ce plan</strong> (visible seulement quand le plan a sa propre LUT — un plan qui hérite juste du défaut caméra affiche « 📷 LUT héritée de la caméra » à la place).</p>
 
 <h3>Réglages temps réel</h3>
-<p>Quand une LUT est active sur le clip, un petit panneau apparaît avec 3 sliders :</p>
+<p>Quand une LUT est active sur le clip, un petit panneau apparaît avec plusieurs sliders :</p>
 <ul>
   <li><strong>Intensité</strong> 0–100% (mix entre source et LUT — utile pour atténuer une LUT trop agressive)</li>
   <li><strong>Exposition</strong> -2 → +2 EV (compense la sous/sur-exposition avant la LUT)</li>
   <li><strong>Saturation</strong> 0–200%</li>
+  <li><strong>Contraste</strong> -100% → +100%</li>
+  <li><strong>Température</strong> (balance des couleurs froid/chaud)</li>
+  <li><strong>Teinte</strong> (balance des couleurs vert/magenta)</li>
 </ul>
-<p>Les réglages sont mémorisés entre les sessions.</p>
+<p>Température et teinte s'appliquent avant la LUT (comme une balance des blancs), contraste et saturation après — utile pour corriger une dominante de couleur ou ajuster le look sans avoir à recharger une autre LUT.</p>
 
 <h3>Activer / désactiver</h3>
-<p>Le bouton <strong>🎨 LUT</strong> a 3 états : <strong>actif</strong> (fond accent + glow), <strong>désactivé</strong> (barré + dim), <strong>hors scope</strong> (dim avec label « hors scope » — la LUT est chargée mais ce clip n'est pas dans le périmètre choisi).</p>
+<p>Le bouton <strong>🎨 LUT</strong> est un interrupteur général de prévisualisation (actif = fond accent + glow, désactivé = barré + dim) — il masque/affiche l'effet à l'écran mais ne touche pas à l'assignation LUT/réglages du plan, qui reste intacte au prochain affichage.</p>
 <div class="tip"><strong>Fichiers Sony :</strong> Les LUTs Sony FX6 (format <code>.cube</code> ASCII) situées dans <code>XDROOT/General/LUT/</code> sont directement compatibles.</div>
 <div class="tip"><strong>Qualité pro :</strong> rendu WebGL2 avec interpolation trilinéaire hardware + dithering anti-banding. Pleine résolution vidéo, pas de pixelisation.</div>
 
@@ -382,7 +396,7 @@ Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder 
   <tr><td>9:16</td><td>Vertical — réseaux sociaux</td></tr>
 </table>
 <div class="tip"><strong>Mémorisé :</strong> le format choisi est conservé d'un clip à l'autre et reste actif à la réouverture du logiciel (préférence par machine). Le cadre fonctionne aussi en plein écran.</div>
-<div class="tip"><strong>Bandes noires incrustées :</strong> si un rush a déjà des bandes noires « cuites » dans l'image (master letterboxé), le cadre se cale sur l'<strong>image réelle</strong> et non sur ces bandes. La détection s'affine pendant la lecture / le scrubbing.</div>
+<div class="tip"><strong>Bandes noires incrustées :</strong> si un rush a déjà des bandes noires « cuites » dans l'image (master letterboxé), le cadre se cale sur l'<strong>image réelle</strong> et non sur ces bandes. Détection automatique côté serveur au premier affichage du clip (1-2s), mise en cache ensuite. Seule une vraie bande symétrique (haut+bas ou gauche+droite) est prise en compte — un assombrissement d'un seul côté (pare-soleil, capuchon, micro dans le coin...) est ignoré pour ne pas décaler le cadre à tort.</div>
 <div class="tip"><strong>Partout :</strong> le format choisi s'applique aussi dans le <strong>comparateur</strong> (les deux clips) et dans le <strong>viewer multi-caméra</strong> (tous les angles), pas seulement sur le lecteur principal.</div>
 
 <h2 id="auto-detect">Auto-détection des plans</h2>

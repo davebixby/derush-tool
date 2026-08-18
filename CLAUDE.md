@@ -194,6 +194,15 @@ FCM: NON-DROP FRAME
 - `.note-area` a `overflow-y: auto` pour que la section Tags reste accessible si les notes sont longues
 - `#clipNotes` a `height: 72px` (pas `flex:1`) pour que les Tags soient toujours visibles sans scroll
 
+### Autocomplete tags (août 2026)
+Pendant la frappe dans `#tagInput`, un menu déroulant (`#tagAutocomplete`) propose les tags déjà créés dans le projet (via `_allProjectTags()`, la même source que le filtre par tags) qui matchent en **sous-séquence** — les lettres tapées doivent apparaître dans le tag existant dans le même ordre, pas forcément contiguës (ex. `gh` matche `golden hour`) — pour rattraper une frappe partielle/fautée avant de créer un doublon.
+- `_tagSubsequenceScore(needle, hay)` : retourne l'étendue du match (plus petit = plus pertinent) ou `-1` si pas de match. Tri par score puis alphabétique, limité aux 8 premiers, tags déjà posés sur le clip actif exclus.
+- Navigation **↑/↓** dans `handleTagInput(e)` (déplace `_tagAcIndex`), **Entrée** valide l'item survolé s'il y en a un (sinon crée un nouveau tag comme avant), **Échap** ferme le menu sans vider le champ.
+- Logique de validation d'un tag extraite dans `_commitTag(tag)` (partagée par la frappe manuelle et le clic/Entrée sur une suggestion).
+- `#tagAutocomplete` en `position: fixed` avec coordonnées calculées en JS (`renderTagAutocomplete` → `input.getBoundingClientRect()`), **pas `position: absolute`** : `#tagInput` vit dans `.note-area` qui a `overflow-y: auto`, un dropdown absolute y serait rogné dès qu'il dépasse la zone visible/scrollée (même piège déjà résolu pour le panneau du mixeur BWF).
+- **Flip vers le haut si pas de place en bas** : le champ Tags est tout en bas du panneau de notes, donc `window.innerHeight - r.bottom` est souvent petit. `renderTagAutocomplete` mesure `box.offsetHeight` (menu déjà rempli/affiché) et bascule `top` au-dessus du champ (`r.top - boxH - 2`) si l'espace restant sous le champ est inférieur à la hauteur du menu **et** qu'il y a la place au-dessus — sinon les suggestions rendaient hors de la fenêtre, invisibles sans scroller la page (retour terrain 18/08/2026).
+- Fermé et réinitialisé (`closeTagAutocomplete()`) partout où `#tagInput` est déjà vidé au changement de clip (`selectClip`, `js/audio-bwf.js`).
+
 ### Sync cloud (derush_sync.php)
 - PHP côté serveur, stocke JSON dans `derush_data/<pid>.derush.json`, backups dans `derush_data/backups/<pid>/`
 - Auth par clé secrète `?key=SECRET` en query string
@@ -256,18 +265,23 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 - `waveformPeaks` — peaks audio du clip actif
 - `pollingInterval` — ID du setInterval pour le sync local (15s)
 - `_syncPollInterval` — ID du setInterval pour le statut de sync cloud (30s)
-- `currentSpeed` — vitesse de lecture courante (1, 1.25, 1.5, 2)
+- `currentSpeed` — vitesse de lecture courante (0.25, 0.5, 1, 1.25, 1.5, 2)
 - `_flipHState` — miroir horizontal par clip (`{clip.id: bool}`), non persisté, reset au rechargement
+- `_clipResumeTime` (déclaré dans `js/audio-bwf.js`) — `{clip.id: secondes}`, position de lecture à restaurer par clip. **Persisté** dans `localStorage['derush_resume_'+currentProjectId]` (contrairement à `_flipHState`) : survit à une fermeture/réouverture de l'app, voir `_persistClipResumeTime()`/`_loadClipResumeTime(pid)`
 - `selectedMarkerId` — ID (string) du marker sélectionné sur la timeline, null si aucun
 - `_activeHoverClipId` — clip_id du clip survolé pour éviter les race conditions du strip
 - `_pregen` — `{q: [], n: 0, max: 3}` — queue de pré-génération des thumbnails
+- `_bwfMixerSettings` (déclaré dans `js/bwf-mixer.js`) — `{pid: {bwfId: {gains:[...], mutes:[...], solos:[...]}}}`, **persisté** dans `localStorage['derush_bwf_mixer_'+pid]`
+- `_bwfMixerPanelState` (`js/bwf-mixer.js`) — `{audio, bwfId, channels, trackNames}` du BWF affiché dans le panneau mixeur, `null` si fermé
 
 ## derush_app.html — Fonctions JS clés
 
 | Fonction | Rôle |
 |----------|------|
 | `renderClipList()` | sidebar avec thumbnails+strip, en-têtes de jour, filtres, search texte, chips rating équipe |
-| `selectClip(c)` | charge clip, affiche tech-meta, applique currentSpeed, appelle loadWaveform + renderTags |
+| `_scrollActiveClipIntoView()` | scrolle `#clip_<activeClip.id>` dans la vue — à appeler après un changement de filtre (tag/cam/jour/recherche) car `renderClipList()` vide `innerHTML` et retombe le scroll à 0, donnant l'impression que la sélection a sauté au premier clip |
+| `selectClip(c)` | charge clip, affiche tech-meta, applique currentSpeed, appelle loadWaveform + renderTags. Persiste `localStorage['derush_last_clip_'+currentProjectId] = c.id` et la position de lecture du clip quitté (`_persistClipResumeTime()`) ; restaure `_clipResumeTime[c.id]` sur `loadedmetadata` du nouveau clip |
+| `_persistClipResumeTime()` / `_loadClipResumeTime(pid)` (`js/audio-bwf.js`) | écrit/lit `_clipResumeTime` dans `localStorage['derush_resume_'+pid]`. `enterWorkspace()` appelle `_loadClipResumeTime(pid)` avant de restaurer le dernier clip consulté. Filet de sécurité `pagehide` (`js/audio-bwf.js`) : capture aussi la position courante si l'app est fermée sans changer de clip (sinon jamais écrite, `_clipResumeTime` n'étant mise à jour qu'au changement de clip) |
 | `setSpeed(rate)` | applique `video.playbackRate`, met à jour les boutons actifs |
 | `toggleFlipH()` | miroir horizontal **par clip** : toggle `_flipHState[activeClip.id]`, délègue à `_applyFlipH` |
 | `_applyFlipH(on)` | flip `#player`+`#lutCanvas`+`#drawCanvas` via `scaleX(-1)`, appelée aussi par `selectClip` pour restaurer l'état du clip chargé |
@@ -276,7 +290,9 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 | `renderMarkers()` | liste (avec selectedMarkerId) + pins timeline (drag via mousedown) + replies |
 | `timeToTC(t, fps)` | secondes → "HH:MM:SS:FF" |
 | `renderTags()` | affiche les tags du clip actif comme chips cliquables |
-| `handleTagInput(e)` | Entrée ou virgule → ajoute tag dans allNotes + renderTags |
+| `handleTagInput(e)` | ↑/↓ navigue l'autocomplete, Échap ferme, Entrée/virgule valide (item survolé ou saisie libre) → `_commitTag` |
+| `updateTagAutocomplete()` / `renderTagAutocomplete()` / `closeTagAutocomplete()` | menu déroulant de suggestions par sous-séquence (`_tagSubsequenceScore`) sur `_allProjectTags()` pendant la frappe |
+| `_commitTag(tag)` | ajoute le tag dans allNotes + renderTags + save immédiat (factorisé, utilisé par saisie libre et sélection d'une suggestion) |
 | `removeTag(tag)` | supprime tag avec pushUndo |
 | `renderMultiUser()` | panneau "Avis des autres" : rating + note (+ fil de discussion forum) + markers (cliquables → seek, + replies) |
 | `_muSeekMarker(time, e)` | clic sur un marker d'un collaborateur dans "Avis des autres" → `player.currentTime = time`. Ignore les clics dans `.mu-reply-form` imbriqué |
@@ -579,32 +595,52 @@ let _cmpSync = false, _cmpClips = [null, null];
 ```
 Nettoyage : `closeCompare()` appelé dans `doLogout()`
 
-### Preview LUT (.cube) — Canvas 2D
+### Preview LUT (.cube) — WebGL2 (`js/lut.js`)
 
-**Implémentation** : Canvas 2D pur (abandonne WebGL — trop dépendant des drivers Windows/ANGLE).
+**Implémentation** : texture 3D WebGL2 (`TEXTURE_3D`, filtrage `LINEAR` = trilinéaire gratuite en hardware), pleine résolution vidéo, zéro readback CPU. L'ancien pipeline Canvas 2D (`getImageData`/`putImageData`, nearest-neighbour manuel, capé à 480px) a été abandonné — sur Electron/Chromium le rendu ANGLE est fiable, le problème de drivers qui avait motivé Canvas 2D ne se pose plus.
 
-**Algorithme** :
-```javascript
-_lutCtx.drawImage(v, 0, 0, w, h);          // vidéo → canvas (GPU)
-const img = _lutCtx.getImageData(0,0,w,h); // readback CPU
-// nearest-neighbour LUT lookup per pixel
-for each pixel: idx = (bi*sz² + gi*sz + ri) * 3; → ld[idx]*255
-_lutCtx.putImageData(img, 0, 0);            // CPU → canvas (GPU)
-```
-- Résolution max 480px de large pour les perfs (scalé par CSS sur l'affichage)
-- RAF loop continue (pas de stop sur pause) — canvas recalculé en temps réel
-- `_lutCtx = null` réinitialisé à chaque changement de fichier
+**Pipeline du fragment shader** (`_lutInitGL`, un seul programme, tout en une passe) :
+1. Exposition (`u_exposure`, EV, `pow(2, ev)`)
+2. Balance des couleurs pré-LUT : température (`u_temperature`, gain différentiel R/B) + teinte (`u_tint`, gain sur G) — traitées comme une correction primaire, avant la LUT créative
+3. Lookup LUT 3D (coordonnées centrées voxel, évite le biais ½-voxel)
+4. Intensité (`u_intensity`) : mix source post-étapes 1-2 ↔ résultat LUT
+5. Contraste (`u_contrast`) : pivot sur le gris moyen (0.5), pente `1+u_contrast`
+6. Saturation (`u_saturation`) : mix vers le gris luma (coeffs Rec.709)
+7. Dithering anti-banding : bruit sub-pixel ±0.5/255 décorrélé par canal, variant chaque frame (`u_time`) pour casser les patterns statiques dans les dégradés
+
+**Réglages manuels** (`_lutSettings = {intensity, exposure, saturation, contrast, temperature, tint}`, tous neutres par défaut sauf intensity=1/saturation=1) — panneau `#lutSettingsPanel` (sliders). `setLutSetting(key, value)` met à jour + réapplique les uniforms (`_lutApplySettings`) + persiste. `resetLutSettings()` remet tout à neutre (toujours propre au plan courant, voir modèle d'assignation ci-dessous).
 
 **Parsing .cube** : `_parseCube(text)` lit ASCII `LUT_3D_SIZE N` puis les triplets float.
 
+#### Modèle d'assignation par plan (v0.3.5x)
+
+Avant : une seule LUT globale + un seul scope + des réglages globaux partagés par tous les clips du scope — changer un slider sur un plan changeait donc le rendu de tous les autres clips de la même caméra, et recharger un nouveau `.cube` écrasait l'assignation précédente sans distinction.
+
+Désormais, deux structures séparées :
+- **Bibliothèque** `_lutLibrary = {lutName: {size, data}}` (cache mémoire, `lutName` = nom du fichier `.cube`) — le contenu brut est aussi persisté dans **IndexedDB** (`derush_luts` → store `files`, clé `${pid}::${lutName}`) pour survivre à un reload/relance sans devoir recharger le fichier (une LUT peut peser plusieurs Mo, hors budget raisonnable de `localStorage`).
+- **Assignation** `_lutAssign = {cameras: {[camera]: {lutName, settings}}, clips: {[clipId]: {lutName, settings}}}`, persistée dans `localStorage['derush_lut_assign_' + pid]` (par projet). `clips[id]` est un override explicite propre à un plan, prioritaire sur `cameras[cam]` (défaut hérité par tous les plans de cette caméra sans override).
+
+`_lutResolveFor(clip)` : override clip explicite > défaut caméra > rien (`null`).
+
+- **Appliquer une LUT "à des caméras"** (`confirmLutScope`, mode `cameras`) n'écrit **jamais** dans `_lutAssign.clips` — seulement dans `_lutAssign.cameras`. Un plan qui a déjà son propre override n'est donc jamais écrasé par une application en masse malencontreuse ; la modale de scope liste en plus, pour chaque caméra, le nombre de plans déjà "protégés" par un override (`🔒 N plan(s) propre(s), non affecté(s)`) pour prévenir l'erreur avant qu'elle n'arrive.
+- **Toucher un slider** (`setLutSetting`/`resetLutSettings`) sur un plan qui n'a encore qu'un défaut caméra hérité **fork** un override clip via `_lutEnsureEditableEntry()` (copie des réglages courants dans une nouvelle entrée `_lutAssign.clips[activeClip.id]`) sans jamais muter l'objet de réglages partagé par la caméra. C'est ce mécanisme qui garantit que chaque plan garde ses réglages manuels propres.
+- **"Ce rush uniquement"** (mode `clip` dans la modale de scope) écrit directement un override explicite pour le plan actif.
+- **Retirer une LUT d'un plan** : bouton `🗑 Retirer la LUT de ce plan` (`#lutRemoveWrap`, visible seulement si le plan a un override `clip` — pas pour un défaut `camera`) → `_lutRemoveForActiveClip()` supprime l'entrée `_lutAssign.clips[id]`, le plan retombe sur le défaut caméra s'il existe.
+- Recharger un fichier `.cube` du **même nom** mutualise (met à jour partout où ce `lutName` est référencé) — comportement volontaire pour permettre de retoucher un export de grade et le repousser sans tout ré-assigner.
+
 **Globals JS** :
 ```javascript
-let _lut = null, _lutEnabled = false, _lutRaf = null, _lutCtx = null;
+let _lutEnabled = false, _lutRaf = null, _lutGL = null, _lut = null, _lutCurrentLutName = null;
+let _lutLibrary = {}, _lutAssign = {cameras: {}, clips: {}};
+let _lutSettings = {intensity: 1.0, exposure: 0.0, saturation: 1.0, contrast: 0.0, temperature: 0.0, tint: 0.0};
 ```
+`_lutGL = {gl, prog, vao, videoTex, lutTex, u_*, lutUploaded}` — un seul contexte/programme créé paresseusement (`_lutInitGL`), réutilisé ensuite (upload LUT via `_lutUploadLUT` seulement quand `_lutCurrentLutName` change, uniforms de réglage repoussés à chaque `_lutRefreshForActiveClip()`/changement de slider).
+
+`_lutRefreshForActiveClip()` (async, protégée par `_lutRefreshToken` contre un changement de clip pendant l'attente IndexedDB) résout la LUT du plan actif, la charge si besoin (`_lutEnsureLoaded`, mémoire puis IndexedDB), met à jour canvas/badge/panneau/bouton. Appelée par : sélection de clip (`selectClip` → `js/audio-bwf.js`), `toggleLUT()`, `confirmLutScope()`, `_lutRemoveForActiveClip()`. `_lutLoadAssign(pid)` recharge `_lutAssign` depuis `localStorage` à l'entrée dans un projet (`enterWorkspace`).
 
 **Flow utilisateur** :
-1. `📂 LUT` → `<input type="file" accept=".cube">` → `onLUTFileSelected`
-2. `🎨 LUT` → `toggleLUT()` → `enableLUT(on)` — toggle on/off
+1. `📂 LUT` → `<input type="file" accept=".cube">` → `onLUTFileSelected` → crée `_lutGL` si besoin (alerte si WebGL2 indisponible) → ajoute à `_lutLibrary` + IndexedDB → ouvre la modale de scope (caméras ou ce rush uniquement)
+2. `🎨 LUT` → `toggleLUT()` — master preview on/off (session, pas persisté). Panneau réglages auto-affiché/masqué en même temps que le canvas (visible seulement si une LUT est résolue pour ce plan ET le master est actif)
 3. Badge `LUT` affiché sur la vidéo quand actif
 
 ### Disposition des contrôles du lecteur (refonte juin 2026, save déplacé juillet 2026)
@@ -650,7 +686,7 @@ Overlay de prévisualisation des formats ciné les plus répandus. Affiche des m
 Certains rushs ont des bandes noires *bakées* dans le fichier (matte cinéma au tournage — ex. FX6 J01 de DRIFT : matte 1.9:1, `1920×1012` dans du 1920×1080, ~34px de noir haut/bas). Deux conséquences corrigées : (1) le cadre 4:3 calait son haut/bas dans le noir ; (2) en comparaison/multicam, l'image bakée paraissait plus basse qu'un clip plein cadre (FS5).
 
 **Détection : côté SERVEUR (fiable), pas client.** L'ancienne détection JS sur une frame isolée était trompée par les plans sombres (bug du comparateur). Désormais :
-- `detect_letterbox(file_path)` (derush_server.py) : `ffmpeg cropdetect=24:2:0` sur 80 frames (`-ss 3`) → `{top,bottom,left,right}` (fractions) **+ `cw,ch`** (dims du contenu après filtrage). Ignore le bruit (<1.5%) et l'aberrant (>35%). Multi-frames = robuste au plan sombre.
+- `detect_letterbox(file_path)` (derush_server.py) : `ffmpeg cropdetect=24:2:0` sur 80 frames (`-ss 3`) → `{top,bottom,left,right}` (fractions) **+ `cw,ch`** (dims du contenu après filtrage). Ignore le bruit (<1.5%) et l'aberrant (>35%). Multi-frames = robuste au plan sombre. **Filtre de symétrie (v0.3.49)** : une vraie bande incrustée est centrée sur le capteur (`top≈bottom` ou `left≈right`) — un inset détecté sur un seul côté d'un axe (l'autre à 0, ou très déséquilibré, tolérance 50%) est mis à zéro des deux côtés : c'est un vignettage/occlusion réel de l'image (pare-soleil, capuchon, micro dans le coin...), pas une bande à retirer.
 - `get_letterbox(proj, clip)` : cache disque `letterbox_cache.json` (chargé au boot par `_load_letterbox_cache()`), détection à la demande.
 - `GET /api/project/<pid>/letterbox/<clip_id>` → insets + cw/ch.
 
@@ -752,10 +788,11 @@ Plus de cache fingerprint, plus de seuils audio xcorr/GCC.
 ### Fonctions BWF (lecture seule, pour le viewer)
 | Fonction | Rôle |
 |----------|------|
-| `_read_bwf_bext_direct(file_path)` | parse RIFF/WAVE en Python, lit `fmt` + `bext` (TimeReference + OriginationDate) + `data` |
-| `_read_bwf_tc_ffprobe(file_path)` | fallback via ffprobe (W64, formats exotiques) |
-| `read_bwf_tc(file_path)` | dispatcher → dict `{tc_in_sec, duration_sec, sample_rate, channels, origination_date}` |
-| `scan_son_dir(son_dir)` | récursif → liste `[{id, filename, path, tc_in_sec, duration_sec, origination_date, ...}]` |
+| `_read_bwf_bext_direct(file_path)` | parse RIFF/WAVE en Python, lit `fmt` + `bext` (TimeReference + OriginationDate) + `iXML` (noms de piste) + `data` |
+| `_parse_ixml_tracks(data)` | parse `TRACK_LIST` du chunk `iXML` → liste de noms de piste indexée sur l'ordre réel des canaux, ou `None` |
+| `_read_bwf_tc_ffprobe(file_path)` | fallback via ffprobe (W64, formats exotiques) — pas de lecture iXML sur ce chemin |
+| `read_bwf_tc(file_path)` | dispatcher → dict `{tc_in_sec, duration_sec, sample_rate, channels, origination_date, track_names}` |
+| `scan_son_dir(son_dir)` | récursif → liste `[{id, filename, path, tc_in_sec, duration_sec, origination_date, track_names, ...}]` |
 | `_clip_origination_date(clip)` | extrait `YYYY-MM-DD` depuis `creation_date` ou regex sur `id`/`path` |
 | `_bwf_origination_date(af)` | normalise depuis `audio_clips`, fallback lecture à la volée |
 | `_bwf_candidates_for_clips(...)` | retourne BWF qui CONTIENNENT strictement les clips (grace ±2s) ET match la date, triés par compacité — utilisé seulement par `/group_bwf` pour le playback |
@@ -781,7 +818,8 @@ Plus de cache fingerprint, plus de seuils audio xcorr/GCC.
 | POST | `/api/project/<pid>/multicam/reject` | supprime un groupe (proposal ou validé) |
 | POST | `/api/project/<pid>/multicam/nudge` | sauvegarde nouveaux `offsets` du groupe |
 | GET | `/api/project/<pid>/bwf_audio/<ac_id>` | streame le BWF (Range support, MIME audio/wav) |
-| GET | `/api/project/<pid>/multicam/group_bwf?group_id=...` | renvoie le 1er BWF candidat qui couvre le groupe (basé sur `_clip_tc_seconds` = LTC prioritaire) |
+| GET | `/api/project/<pid>/clip_bwf/<clip_id>` | BWF de référence pour UN clip (lecteur principal) → `{stream_url, filename, tc_in_sec, bwf_offset_sec, bwf_id, channels, track_names}` |
+| GET | `/api/project/<pid>/multicam/group_bwf?group_id=...` | renvoie le 1er BWF candidat qui couvre le groupe (basé sur `_clip_tc_seconds` = LTC prioritaire) → mêmes champs + `earliest_id` |
 | **POST** | **`/api/project/<pid>/decode_ltc/start`** | body `{force: bool}`. Lance le décodage LTC pour tous les clips du projet |
 | **GET** | **`/api/project/<pid>/decode_ltc/status`** | polling : `{status, done, total, current, n_with_ltc, n_without_ltc, elapsed}` |
 | **GET** | **`/api/project/<pid>/decode_ltc/summary`** | `{total, decoded, with_ltc, without_ltc, pending}` pour le label UI |
@@ -872,6 +910,25 @@ Détection FS5 = `clip.ltc_tc_in_sec != null` (proxy de "ce clip a un LTC, donc 
 
 `openMcViewer()` met `mainPlayer.pause()` au début pour ne pas garder le son du clip principal qui continue en parallèle.
 
+### Mixeur multipiste du son ingé (août 2026)
+
+Un BWF multipistes (boom + HF1 + HF2 + ambiance...) était sommé vers stéréo à **gain fixe 1/3 par piste** sans distinction. Remplacé par un mixeur : un `GainNode` indépendant par piste (mute/solo/fader 0–150%), avec les vrais noms de piste lus dans le chunk **iXML** du BWF quand l'enregistreur les écrit (Sound Devices, Zoom...).
+
+**Serveur (`derush_server.py`)** :
+- `_parse_ixml_tracks(data)` : parse `TRACK_LIST/TRACK` du chunk `iXML` (même pattern `ET.fromstring` que `parse_sony_xml`) → liste de noms indexée 0-based sur `INTERLEAVE_INDEX` (1-based dans le XML), ou `None`.
+- `_read_bwf_bext_direct` : lit aussi le chunk `iXML` pendant son parcours RIFF existant. La sortie anticipée de la boucle est assouplie (`channels <= 2 or ixml_tracks is not None`) pour ne pas rater un iXML placé après `data` chez certains enregistreurs — coût quasi nul, le code ne fait que `seek` sur les gros chunks.
+- `scan_son_dir` propage `track_names` dans chaque `audio_clips[]` — **nécessite un re-scan du dossier Son** sur un projet déjà scanné pour peupler ce champ.
+- `GET /api/project/<pid>/clip_bwf/<clip_id>` et `GET /api/project/<pid>/multicam/group_bwf` renvoient en plus `bwf_id`, `channels`, `track_names`.
+
+**Client (`js/bwf-mixer.js`, nouveau module)** :
+- `_bwfBuildMixerGraph(audio, ctx, bwfId, channels, trackNames)` : `MediaElementSource → ChannelSplitter(8) → 1 GainNode par piste → ChannelMerger(2) → destination` (remplace l'ancien `_routeBwfMultiChannel` à gain fixe, supprimé). Stocke l'état sur `audio._bwfMixer`.
+- `_bwfTeardownMixerGraph(audio)` : disconnect (remplace `_unrouteBwf`, supprimé).
+- `_bwfMixerApplyGains(audio)` : relit gain/mute/solo persistés et les applique aux `GainNode`. Solo actif sur ≥1 piste → toutes les autres passent à 0 (solos cumulables).
+- Persistance **localStorage par projet** (pas serveur — réglage personnel, même logique que `_lutAssign`) : `localStorage['derush_bwf_mixer_' + pid] = {<bwfId>: {gains:[...], mutes:[...], solos:[...]}}`. Clé = **id du fichier BWF** (pas du clip vidéo) : le mix reste valable sur tous les plans/groupes couverts par ce même son ingé. Gain par défaut `1/3` = comportement d'avant ce module, rien ne change tant qu'aucun fader n'est touché.
+- `openBwfMixerPanel(anchorBtn)` / `closeBwfMixerPanel()` / `toggleBwfMixerPanel(e)` / `renderBwfMixerPanel()` / `_bwfMixerReset()` : panneau flottant unique `#bwfMixerPanel` (`position:fixed`, positionné dynamiquement via `getBoundingClientRect()` du bouton déclencheur — nécessaire car les deux boutons (`#bwfMixerBtn` en `.player-controls`, `#mcBwfMixerBtn` dans la toolbar `#mcViewerOverlay`) vivent dans deux zones DOM différentes, contrairement au panneau LUT qui reste toujours dans `#videoWrapper`). `z-index:500`, au-dessus de `#mcViewerOverlay` (300).
+
+**Fix bundlé** : `openMcViewer()` créait `window._mcAudioCtx` **uniquement** via `_mcAttachAudio()` sur un angle FS5 (LTC) — un groupe multicam 100% FX6 n'avait donc jamais eu de routing multipiste correct pour le BWF (fallback downmix navigateur, 2 premières pistes seulement). Le contexte est désormais créé/pinné à la demande dans `openMcViewer()` si absent, avant d'appeler `_bwfBuildMixerGraph`.
+
 ## Optimisations performance (17-18 mai 2026)
 
 Le user a constaté des lags, plantages, "écran noir vidéo figée" après 6-7 ouvertures du viewer multicam ou hover rapide sur GoPro. Multiples coupables identifiés et corrigés :
@@ -939,6 +996,8 @@ derush_tool/
 
 **Le serveur Python a un flag `--no-browser`** (ajouté dans `__main__`) pour ne pas ouvrir Firefox quand lancé par Electron.
 
+**Menu clic droit / correction orthographique (v0.3.50)** : Electron n'affiche **aucun** menu contextuel par défaut (même pas Couper/Copier/Coller) — contrairement à un vrai navigateur qui gère ça nativement. `mainWindow.webContents.on('context-menu', (event, params) => …)` dans `electron/main.js` reconstruit le menu à la main : suggestions d'orthographe depuis `params.dictionarySuggestions` (clic → `webContents.replaceMisspelling(suggestion)`) quand `params.misspelledWord` est renseigné, entrée "Ajouter au dictionnaire" (`session.addWordToSpellCheckerDictionary`), puis Couper/Copier/Coller/Tout sélectionner si `params.isEditable`. Dictionnaire forcé en français via `session.setSpellCheckerLanguages(['fr'])` (Chromium ne le déduit pas toujours fiablement de la locale OS). Le soulignement rouge lui-même est natif Chromium (spellcheck des champs texte), aucune configuration requise côté `derush_app.html`.
+
 **Limitations Electron à connaître** :
 - Binaire ~280 MB (vs 150 MB actuel)
 - RAM baseline ~300-400 MB
@@ -984,6 +1043,8 @@ derush_tool/
 23. **Un champ de saisie qui porte du texte non validé doit être vidé au changement de contexte** (ex. `#tagInput` au changement de clip) — sinon il "colle" visuellement au nouvel élément sans jamais avoir été sauvegardé (v0.3.34).
 24. **Mesurer avant de deviner sur un bug de géométrie/CSS** (`getBoundingClientRect`, `scrollHeight`) plutôt que de retoucher le CSS à l'aveugle — un mécanisme de scroll qui semble cassé peut fonctionner parfaitement, le vrai problème étant un contenu non borné ailleurs qui pousse l'élément visé hors de portée (v0.3.45). Voir aussi la mémoire persistante `measure-before-guessing-layout`.
 25. **Face à un bug signalé qui contredit une lecture de code qui semble correcte, reproduire en conditions réelles (serveur + navigateur réel) plutôt que de continuer à relire le code** — sert aussi bien à confirmer un vrai bug qu'à disculper du code correct (v0.3.42, harnais réutilisable documenté dans `HISTORY.md`).
+26. **`detect_letterbox` (cropdetect) peut halluciner une bande sur un seul côté** (vignettage/occlusion réel confondu avec une bande à retirer) — le cadre "cinéma" se cale alors sur un rectangle amputé d'un coin et paraît décalé dans la visionneuse sur ce clip précis, jamais sur ses voisins. Diagnostic : comparer les insets de `letterbox_cache.json` entre le clip cassé et un clip sain — une vraie bande est toujours symétrique (`top≈bottom` ou `left≈right`) ; un inset sur un seul côté est le signal du faux positif (v0.3.49, cas DRIFT_MAI0192).
+27. **Un nouvel appel à une fonction déjà utilisée ailleurs doit être ajouté À TOUS les points d'appel équivalents, pas juste au premier qui vient à l'esprit** : `_scrollActiveClipIntoView()` avait été câblée sur les handlers de filtre (v0.3.52) mais oubliée sur le seul autre endroit qui sélectionne un clip sans clic utilisateur direct — la restauration du dernier clip au lancement (`enterWorkspace`). Résultat : le clip actif était bien sélectionné/lu, mais invisible tout en haut d'une sidebar retombée à `scrollTop:0`, exactement le même symptôme que le bug déjà corrigé pour les filtres (v0.3.53).
 
 ## Historique détaillé
 

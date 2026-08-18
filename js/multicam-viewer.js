@@ -57,9 +57,16 @@ function openMcViewer() {
         if (!d.ok || !d.stream_url || !_mcView) return;
         const audio = new Audio(d.stream_url);
         audio.preload = 'auto';
-        // Route multi-channel via le ctx du multicam viewer (créé dans _mcAttachAudio)
-        const ctx = window._mcAudioCtx;
-        if (ctx) _routeBwfMultiChannel(audio, ctx);
+        // Route multi-channel via le ctx du multicam viewer (js/bwf-mixer.js — gain
+        // par piste). Contrairement à avant, le ctx est créé ici s'il n'existe pas
+        // déjà : _mcAttachAudio ne le crée QUE pour les angles FS5 (LTC) — un groupe
+        // 100% FX6 n'aurait donc jamais eu de routing multipiste correct pour le BWF.
+        let ctx = window._mcAudioCtx;
+        if (!ctx) {
+            ctx = window._mcAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (typeof _pinStereoDestination === 'function') _pinStereoDestination(ctx);
+        }
+        if (typeof _bwfBuildMixerGraph === 'function') _bwfBuildMixerGraph(audio, ctx, d.bwf_id, d.channels, d.track_names);
         _mcView.bwfAudio = audio;
         _mcView.bwfOffset = d.bwf_offset_sec || 0;
         _mcView.bwfFilename = d.filename;
@@ -73,6 +80,8 @@ function openMcViewer() {
             btn.classList.remove('bwf-off');
             btn.classList.add('bwf-on');  // démarre ON puisque bwfEnabled=true par défaut
         }
+        const mixBtn = document.getElementById('mcBwfMixerBtn');
+        if (mixBtn) mixBtn.style.display = (d.channels && d.channels > 1) ? '' : 'none';
         try { audio.currentTime = Math.max(0, _mcView.bwfOffset + _mcCurrentGroupTime()); } catch(e) {}
         if (_mcView.playing) audio.play().catch(() => {});
     }).catch(() => {});
@@ -614,7 +623,7 @@ function closeMcViewer() {
     });
 
     if (v.bwfAudio) {
-        _unrouteBwf(v.bwfAudio);
+        if (typeof _bwfTeardownMixerGraph === 'function') _bwfTeardownMixerGraph(v.bwfAudio);
         try {
             v.bwfAudio.pause();
             v.bwfAudio.removeAttribute('src');
@@ -622,6 +631,9 @@ function closeMcViewer() {
         } catch(e) {}
         v.bwfAudio = null;
     }
+    if (typeof closeBwfMixerPanel === 'function') closeBwfMixerPanel();
+    const mixBtn = document.getElementById('mcBwfMixerBtn');
+    if (mixBtn) mixBtn.style.display = 'none';
 
     // Close the AudioContext so all dangling nodes are freed. A fresh ctx is
     // recreated on next openMcViewer.

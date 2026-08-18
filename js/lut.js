@@ -3,55 +3,158 @@
 // via gl.LINEAR sur la TEXTURE_3D. Sur Electron/Chromium ANGLE est fiable, donc
 // pas de problème de drivers Windows (commentaire historique caduc).
 //
-// Module externalisé. Dépend des globals `clips`, `activeClip` (définis dans le
-// script inline principal — chargés AVANT ce fichier).
-let _lut = null;                     // {size, data: Float32Array(size³*3)}
-let _lutEnabled = false;             // master toggle
+// Module externalisé. Dépend des globals `clips`, `activeClip`, `currentProjectId`
+// (définis dans le script inline principal — chargés AVANT ce fichier).
+//
+// ─── Modèle d'assignation (v0.3.5x) ──────────────────────────────────────────
+// Chaque LUT chargée (.cube) est mémorisée dans une bibliothèque nommée par fichier
+// (`_lutLibrary` en mémoire, contenu brut persisté dans IndexedDB pour survivre à un
+// reload/relance — les .cube peuvent peser plusieurs Mo, hors budget raisonnable de
+// localStorage). L'ASSIGNATION (quelle LUT + quels réglages pour quel plan) est un
+// objet séparé et léger, `_lutAssign`, persisté dans localStorage par projet :
+//   { cameras: { [camera]: {lutName, settings} },   // défaut hérité par tous les plans de cette caméra
+//     clips:   { [clipId]:  {lutName, settings} } }  // override explicite propre à CE plan, prioritaire
+// Résolution pour un plan (`_lutResolveFor`) : override clip explicite > défaut caméra > rien.
+// Toucher un réglage (slider) sur un plan qui n'a encore qu'un défaut caméra "fork" un
+// override clip (copie des réglages courants) SANS toucher au défaut caméra ni aux
+// autres plans de cette caméra — c'est ce qui garantit que les réglages restent propres
+// à chaque plan. Appliquer une LUT "à des caméras" n'écrit JAMAIS dans `clips` : un plan
+// qui a déjà son propre override explicite n'est donc jamais écrasé par une application
+// en masse malencontreuse (la modale de scope affiche d'ailleurs le nombre de plans
+// "protégés" par caméra pour prévenir l'erreur avant qu'elle n'arrive).
+let _lutEnabled = false;             // master toggle preview (session, pas persisté)
 let _lutRaf = null;
 let _lutGL = null;                   // {gl, prog, vao, videoTex, lutTex, u_*}
-let _lutScope = null;                // {mode:'cameras'|'clip', cameras:[], clip_id:''}
-let _lutPendingFile = null;          // nom du fichier en attente de scope
-let _lutSettings = {intensity: 1.0, exposure: 0.0, saturation: 1.0};
+let _lut = null;                     // LUT actuellement uploadée en texture GL {size, data}
+let _lutCurrentLutName = null;       // nom de la LUT actuellement uploadée (évite re-upload)
+let _lutLibrary = {};                // lutName -> {size, data: Float32Array} (cache mémoire, session)
+let _lutAssign = {cameras: {}, clips: {}};  // assignations persistées (voir doc ci-dessus)
+let _lutPendingFile = null;          // {name, lutName} en attente de confirmation de scope
+let _lutRefreshToken = 0;            // anti race-condition (clip switch pendant un await IndexedDB)
+let _lutSettings = {intensity: 1.0, exposure: 0.0, saturation: 1.0, contrast: 0.0, temperature: 0.0, tint: 0.0};
 
-// Restaure le scope + settings depuis localStorage au démarrage
-try {
-    const saved = localStorage.getItem('derush_lut_scope');
-    if (saved) _lutScope = JSON.parse(saved);
-    const savedSet = localStorage.getItem('derush_lut_settings');
-    if (savedSet) _lutSettings = {..._lutSettings, ...JSON.parse(savedSet)};
-} catch(e) {}
+const _LUT_NEUTRAL_SETTINGS = {intensity: 1.0, exposure: 0.0, saturation: 1.0, contrast: 0.0, temperature: 0.0, tint: 0.0};
 
-function _lutSettingsSave() {
-    try { localStorage.setItem('derush_lut_settings', JSON.stringify(_lutSettings)); } catch(e) {}
+// ─── IndexedDB : contenu brut des .cube (peut peser plusieurs Mo, hors budget localStorage) ──
+function _lutDbOpen() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open('derush_luts', 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', {keyPath: 'key'});
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
 }
+async function _lutDbPut(pid, lutName, text) {
+    try {
+        const db = await _lutDbOpen();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction('files', 'readwrite');
+            tx.objectStore('files').put({key: `${pid}::${lutName}`, pid, lutName, text});
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch(e) { console.error('LUT: écriture IndexedDB échouée', e); }
+}
+async function _lutDbGet(pid, lutName) {
+    try {
+        const db = await _lutDbOpen();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction('files', 'readonly');
+            const req = tx.objectStore('files').get(`${pid}::${lutName}`);
+            req.onsuccess = () => resolve(req.result ? req.result.text : null);
+            req.onerror = () => reject(req.error);
+        });
+    } catch(e) { console.error('LUT: lecture IndexedDB échouée', e); return null; }
+}
+
+// ─── Assignations (localStorage, par projet) ─────────────────────────────────
+function _lutLoadAssign(pid) {
+    _lutAssign = {cameras: {}, clips: {}};
+    try {
+        const saved = localStorage.getItem('derush_lut_assign_' + pid);
+        if (saved) _lutAssign = Object.assign({cameras: {}, clips: {}}, JSON.parse(saved));
+    } catch(e) {}
+}
+function _lutPersistAssign() {
+    if (!currentProjectId) return;
+    try { localStorage.setItem('derush_lut_assign_' + currentProjectId, JSON.stringify(_lutAssign)); } catch(e) {}
+}
+
+// ─── Résolution : quelle LUT + réglages s'appliquent à ce plan ? ────────────
+function _lutResolveFor(clip) {
+    if (!clip) return null;
+    const clipEntry = _lutAssign.clips[clip.id];
+    if (clipEntry && clipEntry.lutName) return {lutName: clipEntry.lutName, settings: clipEntry.settings, scope: 'clip'};
+    const camEntry = _lutAssign.cameras[clip.camera || ''];
+    if (camEntry && camEntry.lutName) return {lutName: camEntry.lutName, settings: camEntry.settings, scope: 'camera'};
+    return null;
+}
+
+// Fork paresseux : garantit un override clip éditable (créé depuis le défaut caméra
+// courant si besoin), sans jamais muter l'objet de réglages partagé par la caméra.
+function _lutEnsureEditableEntry() {
+    if (!activeClip) return null;
+    let entry = _lutAssign.clips[activeClip.id];
+    if (entry && entry.lutName) return entry;
+    const resolved = _lutResolveFor(activeClip);
+    if (!resolved) return null;
+    entry = {lutName: resolved.lutName, settings: {...resolved.settings}};
+    _lutAssign.clips[activeClip.id] = entry;
+    return entry;
+}
+
+function _lutSettingsSave() { /* conservé pour compat : les réglages sont maintenant persistés via _lutPersistAssign() */ }
 
 function _lutSettingsUpdateUI() {
     const i = document.getElementById('lutIntensity'),
           e = document.getElementById('lutExposure'),
-          s = document.getElementById('lutSaturation');
+          s = document.getElementById('lutSaturation'),
+          c = document.getElementById('lutContrast'),
+          t = document.getElementById('lutTemperature'),
+          n = document.getElementById('lutTint');
     if (i) i.value = _lutSettings.intensity;
     if (e) e.value = _lutSettings.exposure;
     if (s) s.value = _lutSettings.saturation;
+    if (c) c.value = _lutSettings.contrast;
+    if (t) t.value = _lutSettings.temperature;
+    if (n) n.value = _lutSettings.tint;
     const iv = document.getElementById('lutIntensityVal'),
           ev = document.getElementById('lutExposureVal'),
-          sv = document.getElementById('lutSaturationVal');
+          sv = document.getElementById('lutSaturationVal'),
+          cv = document.getElementById('lutContrastVal'),
+          tv = document.getElementById('lutTemperatureVal'),
+          nv = document.getElementById('lutTintVal');
     if (iv) iv.textContent = Math.round(_lutSettings.intensity * 100) + '%';
     if (ev) ev.textContent = (_lutSettings.exposure >= 0 ? '+' : '') + _lutSettings.exposure.toFixed(2) + ' EV';
     if (sv) sv.textContent = Math.round(_lutSettings.saturation * 100) + '%';
+    if (cv) cv.textContent = (_lutSettings.contrast >= 0 ? '+' : '') + Math.round(_lutSettings.contrast * 100) + '%';
+    if (tv) tv.textContent = (_lutSettings.temperature >= 0 ? '+' : '') + Math.round(_lutSettings.temperature * 100);
+    if (nv) nv.textContent = (_lutSettings.tint >= 0 ? '+' : '') + Math.round(_lutSettings.tint * 100);
 }
 
 function setLutSetting(key, value) {
-    _lutSettings[key] = parseFloat(value);
+    const entry = _lutEnsureEditableEntry();
+    if (!entry) return;
+    entry.settings[key] = parseFloat(value);
+    _lutSettings = entry.settings;
     _lutSettingsUpdateUI();
     _lutApplySettings();
-    _lutSettingsSave();
+    _lutPersistAssign();
+    _lutUpdateScopeInfo({lutName: entry.lutName, scope: 'clip'});
 }
 
 function resetLutSettings() {
-    _lutSettings = {intensity: 1.0, exposure: 0.0, saturation: 1.0};
+    const entry = _lutEnsureEditableEntry();
+    if (!entry) return;
+    entry.settings = {..._LUT_NEUTRAL_SETTINGS};
+    _lutSettings = entry.settings;
     _lutSettingsUpdateUI();
     _lutApplySettings();
-    _lutSettingsSave();
+    _lutPersistAssign();
+    _lutUpdateScopeInfo({lutName: entry.lutName, scope: 'clip'});
 }
 
 function toggleLutSettingsPanel() {
@@ -59,13 +162,6 @@ function toggleLutSettingsPanel() {
     const isOpen = p.style.display === 'block';
     p.style.display = isOpen ? 'none' : 'block';
     if (!isOpen) _lutSettingsUpdateUI();
-}
-
-function _lutClipMatchesScope(clip) {
-    if (!clip || !_lutScope) return false;
-    if (_lutScope.mode === 'clip')    return clip.id === _lutScope.clip_id;
-    if (_lutScope.mode === 'cameras') return (_lutScope.cameras || []).includes(clip.camera || '');
-    return false;
 }
 
 function _parseCube(text) {
@@ -101,6 +197,9 @@ uniform float u_lutSize;
 uniform float u_intensity;   // 0..1 mix entre source post-exposition et LUT
 uniform float u_exposure;    // -2..+2 EV (1 EV = ×2)
 uniform float u_saturation;  // 0..2 (1 = neutre)
+uniform float u_contrast;    // -1..1, 0 = neutre, pivot sur le gris moyen (0.5)
+uniform float u_temperature; // -1..1, négatif = froid (bleu), positif = chaud (orange)
+uniform float u_tint;        // -1..1, négatif = vert, positif = magenta
 uniform float u_time;        // varie par frame → dither animé (casse les patterns statiques)
 in vec2 v_uv;
 out vec4 outColor;
@@ -116,6 +215,12 @@ void main() {
     vec3 src = texture(u_video, v_uv).rgb;
     // 1. Exposition : multiplie par 2^EV (chaque stop double la lumière)
     src = src * pow(2.0, u_exposure);
+    // 1b. Balance des couleurs (avant la LUT, comme une correction primaire) :
+    // température = gain différentiel R/B (chaud = plus de rouge, moins de bleu),
+    // teinte = gain sur G (positif = magenta = moins de vert, négatif = plus vert).
+    src.r *= (1.0 + u_temperature * 0.3);
+    src.b *= (1.0 - u_temperature * 0.3);
+    src.g *= (1.0 - u_tint * 0.3);
     // 2. LUT lookup avec coordonnées centrées dans les voxels (évite biais 1/2 voxel)
     float s = u_lutSize;
     vec3 lutSrc = clamp(src, 0.0, 1.0);
@@ -123,10 +228,12 @@ void main() {
     vec3 lutted = texture(u_lut, uvw).rgb;
     // 3. Intensité : mix entre src post-expo et LUT (0% = pas de LUT, 100% = LUT pleine)
     vec3 color = mix(src, lutted, u_intensity);
-    // 4. Saturation : interpole vers le gris luma (Rec.709 coeffs)
+    // 4. Contraste : pivot sur le gris moyen (0.5), pente 1+u_contrast
+    color = (color - 0.5) * (1.0 + u_contrast) + 0.5;
+    // 5. Saturation : interpole vers le gris luma (Rec.709 coeffs)
     float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
     color = mix(vec3(luma), color, u_saturation);
-    // 5. Dithering anti-banding : noise sub-pixel ±0.5/255 décorrélé par canal.
+    // 6. Dithering anti-banding : noise sub-pixel ±0.5/255 décorrélé par canal.
     // Le bruit varie chaque frame (u_time) → "film grain" doux, casse les bandes
     // visibles dans les ciels/dégradés sans perception consciente.
     vec2 fc = gl_FragCoord.xy;
@@ -197,6 +304,9 @@ void main() {
     const u_intensity = gl.getUniformLocation(prog, 'u_intensity');
     const u_exposure = gl.getUniformLocation(prog, 'u_exposure');
     const u_saturation = gl.getUniformLocation(prog, 'u_saturation');
+    const u_contrast = gl.getUniformLocation(prog, 'u_contrast');
+    const u_temperature = gl.getUniformLocation(prog, 'u_temperature');
+    const u_tint = gl.getUniformLocation(prog, 'u_tint');
     const u_time = gl.getUniformLocation(prog, 'u_time');
     gl.uniform1i(u_video, 0);
     gl.uniform1i(u_lut, 1);
@@ -204,18 +314,24 @@ void main() {
     gl.uniform1f(u_intensity, 1.0);
     gl.uniform1f(u_exposure, 0.0);
     gl.uniform1f(u_saturation, 1.0);
+    gl.uniform1f(u_contrast, 0.0);
+    gl.uniform1f(u_temperature, 0.0);
+    gl.uniform1f(u_tint, 0.0);
     gl.uniform1f(u_time, 0.0);
 
-    return {gl, prog, vao, videoTex, lutTex, u_lutSize, u_intensity, u_exposure, u_saturation, u_time, lutUploaded: false};
+    return {gl, prog, vao, videoTex, lutTex, u_lutSize, u_intensity, u_exposure, u_saturation, u_contrast, u_temperature, u_tint, u_time, lutUploaded: false};
 }
 
 function _lutApplySettings() {
     if (!_lutGL || !_lutSettings) return;
-    const {gl, u_intensity, u_exposure, u_saturation} = _lutGL;
+    const {gl, u_intensity, u_exposure, u_saturation, u_contrast, u_temperature, u_tint} = _lutGL;
     gl.useProgram(_lutGL.prog);
     gl.uniform1f(u_intensity, _lutSettings.intensity);
     gl.uniform1f(u_exposure, _lutSettings.exposure);
     gl.uniform1f(u_saturation, _lutSettings.saturation);
+    gl.uniform1f(u_contrast, _lutSettings.contrast);
+    gl.uniform1f(u_temperature, _lutSettings.temperature);
+    gl.uniform1f(u_tint, _lutSettings.tint);
 }
 
 function _lutUploadLUT() {
@@ -257,15 +373,30 @@ function _renderLUT() {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
+// Charge (parse) une LUT nommée si besoin — depuis le cache mémoire de la session,
+// sinon depuis IndexedDB (persistance cross-reload). Retourne null si introuvable.
+async function _lutEnsureLoaded(lutName) {
+    if (_lutLibrary[lutName]) return _lutLibrary[lutName];
+    if (!currentProjectId) return null;
+    const text = await _lutDbGet(currentProjectId, lutName);
+    if (!text) return null;
+    const parsed = _parseCube(text);
+    _lutLibrary[lutName] = parsed;
+    return parsed;
+}
+
 function onLUTFileSelected(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-        _lut = _parseCube(ev.target.result);
+        const text = ev.target.result;
+        const parsed = _parseCube(text);
         if (!_lutGL) _lutGL = _lutInitGL(document.getElementById('lutCanvas'));
         if (!_lutGL) { alert("WebGL2 non disponible — le rendu LUT a besoin de WebGL2."); return; }
-        _lutUploadLUT();
-        _lutPendingFile = file.name;
+        const lutName = file.name;
+        _lutLibrary[lutName] = parsed;
+        if (currentProjectId) _lutDbPut(currentProjectId, lutName, text);  // fire-and-forget
+        _lutPendingFile = {name: file.name, lutName};
         _openLutScopeModal();
     };
     reader.readAsText(file);
@@ -273,25 +404,34 @@ function onLUTFileSelected(e) {
 }
 
 function _openLutScopeModal() {
-    // Liste les caméras uniques du projet (alpha-trié)
+    // Liste les caméras uniques du projet (alpha-trié), avec indication de ce qui est
+    // déjà assigné (LUT courante + nombre de plans "protégés" par un override propre)
+    // pour prévenir une application en masse malencontreuse.
     const cams = Array.from(new Set(clips.map(c => c.camera || '').filter(Boolean))).sort();
     const wrap = document.getElementById('lutScopeCameras');
     wrap.innerHTML = cams.map(cam => {
-        const preChecked = (_lutScope && _lutScope.mode === 'cameras' && (_lutScope.cameras||[]).includes(cam))
-            || (cam.toUpperCase().includes('FS5'));  // pré-coche FS5 par défaut (log → besoin LUT)
+        const preChecked = cam.toUpperCase().includes('FS5');  // pré-coche FS5 par défaut (log → besoin LUT)
+        const current = _lutAssign.cameras[cam];
+        const protectedCount = clips.filter(c => (c.camera||'') === cam
+            && _lutAssign.clips[c.id] && _lutAssign.clips[c.id].lutName).length;
+        let info = '';
+        if (current) info += ` <span style="color:var(--dim);">— actuellement ${current.lutName}</span>`;
+        if (protectedCount > 0) info += ` <span style="color:#f59e0b;">🔒 ${protectedCount} plan(s) propre(s), non affecté(s)</span>`;
         return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" class="lutScopeCam" value="${cam}" ${preChecked ? 'checked' : ''} style="width:auto;margin:0;">
-            <span>📷 ${cam}</span>
+            <span>📷 ${cam}${info}</span>
         </label>`;
     }).join('') || '<span style="color:var(--dim);font-size:0.85em;">Aucune caméra détectée dans ce projet.</span>';
 
-    document.getElementById('lutScopeFile').textContent = _lutPendingFile || '';
-    // Sélectionne le bon radio selon scope persisté
-    if (_lutScope && _lutScope.mode === 'clip') {
-        document.getElementById('lutScopeRadioClip').checked = true;
-    } else {
-        document.getElementById('lutScopeRadioCameras').checked = true;
+    document.getElementById('lutScopeFile').textContent = _lutPendingFile ? _lutPendingFile.name : '';
+    const clipWarn = document.getElementById('lutScopeClipWarn');
+    if (clipWarn) {
+        const existing = activeClip && _lutAssign.clips[activeClip.id];
+        clipWarn.textContent = existing && existing.lutName
+            ? `⚠️ Ce plan a déjà sa propre LUT (${existing.lutName}) — sera remplacée.`
+            : '';
     }
+    document.getElementById('lutScopeRadioCameras').checked = true;
     document.getElementById('lutScopeModal').style.display = 'flex';
 }
 
@@ -301,53 +441,115 @@ function closeLutScopeModal() {
 
 function confirmLutScope() {
     const mode = document.querySelector('input[name="lutScopeMode"]:checked').value;
+    const lutName = _lutPendingFile.lutName;
     if (mode === 'cameras') {
         const cams = Array.from(document.querySelectorAll('.lutScopeCam:checked')).map(cb => cb.value);
         if (!cams.length) { alert('Sélectionne au moins une caméra (ou choisis "Ce rush uniquement").'); return; }
-        _lutScope = {mode: 'cameras', cameras: cams};
+        // N'écrit QUE le défaut caméra — ne touche jamais _lutAssign.clips, donc les
+        // plans qui ont déjà leur propre override gardent leur LUT/réglages intacts.
+        cams.forEach(cam => { _lutAssign.cameras[cam] = {lutName, settings: {..._LUT_NEUTRAL_SETTINGS}}; });
     } else {
         if (!activeClip) { alert('Aucun rush sélectionné.'); return; }
-        _lutScope = {mode: 'clip', clip_id: activeClip.id};
+        _lutAssign.clips[activeClip.id] = {lutName, settings: {..._LUT_NEUTRAL_SETTINGS}};
     }
-    try { localStorage.setItem('derush_lut_scope', JSON.stringify(_lutScope)); } catch(e) {}
+    _lutPersistAssign();
     closeLutScopeModal();
-    document.getElementById('lutBtn').style.display = '';
-    enableLUT(true);
+    _lutEnabled = true;
+    _lutRefreshForActiveClip();
 }
 
 function toggleLUT() {
-    // Si pas de scope ou pas de match → ne rien faire (visuel "not-applicable" déjà clair)
-    enableLUT(!_lutEnabled);
+    _lutEnabled = !_lutEnabled;
+    _lutRefreshForActiveClip();
 }
 
-function _updateLutBtnVisual() {
+function _lutUpdateBtnVisual(resolved) {
     const btn = document.getElementById('lutBtn');
     if (!btn) return;
-    btn.classList.remove('lut-on', 'lut-off', 'lut-not-applicable');
-    if (!_lut) { btn.style.display = 'none'; return; }
-    const matches = _lutClipMatchesScope(activeClip);
-    if (!_lutEnabled) btn.classList.add('lut-off');
-    else if (!matches) btn.classList.add('lut-not-applicable');
-    else btn.classList.add('lut-on');
+    btn.classList.remove('lut-on', 'lut-off');
+    if (!resolved) { btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    btn.classList.add(_lutEnabled ? 'lut-on' : 'lut-off');
 }
 
-function enableLUT(on) {
-    _lutEnabled = on;
+function _lutUpdateScopeInfo(resolved) {
+    const wrap = document.getElementById('lutRemoveWrap');
+    const info = document.getElementById('lutScopeInfo');
+    const btn = document.getElementById('lutRemoveBtn');
+    if (!wrap || !info || !btn) return;
+    if (!resolved) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    if (resolved.scope === 'clip') {
+        info.textContent = `🔒 LUT propre à ce plan (${resolved.lutName})`;
+        btn.style.display = '';
+    } else {
+        info.textContent = `📷 LUT héritée de la caméra (${resolved.lutName})`;
+        btn.style.display = 'none';
+    }
+}
+
+// "Annule" une LUT propre à ce plan (créée via "Ce rush uniquement" ou forkée au
+// premier réglage manuel touché) — le plan retombe sur le défaut caméra s'il existe.
+function _lutRemoveForActiveClip() {
+    if (!activeClip || !_lutAssign.clips[activeClip.id]) return;
+    delete _lutAssign.clips[activeClip.id];
+    _lutPersistAssign();
+    _lutRefreshForActiveClip();
+}
+
+// Ré-évalue et applique la LUT du plan actif (changement de clip, toggle master,
+// nouvelle assignation…). Async car le contenu de la LUT peut devoir être relu
+// depuis IndexedDB — protégé par un token contre un changement de clip pendant l'attente.
+async function _lutRefreshForActiveClip() {
+    const token = ++_lutRefreshToken;
+    const clipAtCall = activeClip;
     const c = document.getElementById('lutCanvas');
     const badge = document.getElementById('lutBadge');
-    // Le canvas ne s'affiche QUE si master ON ET clip dans le scope
-    const shouldRender = on && _lut && _lutClipMatchesScope(activeClip);
-    c.style.display = shouldRender ? 'block' : 'none';
+    const panel = document.getElementById('lutSettingsPanel');
+
+    const resolved = _lutResolveFor(clipAtCall);
+    if (!resolved) {
+        if (c) c.style.display = 'none';
+        if (badge) badge.style.display = 'none';
+        if (panel) panel.style.display = 'none';
+        _lutUpdateBtnVisual(null);
+        _lutUpdateScopeInfo(null);
+        if (_lutRaf) { cancelAnimationFrame(_lutRaf); _lutRaf = null; }
+        return;
+    }
+
+    const parsed = await _lutEnsureLoaded(resolved.lutName);
+    if (token !== _lutRefreshToken || activeClip !== clipAtCall) return;  // stale (clip changé entre temps)
+    if (!parsed) {
+        if (c) c.style.display = 'none';
+        if (badge) badge.style.display = 'none';
+        if (panel) panel.style.display = 'none';
+        _lutUpdateBtnVisual(null);
+        _lutUpdateScopeInfo(null);
+        return;
+    }
+
+    if (!_lutGL) _lutGL = _lutInitGL(c);
+    if (!_lutGL) return;
+    if (_lutCurrentLutName !== resolved.lutName) {
+        _lut = parsed;
+        _lutUploadLUT();
+        _lutCurrentLutName = resolved.lutName;
+    }
+    _lutSettings = resolved.settings;
+    _lutApplySettings();
+
+    const shouldRender = _lutEnabled;
+    if (c) c.style.display = shouldRender ? 'block' : 'none';
     if (badge) badge.style.display = shouldRender ? 'block' : 'none';
-    _updateLutBtnVisual();
-    // Panneau réglages : auto-visible quand LUT actif sur ce clip, masqué sinon
-    const p = document.getElementById('lutSettingsPanel');
-    if (p) {
-        p.style.display = shouldRender ? 'block' : 'none';
+    if (panel) {
+        panel.style.display = shouldRender ? 'block' : 'none';
         if (shouldRender) _lutSettingsUpdateUI();
     }
+    _lutUpdateBtnVisual(resolved);
+    _lutUpdateScopeInfo(resolved);
+
     if (shouldRender) {
-        _lutApplySettings();  // re-push uniforms au cas où on a switché clip
         if (_lutRaf) cancelAnimationFrame(_lutRaf);
         _renderLUT();
     } else {
