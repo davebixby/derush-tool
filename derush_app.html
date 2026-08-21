@@ -2541,14 +2541,17 @@ function renderMarkers() {
             pin.dataset.markerId = m.id;
             pin.style.left = (m.time / v.duration * 100) + '%';
             pin.style.color = color;
-            // Stack vertical pour anti-overlap
+            // Stack vertical pour anti-overlap. Les pins sont des enfants de #timelineTrack
+            // (la mini-piste de 4px collée en bas de la barre) : --pin-top est donc relatif
+            // au HAUT DE LA TRACK, pas au haut de la barre de 88px. `gap` = distance entre le
+            // haut de la track et le bas du pin ; un top NÉGATIF pousse le pin au-dessus de la
+            // track (top positif le pousserait sous la track, ~invisible — bug corrigé ici,
+            // v0.3.58, cf. CLAUDE.md « Pièges critiques »).
             const stack = stackByIdx[idx] || 0;
-            const pinTop = 4 + stack * STACK_OFFSET_PX;
-            pin.style.setProperty('--pin-top', pinTop + 'px');
-            // Stem : ligne fine reliant le pin (en haut) à la track (en bas) pour la lisibilité quand le pin est haut
-            const trackTopY = 88 - 14 - 4;  // bar 88 - bottom 14 - track height 4 = 70
-            const stemHeight = Math.max(0, trackTopY - (pinTop + 12));
-            pin.style.setProperty('--pin-stem', stemHeight + 'px');
+            const gap = 4 + stack * STACK_OFFSET_PX;
+            pin.style.setProperty('--pin-top', (-(gap + 12)) + 'px');
+            // Stem : ligne fine reliant le bas du pin (en haut) au haut de la track (en bas)
+            pin.style.setProperty('--pin-stem', gap + 'px');
             const rawLabel = m.desc || label;
             pin.setAttribute('data-label', rawLabel.length > 48 ? rawLabel.slice(0, 45) + '…' : rawLabel);
             pin.addEventListener('mousedown', (e) => {

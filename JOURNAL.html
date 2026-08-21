@@ -292,6 +292,12 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 18 août 2026 (v0.3.57)</div>
   <a href="#tag-autocomplete">Autocomplete des tags à la frappe</a>
+
+  <div class="nav-section">Session 20 août 2026 (v0.3.58)</div>
+  <a href="#marker-stack-below-track">Marqueur presque invisible quand 2 marqueurs sont très proches</a>
+
+  <div class="nav-section">Session 21 août 2026 (v0.3.59)</div>
+  <a href="#mc-viewer-resume-position">Voir le groupe : reprise à la position du lecteur principal</a>
 </nav>
 
 <main>
@@ -3301,10 +3307,40 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-fail"><strong>Retour terrain le jour même</strong> : « je ne vois pas les suggestions proposées ». Le piège anticipé ci-dessus réglait le rognage par <code>.note-area</code>, mais pas un second problème : le champ Tags est la <em>dernière</em> chose du panneau de notes, donc proche du bas de la fenêtre — le menu, toujours ouvert vers le bas, rendait hors de l'écran (au-delà de <code>window.innerHeight</code>), invisible sans scroller la page entière (ce que l'appli ne fait jamais). Fix : <code>renderTagAutocomplete()</code> mesure la hauteur réelle du menu une fois rempli (<code>box.offsetHeight</code>) et bascule son ouverture vers le <strong>haut</strong> du champ dès que la place manque en dessous (et qu'il y en a au-dessus) — un flip dynamique plutôt que de réserver en permanence de la place en bas du panneau, qui aurait rétréci la zone Notes pour tout le monde en continu pour un problème qui ne survient qu'en bas de page.</div>
 </div>
 
+<div class="entry" id="marker-stack-below-track">
+  <div class="entry-header">
+    <span class="entry-date">20 août 2026 · v0.3.58</span>
+    <span class="entry-title">Marqueur presque invisible quand 2 marqueurs sont très proches</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain : « quand deux marqueurs sont très proches sur la timeline, le logiciel en place un au-dessus et un en-dessous, je vois à peine celui en-dessous ». Le mécanisme anti-chevauchement qui empile verticalement les marqueurs proches dans le temps (jusqu'à 3 niveaux) existait déjà et était censé toujours les pousser <em>au-dessus</em> de la piste — mais l'un des deux marqueurs finissait quand même sous la ligne de la timeline, quasi invisible.</p>
+
+  <p>Reproduit hors app avec une page HTML autonome rejouant exactement le CSS et l'algorithme de <code>renderMarkers()</code> (screenshot Playwright) plutôt que de retoucher le CSS à l'aveugle. Cause : les pins sont ajoutés comme enfants de <code>#timelineTrack</code>, la mini-piste de seulement 4px de haut collée tout en bas de la barre de 88px — la variable CSS <code>--pin-top</code> est donc positionnée relativement au <strong>haut de cette mini-piste</strong>, pas au haut de la barre entière comme le supposait le calcul. Un décalage <em>positif</em> (4px, puis 17px, puis 30px selon le niveau d'empilement) poussait donc le 2ᵉ marqueur d'une paire proche <strong>sous</strong> la piste plutôt qu'au-dessus.</p>
+
+  <p>Fix (<code>derush_app.html</code>, dans <code>renderMarkers()</code>) : décalage <code>--pin-top</code> rendu <strong>négatif</strong> (empile réellement vers le haut, au-dessus de la piste), la longueur du fil de rattachement (<code>--pin-stem</code>) recalculée en conséquence. Revérifié avec le même harnais de repro (2 et 3 marqueurs très proches) : tous les niveaux d'empilement restent désormais nettement visibles au-dessus de la timeline.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="mc-viewer-resume-position">
+  <div class="entry-header">
+    <span class="entry-date">21 août 2026 · v0.3.59</span>
+    <span class="entry-title">Voir le groupe : reprise à la position du lecteur principal</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain : ouvrir un clip appartenant à un groupe multicam, avancer dans la lecture, puis cliquer sur <strong>⛶ Voir le groupe</strong> ramenait systématiquement au début du plan au lieu de reprendre là où on était dans la vision du clip seul.</p>
+
+  <p>Cause : <code>openMcViewer()</code> démarre bien la vue groupe sur l'angle du clip actif, mais <code>_buildMcLayout(isInitial)</code> calcule le point de départ à partir de <code>_mcGroupResumeTime[group.id]</code> — la position <em>laissée dans le viewer multicam</em> lors de sa dernière fermeture (fonctionnalité de reprise dédiée, v0.3.12), pas la position courante du lecteur principal. Ces deux positions divergent dès qu'on a rejoué ce groupe une fois puis qu'on continue à naviguer dans les clips seuls entre-temps — exactement le même bug déjà rencontré et corrigé sur le comparateur (<code>openCompare()</code>, v0.3.13, « Bug 1 » dans <code>HISTORY.md</code>) : une valeur de reprise mémorisée qui devient périmée face à la position réelle du contexte qu'on vient de quitter.</p>
+
+  <p>Fix (même remède que pour le comparateur) : à l'ouverture depuis un clip, <code>openMcViewer()</code> écrase désormais explicitement <code>_mcGroupResumeTime[g.id]</code> avec <code>lecteur_principal.currentTime + normOff</code> de l'angle actif, juste avant <code>_buildMcLayout(true)</code>. La logique de <code>_buildMcLayout</code> elle-même n'a pas changé — elle reste valable pour reprendre une navigation <em>interne</em> au viewer (changement de layout grille/primaire), seule la fraîcheur de la valeur au moment de l'ouverture était en cause.</p>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 18 août 2026 (v0.3.57 — Autocomplete des tags à la frappe)
+  Derush Tool · Journal de développement · Dernière mise à jour 21 août 2026 (v0.3.59 — fix reprise position viewer multicam)
 </div>
 
 </main>

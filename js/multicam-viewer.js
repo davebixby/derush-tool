@@ -39,6 +39,16 @@ function openMcViewer() {
     const idx = angles.findIndex(a => a.cid === activeClip.id);
     if (idx > 0) _mcView.primaryIdx = idx;
 
+    // Aligne le point d'entrée du groupe sur la position courante du lecteur
+    // principal (même bug/fix que le comparateur, cf. HISTORY.md Bug 1 v0.3.13) :
+    // sans ça, _mcGroupResumeTime[g.id] peut contenir une valeur périmée d'une
+    // session viewer précédente sur ce groupe et ignorer où on en était dans le
+    // clip seul.
+    const priAngle = _mcView.angles[_mcView.primaryIdx];
+    if (priAngle && mainPlayer) {
+        _mcGroupResumeTime[g.id] = Math.max(0, (mainPlayer.currentTime || 0) + priAngle.normOff);
+    }
+
     _buildMcLayout(true);
     document.getElementById('mcNudgeDisplay').textContent = 'Δ 0.00s';
     document.getElementById('mcNudgeSaveBtn').style.display = 'none';

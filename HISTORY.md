@@ -1114,3 +1114,35 @@ Erreurs console : `GET /api/project/drift_club/bwf_audio/MIROIRT01` (et `MIROIRT
 
 ## Portée non couverte
 Seul `_resolve_audio_clip_path()` (utilisé par `/bwf_audio/<id>` et indirectement par `/clip_bwf/<clip_id>`) a été corrigé. Si d'autres endpoints résolvent un jour des chemins BWF absolus par une autre voie, appliquer le même repli.
+
+# État au 20 août 2026 — v0.3.58 : marqueur presque invisible quand 2 marqueurs sont très proches
+
+## Signalement
+« quand deux marqueurs sont très proches sur la timeline, le logiciel en place un au-dessus et un en-dessous de la timeline. Je vois à peine celui en-dessous. » Le mécanisme anti-chevauchement (empilement vertical sur 3 niveaux, cf. section « Markers : shapes différenciées + stacking vertical » plus haut dans ce fichier) existait déjà et était censé toujours pousser les marqueurs proches **au-dessus** de la piste, jamais en-dessous.
+
+## Reproduction hors app (sans logiciel de test navigateur connecté)
+Pas d'extension Chrome disponible dans cette session pour piloter un vrai navigateur sur l'app. Plutôt que de retoucher le CSS à l'aveugle sur un pur bug de géométrie (cf. mémoire persistante `measure-before-guessing-layout`), reproduction dans une page HTML autonome (`tests/_repro_markers.html`, jetable) qui rejoue **exactement** le bloc CSS (`.timeline-bar`, `.timeline-track`, `.timeline-marker-pin` + `::before` pour le "stem") et l'algorithme JS de `renderMarkers()` (calcul du stack level + `--pin-top`/`--pin-stem`) copiés tels quels depuis `derush_app.html`, avec 3 cas : marqueurs éloignés (pas de stacking), 2 marqueurs à 0.3s d'écart (stack 0/1), 3 marqueurs à 0.2s d'écart (stack 0/1/2). Capture via un script Playwright `page.screenshot()` (le module `@playwright/test` déjà installé dans `tests/node_modules` pour les tests E2E, lancé directement en `node` hors du runner de test).
+
+## Cause : mauvais référentiel pour `--pin-top`
+Les pins sont ajoutés comme enfants de `#timelineTrack` (`track.appendChild(pin)`), qui est `.timeline-track` : une mini-piste de seulement **4px de haut**, positionnée `bottom:14px` à l'intérieur de la barre de 88px (`.timeline-bar`). `position:absolute` sur le pin le place donc relativement au **haut de cette mini-piste** (proche du bas de la barre), pas au haut de la barre entière. Le calcul original (`pinTop = 4 + stack*13`, valeurs positives 4/17/30px) avait été écrit en supposant implicitement l'inverse — un commentaire de code calculait même une `trackTopY = 88 - 14 - 4 = 70` comme si `--pin-top` était mesuré depuis le haut de la barre, alors qu'il ne l'a jamais été.
+
+Résultat visuel confirmé par la capture Playwright (avant fix) : avec 2 marqueurs proches, le premier (stack 0, `top:4px`) atterrit à cheval sur la piste (son propre haut dépasse à peine au-dessus de la piste, l'essentiel du pin la recouvre) — perçu comme « au-dessus » par l'utilisateur. Le second (stack 1, `top:17px`) est poussé 17px **sous le haut de la mini-piste**, donc en réalité sous la piste et proche du bord inférieur de la barre de 88px (voire au-delà) — exactement le marqueur « à peine visible en-dessous » signalé.
+
+## Fix
+`derush_app.html`, dans `renderMarkers()` (bloc de rendu du pin timeline) : le `gap` (4 + stack×13, inchangé) sert désormais de distance entre le **haut de la piste** et le **bas du pin**, avec `--pin-top` rendu **négatif** (`-(gap + 12)`, 12 = hauteur du pin) pour empiler réellement vers le haut ; `--pin-stem` = `gap` directement (plus besoin de la constante `trackTopY`, qui n'avait jamais le bon sens).
+
+## Vérification
+Même harnais de repro, après fix : capture Playwright confirme que les 2 (puis 3) marqueurs proches restent tous nettement visibles **au-dessus** de la piste, avec un fil de rattachement (stem) de longueur croissante vers le marqueur le plus empilé — plus aucun pin ne descend sous la piste. Fichiers de repro jetables (`tests/_repro_markers.html`, `tests/_screenshot_repro.js`, `tests/_repro_markers.png`) supprimés après vérification, aucun test E2E permanent ajouté pour ce fix ponctuel de géométrie CSS.
+
+# État au 21 août 2026 — v0.3.59 : « Voir le groupe » repartait du début du clip au lieu de suivre la position du lecteur principal
+
+## Signalement
+« quand je suis un clip contenu dans un groupe et que je clique sur voir le groupe, j'aimerais arriver au même endroit que là où j'étais dans la vision du clip seul. Car à chaque fois que je clique sur voir le groupe, il me met au début du clip. »
+
+## Cause : même bug que le comparateur (v0.3.13, « Bug 1 »), jamais corrigé côté viewer multicam
+`openMcViewer()` (`js/multicam-viewer.js`) sélectionne bien l'angle du clip actif comme primary, mais `_buildMcLayout(isInitial)` calcule la position de départ à partir de `_mcGroupResumeTime[group.id]` en priorité — une map dédiée à la reprise de position **interne au viewer multicam** (posée par `closeMcViewer()` à sa dernière fermeture, feature v0.3.12), pas à la position courante du lecteur principal. Rejouer un groupe une fois, le fermer, puis continuer à naviguer/lire le clip seul avant de rouvrir "Voir le groupe" laisse `_mcGroupResumeTime` sur une valeur périmée — l'utilisateur atterrit sur l'ancienne position du viewer (souvent proche de 0 si jamais ouvert cette session) au lieu de celle du lecteur principal qu'il vient de quitter.
+
+C'est exactement le même bug déjà rencontré et corrigé sur le comparateur : `openCompare()` écrasait déjà `_clipResumeTime[activeClip.id]` avec `mainPlayer.currentTime` juste avant de charger le slot 0, précisément pour cette raison (« le comparateur reflète alors toujours l'instant courant du lecteur principal à l'ouverture, la reprise historique restant valable seulement pour les changements de clip pendant qu'on est dans le comparateur »). Le viewer multicam n'avait jamais reçu le même traitement.
+
+## Fix
+`openMcViewer()` : juste avant `_buildMcLayout(true)`, écrase explicitement `_mcGroupResumeTime[g.id]` avec `mainPlayer.currentTime + normOff` de l'angle primary (conversion position-clip → position-groupe, même formule que `_mcSeekGroup`/`_mcCurrentGroupTime`). `_buildMcLayout()` lui-même n'a pas changé — sa logique de lecture de `_mcGroupResumeTime` reste correcte et continue de servir pour la navigation interne au viewer (bascule grille/primaire). Seule la fraîcheur de la valeur au moment de l'ouverture depuis un clip était en cause.
