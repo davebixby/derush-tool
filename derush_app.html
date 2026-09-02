@@ -1179,7 +1179,16 @@
             <span class="timeline-tc-start" id="tlTcStart">00:00:00:00</span>
             <span class="timeline-tc-end" id="tlTcEnd">--:--:--:--</span>
         </div>
-        </div><!-- /player-fs-wrap -->
+        <!-- Marker popup + Select (in/out) popup : DOIVENT rester descendants de
+             .player-fs-wrap. La Fullscreen API ne peint que le sous-arbre de
+             l'élément fullscreen — un popup fixed placé en dehors (même avec un
+             z-index élevé) devient invisible tant qu'on ne quitte pas le plein
+             écran, alors qu'il est bien créé/rempli en mémoire (retour terrain
+             02/09/2026 : "marqueur invisible en fullscreen, apparaît en sortant").
+             Le positionnement visuel ne change pas (`.marker-popup`/`.popup-overlay`
+             sont `position:fixed`, dont le containing block reste le viewport tant
+             qu'aucun ancêtre n'a de transform — `.player-fs-wrap` n'en a pas), donc
+             les déplacer ici est sans effet hors plein écran. -->
         <!-- Marker popup -->
         <div class="popup-overlay" id="popupOverlay"></div>
         <div class="marker-popup" id="markerPopup">
@@ -1214,6 +1223,7 @@
                 <button class="btn-primary" id="selectPopupConfirmBtn" onclick="confirmSelect()">Créer la sélection</button>
             </div>
         </div>
+        </div><!-- /player-fs-wrap -->
 
         <div class="notes-panel">
             <div class="notes-header">

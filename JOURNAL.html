@@ -307,6 +307,9 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 2 septembre 2026 (v0.3.62)</div>
   <a href="#clip-sort-time">Tri des rushs par heure de tournage au sein d'une journée (mélange les caméras)</a>
+
+  <div class="nav-section">Session 2 septembre 2026 (v0.3.63)</div>
+  <a href="#marker-popup-fullscreen">Fenêtre "Nouveau marqueur" invisible en plein écran</a>
 </nav>
 
 <main>
@@ -3406,8 +3409,24 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="marker-popup-fullscreen">
+  <div class="entry-header">
+    <span class="entry-date">2 septembre 2026 · v0.3.63</span>
+    <span class="entry-title">Fenêtre "Nouveau marqueur" invisible en plein écran</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain : « quand je suis en fullscreen et que je veux mettre un marqueur, la fenêtre ne s'affiche pas ; dès que je sors du plein écran, elle est visible ». Même symptôme pour la fenêtre de sélection in/out (<code>[</code>/<code>]</code>).</p>
+
+  <p>Cause : le plein écran (<code>F</code>/<code>⤢</code>) cible <code>.player-fs-wrap</code> (<code>#playerFsWrap</code>) depuis la fusion de juillet 2026 (voir <code>CLAUDE.md</code> §« Plein écran englobe timeline + marqueurs »), qui avait bien étendu le périmètre à la timeline et ses marqueurs. Mais les popups <code>#markerPopup</code> et <code>#selectPopup</code> (avec leurs overlays) étaient restés déclarés juste <em>après</em> la fermeture de <code>.player-fs-wrap</code> dans le HTML — donc en dehors de son sous-arbre. La Fullscreen API ne peint que le sous-arbre DOM de l'élément fullscreen ; un élément <code>position:fixed</code> situé ailleurs dans le document, même avec un <code>z-index</code> élevé, continue d'exister et de se remplir normalement mais n'est simplement plus rendu à l'écran tant que le plein écran est actif — d'où l'impression d'un popup "cassé" qui réapparaît miraculeusement à la sortie.</p>
+
+  <p>Fix : les deux blocs (<code>#popupOverlay</code>+<code>#markerPopup</code> et <code>#selectPopupOverlay</code>+<code>#selectPopup</code>) déplacés à l'intérieur de <code>.player-fs-wrap</code>, juste avant sa fermeture. Comme ces éléments sont en <code>position:fixed</code> et qu'aucun ancêtre (dont <code>.player-fs-wrap</code>) n'a de <code>transform</code>/<code>filter</code>/<code>contain</code> susceptible de leur fournir un nouveau containing block, leur position et taille restent identiques hors plein écran — le déplacement dans le DOM est invisible en usage normal, seule la visibilité en plein écran change.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 2 septembre 2026 (v0.3.62 — tri des rushs par heure de tournage au sein d'une journée)
+  Derush Tool · Journal de développement · Dernière mise à jour 2 septembre 2026 (v0.3.63 — fenêtre "Nouveau marqueur" invisible en plein écran)
 </div>
 
 </main>
