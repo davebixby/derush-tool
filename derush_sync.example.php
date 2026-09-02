@@ -25,6 +25,12 @@ $SECRET_KEY = 'CHANGEME_GENEREZ_UNE_CLE_ALEATOIRE_LONGUE';
 $DATA_DIR   = __DIR__ . '/derush_data/';
 $SHARE_DIR  = $DATA_DIR . 'shares/';
 
+// Rétention des sauvegardes projet (voir le bloc POST plus bas) :
+//  - rolling : 1 copie horodatée à la seconde par upload — couvre ~une session
+//  - daily   : 1 copie par jour calendaire, jamais purgée par le cycle rolling
+$BACKUP_KEEP_ROLLING = 40;
+$BACKUP_KEEP_DAILY   = 90;
+
 // --- Init ---
 if (!is_dir($DATA_DIR))  mkdir($DATA_DIR, 0755, true);
 if (!is_dir($SHARE_DIR)) mkdir($SHARE_DIR, 0755, true);
@@ -194,15 +200,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $body = file_get_contents('php://input');
     if (!$body || !json_decode($body)) { http_response_code(400); echo '{"error":"Invalid JSON"}'; exit; }
-    // Backup (10 derniers)
+    // Backup : rolling horodaté + une copie quotidienne conservée plus longtemps
     if (file_exists($file)) {
         $bak_dir = $DATA_DIR . 'backups/' . $project . '/';
         if (!is_dir($bak_dir)) mkdir($bak_dir, 0755, true);
-        $ts = date('YmdHis');
-        copy($file, $bak_dir . $project . '_' . $ts . '.json');
-        $baks = glob($bak_dir . '*.json');
-        sort($baks);
-        foreach (array_slice($baks, 0, max(0, count($baks) - 10)) as $old) unlink($old);
+        copy($file, $bak_dir . $project . '_' . date('YmdHis') . '.json');
+        // 1re écriture du jour → fige l'état de fin de veille, hors cycle rolling
+        $daily = $bak_dir . $project . '_daily_' . date('Ymd') . '.json';
+        if (!file_exists($daily)) copy($file, $daily);
+        // Purge séparée : rolling (sans '_daily_') vs daily
+        $rolling = array();
+        foreach (glob($bak_dir . $project . '_*.json') as $p) {
+            if (strpos(basename($p), '_daily_') === false) $rolling[] = $p;
+        }
+        sort($rolling);
+        foreach (array_slice($rolling, 0, max(0, count($rolling) - $BACKUP_KEEP_ROLLING)) as $old) unlink($old);
+        $daily_baks = glob($bak_dir . $project . '_daily_*.json');
+        sort($daily_baks);
+        foreach (array_slice($daily_baks, 0, max(0, count($daily_baks) - $BACKUP_KEEP_DAILY)) as $old) unlink($old);
     }
     file_put_contents($file, $body, LOCK_EX);
     echo json_encode(['ok' => true, 'ts' => date('c')]);

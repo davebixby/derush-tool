@@ -473,6 +473,9 @@
         .tag-filter-wrap { position:relative;flex-shrink:0; }
         #tagFilterBtn { font-size:0.72em;padding:2px 8px;white-space:nowrap; }
         #tagFilterBtn.active-filter { color:var(--accent);border-color:var(--accent);background:rgba(167,139,250,.15); }
+        .sort-mode-wrap { display:flex;flex-shrink:0;border:1px solid var(--border);border-radius:6px;overflow:hidden; }
+        .sort-mode-btn { font-size:0.78em;padding:2px 7px;border:none;border-radius:0;opacity:0.45; }
+        .sort-mode-btn.active { opacity:1;background:rgba(167,139,250,.2);color:var(--accent); }
         .tag-filter-menu { display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px;min-width:160px;max-height:220px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.35); }
         .tag-filter-menu.open { display:block; }
         .tag-filter-menu label { display:flex;align-items:center;gap:6px;font-size:0.78em;padding:3px 4px;border-radius:4px;cursor:pointer;white-space:nowrap; }
@@ -685,12 +688,12 @@
         <p id="lutScopeFile" style="font-size:0.78em;color:var(--dim);margin-bottom:14px;font-family:monospace;"></p>
         <div style="display:flex;flex-direction:column;gap:10px;">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                <input type="radio" name="lutScopeMode" value="cameras" id="lutScopeRadioCameras" checked style="width:auto;margin:0;">
+                <input type="radio" name="lutScopeMode" value="cameras" id="lutScopeRadioCameras" checked onchange="_lutScopeModeChanged()" style="width:auto;margin:0;">
                 <span><strong>Caméra(s)</strong> — devient le défaut pour les rushs de ces caméras (les plans ayant déjà leur propre LUT ne sont pas touchés)</span>
             </label>
             <div id="lutScopeCameras" style="display:flex;flex-direction:column;gap:6px;margin-left:28px;font-size:0.88em;"></div>
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;">
-                <input type="radio" name="lutScopeMode" value="clip" id="lutScopeRadioClip" style="width:auto;margin:0;">
+                <input type="radio" name="lutScopeMode" value="clip" id="lutScopeRadioClip" onchange="_lutScopeModeChanged()" style="width:auto;margin:0;">
                 <span><strong>Ce rush uniquement</strong> — LUT propre à ce plan, reste même s'il est ré-ouvert plus tard</span>
             </label>
             <div id="lutScopeClipWarn" style="margin-left:28px;font-size:0.8em;color:#f59e0b;"></div>
@@ -775,6 +778,10 @@
                 <div class="tag-filter-wrap">
                     <button id="tagFilterBtn" type="button" onclick="_toggleTagFilterMenu()" title="Filtrer par tags (toute l'équipe)">🏷 Tags</button>
                     <div id="tagFilterMenu" class="tag-filter-menu"></div>
+                </div>
+                <div class="sort-mode-wrap" title="Ordre des rushs au sein d'une journée">
+                    <button id="sortModeCamBtn" type="button" class="sort-mode-btn active" onclick="_setClipSortMode('camera')" title="Grouper par caméra (ordre du scan)">🎥</button>
+                    <button id="sortModeTimeBtn" type="button" class="sort-mode-btn" onclick="_setClipSortMode('time')" title="Trier par heure de tournage — les caméras se mélangent">🕐</button>
                 </div>
             </div>
             <div id="savedFiltersRow"></div>
@@ -1321,6 +1328,11 @@ let activeClip = null;
 let activeFilter = 'all';
 let seenClipIds = new Set();
 const CLIP_STATUSES = [null, 'arevoir', 'valide'];
+// Ordre des rushs au sein d'une journée : 'camera' (groupés par caméra, ordre du scan,
+// comportement historique) ou 'time' (triés par heure de tournage réelle, caméras
+// mélangées — pratique pour suivre le déroulé chronologique d'une journée multicaméra).
+// Persisté par projet (comme _lutAssign / derush_aspect), pas par session.
+let _clipSortMode = 'camera';
 
 // --- PRÉ-GÉNÉRATION (thumbnails + strips en arrière-plan) ---
 const _pregen = { q: [], n: 0, max: 3 };
@@ -1849,6 +1861,7 @@ async function enterWorkspace(pid) {
     if(camSel) camSel.innerHTML = '<option value="">All</option>';
     if(daySel) daySel.innerHTML = '<option value="">All</option>';
     _tagFilterSelected = new Set();
+    _loadClipSortMode(pid);
     showScreen('screenWork');
     renderClipList();
     _rebuildTagFilterMenu();
@@ -2156,6 +2169,43 @@ function _scrollActiveClipIntoView() {
     if (el) el.scrollIntoView({ block: 'nearest' });
 }
 
+// Heure de tournage d'un clip, en secondes depuis minuit — pour le tri chronologique
+// intra-journée. Préfère le TC décodé LTC (frame-accurate, cf. section multicam du
+// CLAUDE.md) au tag ffprobe format.timecode (peut dériver, notamment sur FS5).
+function _tcStrToSeconds(tc, fps) {
+    if (!tc) return null;
+    const parts = String(tc).replace(';', ':').split(':');
+    if (parts.length !== 4) return null;
+    const [h, m, s, f] = parts.map(p => parseInt(p, 10));
+    if ([h, m, s, f].some(Number.isNaN)) return null;
+    return h * 3600 + m * 60 + s + f / (fps || 25);
+}
+function _clipTimeOfDay(c) {
+    if (typeof c.ltc_tc_in_sec === 'number') return c.ltc_tc_in_sec;
+    const t = _tcStrToSeconds(c.tc_in, c.fps);
+    return t === null ? Infinity : t; // TC inconnu → relégué en fin de journée
+}
+
+function _loadClipSortMode(pid) {
+    try { _clipSortMode = localStorage.getItem('derush_clip_sort_' + pid) || 'camera'; }
+    catch(e) { _clipSortMode = 'camera'; }
+    _updateSortModeButtons();
+}
+function _setClipSortMode(mode) {
+    if (_clipSortMode === mode) return;
+    _clipSortMode = mode;
+    try { localStorage.setItem('derush_clip_sort_' + currentProjectId, mode); } catch(e) {}
+    _updateSortModeButtons();
+    renderClipList();
+    _scrollActiveClipIntoView();
+}
+function _updateSortModeButtons() {
+    const camBtn = document.getElementById('sortModeCamBtn');
+    const timeBtn = document.getElementById('sortModeTimeBtn');
+    if (camBtn) camBtn.classList.toggle('active', _clipSortMode !== 'time');
+    if (timeBtn) timeBtn.classList.toggle('active', _clipSortMode === 'time');
+}
+
 function renderClipList() {
     const list = document.getElementById('clipList');
     list.innerHTML = '';
@@ -2178,8 +2228,29 @@ function renderClipList() {
     const filterCam = camSel ? camSel.value : '';
     const filterDay = daySel ? daySel.value : '';
 
+    // Ordre d'affichage intra-journée : 'camera' garde l'ordre du scan (groupé par
+    // caméra, comportement historique) ; 'time' retrie chaque journée par heure de
+    // tournage réelle (_clipTimeOfDay), mélangeant les caméras. Les jours eux-mêmes
+    // restent dans leur ordre d'apparition d'origine — seul l'intérieur de chaque
+    // journée est retrié.
+    let orderedClips = clips;
+    if (_clipSortMode === 'time') {
+        const dayGroups = new Map();
+        const dayOrder = [];
+        clips.forEach(c => {
+            const key = c.day || '';
+            if (!dayGroups.has(key)) { dayGroups.set(key, []); dayOrder.push(key); }
+            dayGroups.get(key).push(c);
+        });
+        orderedClips = [];
+        dayOrder.forEach(key => {
+            const group = dayGroups.get(key).slice().sort((a, b) => _clipTimeOfDay(a) - _clipTimeOfDay(b));
+            orderedClips.push(...group);
+        });
+    }
+
     let currentDay = null;
-    clips.forEach(c => {
+    orderedClips.forEach(c => {
         const n = uid && allNotes[uid] ? (allNotes[uid][c.id] || {}) : {};
         const rating = n.rating;
         const ratingNum = parseInt(rating) || 0;

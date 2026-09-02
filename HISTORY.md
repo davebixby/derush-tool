@@ -1146,3 +1146,29 @@ C'est exactement le même bug déjà rencontré et corrigé sur le comparateur :
 
 ## Fix
 `openMcViewer()` : juste avant `_buildMcLayout(true)`, écrase explicitement `_mcGroupResumeTime[g.id]` avec `mainPlayer.currentTime + normOff` de l'angle primary (conversion position-clip → position-groupe, même formule que `_mcSeekGroup`/`_mcCurrentGroupTime`). `_buildMcLayout()` lui-même n'a pas changé — sa logique de lecture de `_mcGroupResumeTime` reste correcte et continue de servir pour la navigation interne au viewer (bascule grille/primaire). Seule la fraîcheur de la valeur au moment de l'ouverture depuis un clip était en cause.
+
+# État au 1 septembre 2026 — v0.3.61 : restauration Windows → annotations perdues, sync qui propage la régression
+
+## Signalement
+« J'ai dû faire un recovery de Windows le 1er septembre à 12h05, j'ai relancé Derush Tool et j'ai perdu toutes les annotations que j'avais faites. Je croyais qu'elles étaient sauvées en ligne. »
+
+## Diagnostic (forensique)
+- Une restauration système Windows (point « Avant Optimisation-Boot », ~11:14 heure locale, appliquée à 12:05) a ramené le fichier projet local `projects/drift_club.derush.json` à son état du **31 août 18:48**. Confirmé via une Volume Shadow Copy post-restauration lisible proprement (`modified: 2026-08-31T18:48:42`, notes Sébastien 525 marqueurs / 248 ratings / 200 textes / 668 tags).
+- Les Shadow Copies **d'avant** la restauration (10:35, 10:38, 11:14 heure locale) existaient mais leurs blocs de données pour ce fichier étaient inexploitables : `save_project` fait une réécriture atomique complète (`.tmp` + `os.replace`) à chaque sauvegarde → VSS ne conservait pas les clusters, on y lisait des zéros et même un en-tête `MZ` d'un exécutable ayant réutilisé les clusters. Piste morte.
+- Au redémarrage, le sync a **propagé la perte jusqu'au cloud** : `merge_projects(local, remote, own_uid)` repart de `remote.notes` puis fait `merged_notes[own_uid] = local_notes[own_uid]`. Le local rétrogradé a donc écrasé les notes cloud de Sébastien, et le push suivant l'a gravé côté serveur. Notes de Paola intactes (écrites par sa machine, jamais réimposées par celle de Sébastien).
+- Diff : Sébastien avait perdu ~un lot de plans **J04 (10 avril) FS5 Clip0009–0021** annotés le matin du 1er sept (ratings, notes, marqueurs, tags `axeldanse`/`plandecoupe`/…). Seul Clip0009 avait une modif locale plus récente (note retapée à la main après la perte, inachevée).
+
+## Récupération
+Les sauvegardes horodatées côté hébergement PHP (`derush_data/backups/drift_club/`) tenaient encore **6 versions** du matin même (horodatage serveur UTC = ~2h avant l'heure locale belge, donc pushs de ~11:35 à ~11:42 locale, ~20 min avant la restauration). Récupérées par FTP. La plus récente (`drift_club_20260901094306.json`, Sébastien 537/259/209/677) a servi de source : ses `notes['6714b070']` réinjectées dans le projet live courant, Clip0009 conservant les deux versions de note séparées par `---`, Paola / discussions / clips / paniers inchangés. Sauvegarde de l'état d'avant l'opération : `projects/_recovery_20260901/live_BEFORE_restore.json`.
+
+**C'était limite** : les backups (serveur ET local) ne gardaient que les 10 derniers. Une session de travail suffit à tous les faire tourner ; quelques sync post-incident de plus et la dernière piste disparaissait.
+
+## Correctif (v0.3.61)
+Deux niveaux de rétention distincts, **implémentés à l'identique** dans `derush_server.py` (`save_project`) et `derush_sync.php` (bloc POST) + `derush_sync.example.php` :
+- **Rolling** : copies `<pid>_AAAAMMJJ_HHMMSS.json` à chaque sauvegarde, plafond 10 → **40** (`BACKUP_KEEP_ROLLING` / `$BACKUP_KEEP_ROLLING`).
+- **Quotidiennes** : à la 1re sauvegarde de chaque jour calendaire, une copie `<pid>_daily_AAAAMMJJ.json` figée, **jamais purgée par le cycle rolling**, conservée **90 jours** (`BACKUP_KEEP_DAILY` / `$BACKUP_KEEP_DAILY`).
+
+Purges par globs séparés : le rolling exclut explicitement `_daily_` du décompte, les quotidiennes sont purgées à part. Seuils réglables via `derush_config.json` (`backup_keep_rolling` / `backup_keep_daily`) côté serveur, variables en tête de fichier côté PHP. **Le côté cloud ne prend effet qu'après ré-upload de `derush_sync.php` sur l'hébergement.** Test unitaire de la logic Python : 5 jours × 60 saves/jour → 40 rolling (les plus récents) + 5 quotidiennes conservés, aucune quotidienne emportée par le flot.
+
+## Leçon (condensée dans `CLAUDE.md` piège #30)
+Le sync est une réconciliation last-writer-wins par utilisateur, pas un historique : il propage aussi bien les ajouts que les régressions. Les sauvegardes sont le vrai filet. En récupération après un rollback/restauration : ne pas relancer l'app avant d'avoir récupéré `derush_data/backups/<pid>/` par FTP (chaque démarrage peut re-pusher et faire tourner les backups serveur).

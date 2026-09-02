@@ -298,6 +298,15 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 21 août 2026 (v0.3.59)</div>
   <a href="#mc-viewer-resume-position">Voir le groupe : reprise à la position du lecteur principal</a>
+
+  <div class="nav-section">Session 31 août 2026 (v0.3.60)</div>
+  <a href="#lut-scope-clip-checkbox">Popup scope LUT : caméras cochées trompeuses en mode "ce rush uniquement"</a>
+
+  <div class="nav-section">Session 1 septembre 2026 (v0.3.61)</div>
+  <a href="#backup-retention-daily">Restauration Windows → annotations perdues : rétention des sauvegardes renforcée</a>
+
+  <div class="nav-section">Session 2 septembre 2026 (v0.3.62)</div>
+  <a href="#clip-sort-time">Tri des rushs par heure de tournage au sein d'une journée (mélange les caméras)</a>
 </nav>
 
 <main>
@@ -3339,8 +3348,66 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="lut-scope-clip-checkbox">
+  <div class="entry-header">
+    <span class="entry-date">31 août 2026 · v0.3.60</span>
+    <span class="entry-title">Popup scope LUT : caméras cochées trompeuses en mode "ce rush uniquement"</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain : au chargement d'une LUT, la modale de scope pré-coche la caméra FS5 par défaut sous le radio "Caméra(s)". En choisissant plutôt le radio "Ce rush uniquement", la case FS5 restait visuellement cochée juste au-dessus — donnant l'impression que la LUT allait <em>aussi</em> s'appliquer à toutes les FS5 du projet.</p>
+
+  <p>Vérification du code : <code>confirmLutScope()</code> (<code>js/lut.js</code>) ne lisait déjà les checkboxes <code>.lutScopeCam</code> que dans la branche <code>mode === 'cameras'</code> — en mode <code>clip</code> elles n'étaient jamais prises en compte, aucune LUT n'était réellement appliquée aux FS5. Le bug était donc uniquement visuel : rien n'indiquait que la liste de caméras devenait inerte une fois "Ce rush uniquement" sélectionné.</p>
+
+  <p>Fix : nouvelle fonction <code>_lutScopeModeChanged()</code>, appelée au <code>onchange</code> des deux radios et à l'ouverture de la modale, qui grise (<code>opacity:0.4</code>) et désactive les checkboxes caméra dès que le mode <code>clip</code> est actif. Les cases restent visibles (mémo visuel) mais ne peuvent plus être confondues avec un scope qui serait réellement appliqué.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="backup-retention-daily">
+  <div class="entry-header">
+    <span class="entry-date">1 septembre 2026 · v0.3.61</span>
+    <span class="entry-title">Restauration Windows → annotations perdues : rétention des sauvegardes renforcée</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Incident terrain : une restauration système Windows a ramené le fichier projet local <code>drift_club.derush.json</code> à un état de la veille au soir. Au redémarrage de Derush Tool, le sync cloud a <strong>propagé cette régression jusqu'au serveur</strong> — <code>merge_projects()</code> repart de la version distante mais réimpose les notes de l'utilisateur courant depuis le fichier <em>local</em> (rétrogradé), qui a donc écrasé la version riche du cloud. Résultat : ~2h d'annotations d'un matin (un lot de plans J04 : ratings, notes, marqueurs, tags) absentes en local ET sur le cloud.</p>
+
+  <p>Récupération : les sauvegardes horodatées côté hébergement PHP (<code>derush_data/backups/&lt;pid&gt;/</code>) tenaient encore 6 versions du matin même — les notes de l'utilisateur y ont été réextraites et réinjectées dans le projet courant sans toucher aux autres collaborateurs. Mais c'était limite : ces sauvegardes ne gardaient que <strong>les 10 dernières</strong>, côté serveur comme en local — une seule session de travail suffit à toutes les faire tourner, et quelques sync post-incident auraient effacé la dernière piste de récupération.</p>
+
+  <p>Correctif — deux niveaux de rétention distincts, appliqués identiquement dans <code>derush_server.py</code> (<code>save_project</code>) et <code>derush_sync.php</code> :</p>
+  <ul>
+    <li><strong>Rolling</strong> : copies horodatées à la seconde à chaque sauvegarde, plafond passé de 10 à <strong>40</strong> (couvre confortablement une session).</li>
+    <li><strong>Quotidiennes</strong> : à la première sauvegarde de chaque jour calendaire, une copie <code>&lt;pid&gt;_daily_AAAAMMJJ.json</code> est figée et <strong>jamais purgée par le cycle rolling</strong> — conservée <strong>90 jours</strong>. Filet long terme : même après des semaines d'édition intensive, l'état de fin de chaque journée reste récupérable.</li>
+  </ul>
+
+  <p>Les deux seuils sont réglables (<code>BACKUP_KEEP_ROLLING</code> / <code>BACKUP_KEEP_DAILY</code> — clés <code>backup_keep_rolling</code> / <code>backup_keep_daily</code> dans <code>derush_config.json</code> côté serveur ; variables en tête de <code>derush_sync.php</code>). <strong>Le côté cloud ne prend effet qu'après ré-upload de <code>derush_sync.php</code> sur l'hébergement.</strong></p>
+
+  <p><strong>Rappel</strong> : le sync reste une réconciliation, pas un historique versionné — il propage aussi bien les ajouts que les régressions. Les sauvegardes locales/serveur sont désormais le vrai filet ; un dossier <code>projects/</code> sur stockage à historique (OneDrive, git) reste recommandé en plus.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="clip-sort-time">
+  <div class="entry-header">
+    <span class="entry-date">2 septembre 2026 · v0.3.62</span>
+    <span class="entry-title">Tri des rushs par heure de tournage au sein d'une journée (mélange les caméras)</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande terrain : dans la sidebar, les rushs d'une journée sont groupés par caméra (FS5 tous ensemble, puis FX6 tous ensemble…) — l'ordre hérité du scan disque (<code>IMAGE/&lt;caméra&gt;/…</code>). Impossible de suivre le déroulé réel d'un tournage multicaméra où les prises FS5 et FX6 s'entremêlent dans le temps.</p>
+
+  <p>Ajout d'un toggle 🎥/🕐 dans la barre de filtres de la sidebar (à côté du bouton Tags). 🎥 « Par caméra » garde le comportement historique. 🕐 « Par heure » retrie chaque journée par heure de tournage réelle, toutes caméras mélangées — les séparateurs de jour restent inchangés, seul l'intérieur de chaque journée est réordonné.</p>
+
+  <p>L'heure de tournage utilisée pour le tri est <code>_clipTimeOfDay(c)</code> : le TC décodé LTC (<code>ltc_tc_in_sec</code>, frame-accurate) quand disponible, sinon le tag <code>tc_in</code> converti en secondes via le fps du plan — même hiérarchie de fiabilité que le matching multicam (<code>_clip_tc_seconds</code> côté serveur, voir section Multicam). Un clip sans TC exploitable est relégué en fin de journée plutôt que de casser le tri.</p>
+
+  <p>Réglage persisté par projet (<code>localStorage['derush_clip_sort_' + pid]</code>, même logique que l'assignation LUT ou le format de cadrage) — pas de changement serveur, purement un réordonnancement client de l'array <code>clips</code> déjà chargé.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 21 août 2026 (v0.3.59 — fix reprise position viewer multicam)
+  Derush Tool · Journal de développement · Dernière mise à jour 2 septembre 2026 (v0.3.62 — tri des rushs par heure de tournage au sein d'une journée)
 </div>
 
 </main>

@@ -433,6 +433,18 @@ function _openLutScopeModal() {
     }
     document.getElementById('lutScopeRadioCameras').checked = true;
     document.getElementById('lutScopeModal').style.display = 'flex';
+    _lutScopeModeChanged();
+}
+
+function _lutScopeModeChanged() {
+    // Grise la liste des caméras quand "Ce rush uniquement" est sélectionné, pour ne
+    // pas laisser croire que les cases cochées (ex. FS5 pré-cochée par défaut) seront
+    // aussi affectées — confirmLutScope() les ignore déjà dans ce mode, mais rien ne
+    // le montrait visuellement (retour terrain 31/08/2026).
+    const isClipMode = document.getElementById('lutScopeRadioClip').checked;
+    const wrap = document.getElementById('lutScopeCameras');
+    wrap.style.opacity = isClipMode ? '0.4' : '1';
+    wrap.querySelectorAll('.lutScopeCam').forEach(cb => { cb.disabled = isClipMode; });
 }
 
 function closeLutScopeModal() {

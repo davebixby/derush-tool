@@ -214,6 +214,13 @@ THUMBNAILS_DIR = Path(CONFIG.get('thumbnails_dir', str(APP_DIR / 'thumbnails')))
 THUMBNAILS_DIR.mkdir(exist_ok=True, parents=True)
 BACKUPS_DIR = Path(CONFIG.get('backups_dir', str(PROJECTS_DIR / 'backups')))
 BACKUPS_DIR.mkdir(exist_ok=True, parents=True)
+# Rétention des sauvegardes projet (voir save_project) :
+#  - rolling : copies horodatées à la seconde à chaque save — couvre ~une session
+#  - daily   : une copie par jour calendaire, jamais purgée par le cycle rolling —
+#              filet long terme (une restauration système / un mauvais merge de sync
+#              peut sinon être masqué en quelques minutes par le cycle court).
+BACKUP_KEEP_ROLLING = int(CONFIG.get('backup_keep_rolling', 40))
+BACKUP_KEEP_DAILY   = int(CONFIG.get('backup_keep_daily', 90))
 PORT     = CONFIG.get('port', 8765)
 
 def _default_binary(name):
@@ -924,10 +931,19 @@ def save_project(project_id, data):
     if f.exists():
         backup_dir = BACKUPS_DIR / project_id
         backup_dir.mkdir(exist_ok=True)
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        shutil.copy2(f, backup_dir / f"{project_id}_{ts}.json")
-        old_backups = sorted(backup_dir.glob('*.json'))
-        for old in old_backups[:-10]:
+        now = datetime.now()
+        shutil.copy2(f, backup_dir / f"{project_id}_{now.strftime('%Y%m%d_%H%M%S')}.json")
+        # Sauvegarde quotidienne : 1re save du jour → fige l'état de fin de veille,
+        # conservée BACKUP_KEEP_DAILY jours, hors du cycle rolling court.
+        daily = backup_dir / f"{project_id}_daily_{now.strftime('%Y%m%d')}.json"
+        if not daily.exists():
+            shutil.copy2(f, daily)
+        # Purge séparée : rolling (sans '_daily_') vs daily.
+        rolling = sorted(p for p in backup_dir.glob(f'{project_id}_*.json')
+                         if '_daily_' not in p.name)
+        for old in rolling[:-BACKUP_KEEP_ROLLING]:
+            old.unlink(missing_ok=True)
+        for old in sorted(backup_dir.glob(f'{project_id}_daily_*.json'))[:-BACKUP_KEEP_DAILY]:
             old.unlink(missing_ok=True)
     # Écriture atomique : .tmp puis os.replace() — jamais de fichier projet
     # tronqué si le process meurt en plein write.

@@ -18,7 +18,7 @@ Outil de dérushage vidéo multi-utilisateurs. Serveur Python + UI HTML monofich
 - `requirements.txt` — dépendances Python (pystray, Pillow, pyinstaller)
 - `derush_config.json` — config (créé par setup wizard, à côté de l'exécutable)
 - `projects/` — données projets JSON (`<id>.derush.json`)
-- `projects/backups/<pid>/` — backups versionnés (10 derniers)
+- `projects/backups/<pid>/` — backups versionnés : rolling horodatés (`<pid>_AAAAMMJJ_HHMMSS.json`, 40 derniers) + quotidiens (`<pid>_daily_AAAAMMJJ.json`, 90 jours, hors cycle rolling)
 - `waveforms/` — cache JSON des formes d'onde (`<clip_id>.json`)
 - `thumbnails/` — cache JPEG des miniatures + strips de scrubbing
 - `GUIDE.html` — notice utilisateur complète
@@ -51,10 +51,14 @@ Créé par le wizard `/setup` ou manuellement :
   "ffprobe": "ffprobe",
   "port": 8765,
   "sync_url": "https://example.com/derush_sync.php",
-  "sync_key": "secret"
+  "sync_key": "secret",
+  "backup_keep_rolling": 40,
+  "backup_keep_daily": 90
 }
 ```
-Variables globales : `APP_DIR`, `BUNDLE_DIR` (PyInstaller: `sys._MEIPASS`), `PROJECTS_DIR`, `WAVEFORMS_DIR`, `THUMBNAILS_DIR`, `BACKUPS_DIR`, `FFMPEG`, `FFPROBE`, `PORT`, `IS_CONFIGURED`, `SYNC_URL`, `SYNC_KEY`.
+`backup_keep_rolling` / `backup_keep_daily` optionnels (défauts 40 / 90).
+
+Variables globales : `APP_DIR`, `BUNDLE_DIR` (PyInstaller: `sys._MEIPASS`), `PROJECTS_DIR`, `WAVEFORMS_DIR`, `THUMBNAILS_DIR`, `BACKUPS_DIR`, `BACKUP_KEEP_ROLLING`, `BACKUP_KEEP_DAILY`, `FFMPEG`, `FFPROBE`, `PORT`, `IS_CONFIGURED`, `SYNC_URL`, `SYNC_KEY`.
 
 Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_lock` (threading.Lock).
 
@@ -82,7 +86,7 @@ Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_
 | `export_report_html(project)` | rapport HTML auto-contenu |
 | `import_edl(edl_text, user_id)` | import EDL → marqueurs |
 | `project_health(proj, pid)` | rapport santé projet (médias, TC, annotations, export, infra) |
-| `save_project(pid, data)` | sauvegarde + backup versionné (10 derniers dans `projects/backups/<pid>/`) |
+| `save_project(pid, data)` | sauvegarde atomique + double backup dans `projects/backups/<pid>/` : rolling horodaté (`BACKUP_KEEP_ROLLING`=40) + 1 copie `_daily_AAAAMMJJ` par jour calendaire (`BACKUP_KEEP_DAILY`=90, jamais purgée par le cycle rolling). Purges par globs séparés (`_daily_` exclu du rolling) |
 | `merge_projects(local, remote)` | fusionne remote dans local — notes par user_id (sans conflit), discussions par timestamp |
 | `sync_project(pid)` | pull remote → merge → push → save local → retourne `{ok, message}` |
 | `sync_all_projects()` | appelle sync_project pour chaque `.derush.json` dans PROJECTS_DIR |
@@ -206,9 +210,10 @@ Pendant la frappe dans `#tagInput`, un menu déroulant (`#tagAutocomplete`) prop
 ### Sync cloud (derush_sync.php)
 - PHP côté serveur, stocke JSON dans `derush_data/<pid>.derush.json`, backups dans `derush_data/backups/<pid>/`
 - Auth par clé secrète `?key=SECRET` en query string
-- GET → download, POST → upload (avec backup auto, 10 derniers)
+- GET → download, POST → upload. Backup à chaque POST : rolling horodaté (`$BACKUP_KEEP_ROLLING`=40) + 1 `_daily_AAAAMMJJ` par jour (`$BACKUP_KEEP_DAILY`=90, hors cycle rolling) — **mêmes seuils/logique que `save_project` côté Python ; toute modif doit rester synchro entre les deux, et le PHP doit être ré-uploadé sur l'hébergement pour prendre effet**
 - Merge strategy : `notes` = union par `user_id` (local gagne), `discussions` = union par `ts` (timestamps ISO), `users` = union par `id`
 - Pas de conflit possible : chaque user_id n'écrit que ses propres notes
+- **⚠️ Le sync propage aussi les régressions** : `merge_projects()` repart du remote puis réimpose les notes de `own_uid` depuis le LOCAL. Un local rétrogradé (restauration système, rollback) écrase donc la version cloud de cet user au redémarrage. Les backups (local 40 rolling + 90 daily, serveur idem) sont le vrai filet — voir piège #30.
 
 ### Discussions (replies sur markers)
 Stockées séparément des notes dans `proj['discussions']` pour éviter les conflits avec les sauvegardes locales.
@@ -273,12 +278,15 @@ Chaque marker a un champ `id` (hex aléatoire 8 chars) généré côté client �
 - `_pregen` — `{q: [], n: 0, max: 3}` — queue de pré-génération des thumbnails
 - `_bwfMixerSettings` (déclaré dans `js/bwf-mixer.js`) — `{pid: {bwfId: {gains:[...], mutes:[...], solos:[...]}}}`, **persisté** dans `localStorage['derush_bwf_mixer_'+pid]`
 - `_bwfMixerPanelState` (`js/bwf-mixer.js`) — `{audio, bwfId, channels, trackNames}` du BWF affiché dans le panneau mixeur, `null` si fermé
+- `_clipSortMode` — ordre d'affichage intra-journée dans la sidebar : `'camera'` (défaut, ordre du scan) ou `'time'` (retrie par heure de tournage réelle, caméras mélangées). **Persisté** par projet dans `localStorage['derush_clip_sort_'+pid]`
 
 ## derush_app.html — Fonctions JS clés
 
 | Fonction | Rôle |
 |----------|------|
-| `renderClipList()` | sidebar avec thumbnails+strip, en-têtes de jour, filtres, search texte, chips rating équipe |
+| `renderClipList()` | sidebar avec thumbnails+strip, en-têtes de jour, filtres, search texte, chips rating équipe. Construit `orderedClips` à partir de `clips` selon `_clipSortMode` avant de boucler dessus |
+| `_clipTimeOfDay(c)` / `_tcStrToSeconds(tc, fps)` | heure de tournage d'un clip en secondes (`ltc_tc_in_sec` si dispo, sinon `tc_in` converti via `fps`), `Infinity` si TC inexploitable — utilisé pour le tri `_clipSortMode==='time'` |
+| `_setClipSortMode(mode)` / `_loadClipSortMode(pid)` / `_updateSortModeButtons()` | change/persiste/restaure `_clipSortMode`, boutons `#sortModeCamBtn`/`#sortModeTimeBtn` dans la filter-bar |
 | `_scrollActiveClipIntoView()` | scrolle `#clip_<activeClip.id>` dans la vue — à appeler après un changement de filtre (tag/cam/jour/recherche) car `renderClipList()` vide `innerHTML` et retombe le scroll à 0, donnant l'impression que la sélection a sauté au premier clip |
 | `selectClip(c)` | charge clip, affiche tech-meta, applique currentSpeed, appelle loadWaveform + renderTags. Persiste `localStorage['derush_last_clip_'+currentProjectId] = c.id` et la position de lecture du clip quitté (`_persistClipResumeTime()`) ; restaure `_clipResumeTime[c.id]` sur `loadedmetadata` du nouveau clip |
 | `_persistClipResumeTime()` / `_loadClipResumeTime(pid)` (`js/audio-bwf.js`) | écrit/lit `_clipResumeTime` dans `localStorage['derush_resume_'+pid]`. `enterWorkspace()` appelle `_loadClipResumeTime(pid)` avant de restaurer le dernier clip consulté. Filet de sécurité `pagehide` (`js/audio-bwf.js`) : capture aussi la position courante si l'app est fermée sans changer de clip (sinon jamais écrite, `_clipResumeTime` n'étant mise à jour qu'au changement de clip) |
@@ -624,7 +632,7 @@ Désormais, deux structures séparées :
 
 - **Appliquer une LUT "à des caméras"** (`confirmLutScope`, mode `cameras`) n'écrit **jamais** dans `_lutAssign.clips` — seulement dans `_lutAssign.cameras`. Un plan qui a déjà son propre override n'est donc jamais écrasé par une application en masse malencontreuse ; la modale de scope liste en plus, pour chaque caméra, le nombre de plans déjà "protégés" par un override (`🔒 N plan(s) propre(s), non affecté(s)`) pour prévenir l'erreur avant qu'elle n'arrive.
 - **Toucher un slider** (`setLutSetting`/`resetLutSettings`) sur un plan qui n'a encore qu'un défaut caméra hérité **fork** un override clip via `_lutEnsureEditableEntry()` (copie des réglages courants dans une nouvelle entrée `_lutAssign.clips[activeClip.id]`) sans jamais muter l'objet de réglages partagé par la caméra. C'est ce mécanisme qui garantit que chaque plan garde ses réglages manuels propres.
-- **"Ce rush uniquement"** (mode `clip` dans la modale de scope) écrit directement un override explicite pour le plan actif.
+- **"Ce rush uniquement"** (mode `clip` dans la modale de scope) écrit directement un override explicite pour le plan actif. `confirmLutScope()` ne lit les checkboxes `.lutScopeCam` que si `mode === 'cameras'` — en mode `clip` elles sont ignorées. `_lutScopeModeChanged()` (déclenché au `onchange` des radios + à l'ouverture de la modale) grise/désactive visuellement la liste des caméras quand `clip` est sélectionné, pour ne pas laisser croire qu'une caméra restée cochée (ex. FS5 pré-cochée par défaut) sera aussi affectée (v0.3.60).
 - **Retirer une LUT d'un plan** : bouton `🗑 Retirer la LUT de ce plan` (`#lutRemoveWrap`, visible seulement si le plan a un override `clip` — pas pour un défaut `camera`) → `_lutRemoveForActiveClip()` supprime l'entrée `_lutAssign.clips[id]`, le plan retombe sur le défaut caméra s'il existe.
 - Recharger un fichier `.cube` du **même nom** mutualise (met à jour partout où ce `lutName` est référencé) — comportement volontaire pour permettre de retoucher un export de grade et le repousser sans tout ré-assigner.
 
@@ -1047,6 +1055,7 @@ derush_tool/
 27. **Un nouvel appel à une fonction déjà utilisée ailleurs doit être ajouté À TOUS les points d'appel équivalents, pas juste au premier qui vient à l'esprit** : `_scrollActiveClipIntoView()` avait été câblée sur les handlers de filtre (v0.3.52) mais oubliée sur le seul autre endroit qui sélectionne un clip sans clic utilisateur direct — la restauration du dernier clip au lancement (`enterWorkspace`). Résultat : le clip actif était bien sélectionné/lu, mais invisible tout en haut d'une sidebar retombée à `scrollTop:0`, exactement le même symptôme que le bug déjà corrigé pour les filtres (v0.3.53).
 28. **Un pin de marker (`.timeline-marker-pin`, `renderMarkers()`) est un enfant de `#timelineTrack`** (la mini-piste de 4px collée en bas de la barre de 88px), donc `--pin-top` est relatif au **haut de la track**, pas au haut de la barre — un décalage positif pousse le pin SOUS la track (quasi invisible), un décalage négatif le pousse au-dessus. Toujours vérifier le référentiel de positionnement (quel est le vrai `offsetParent`) avant de calculer un offset CSS empilé, plutôt que de supposer que "top" se mesure depuis le conteneur visuellement englobant (v0.3.58, retour terrain « marqueurs proches, un à peine visible en-dessous »).
 29. **Une map de "reprise de position" dédiée à un contexte (`_mcGroupResumeTime`, `_clipResumeTime`) devient périmée dès qu'on quitte ce contexte pour un autre puis qu'on y revient** — elle ne se met à jour qu'à la fermeture de CE contexte précis, jamais pendant qu'on est ailleurs (ex. lecteur principal). Toute ouverture d'un contexte B depuis un contexte A actif (comparateur depuis le lecteur, viewer multicam depuis le lecteur) doit écraser la map de B avec la position réelle de A au moment de l'ouverture, pas se fier à la dernière valeur laissée par une session précédente de B. Déjà corrigé une fois pour le comparateur (`openCompare()`, v0.3.13), le même oubli traînait sur `openMcViewer()` jusqu'à v0.3.59 — vérifier tout futur contexte de lecture synchronisée contre cette même classe de bug.
+30. **Le sync cloud n'est pas un historique versionné — il propage les régressions**. `merge_projects()` repart du remote mais réimpose les notes de `own_uid` depuis le fichier local ; un local rétrogradé (restauration système Windows, rollback disque, mauvais recovery) écrase donc la version cloud de cet utilisateur au premier sync du redémarrage, et un push suivant la grave définitivement côté serveur. Seule protection réelle : les sauvegardes. Depuis v0.3.61 → `save_project` **et** `derush_sync.php` gardent 40 rolling horodatées + 90 quotidiennes (`_daily_AAAAMMJJ.json`, hors cycle rolling) ; les deux implémentations doivent rester identiques et le PHP ré-uploadé pour que le serveur en profite. En récupération après ce type d'incident : NE PAS relancer l'app (chaque démarrage peut re-pusher et faire tourner les backups serveur), récupérer d'abord `derush_data/backups/<pid>/` par FTP, réinjecter les `notes[own_uid]` de la bonne version dans le projet courant sans toucher aux autres users. Incident fondateur : 01/09/2026 (détail dans `HISTORY.md`).
 
 ## Historique détaillé
 
