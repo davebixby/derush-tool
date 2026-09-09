@@ -549,6 +549,11 @@ function openBasket() {
     renderBasketOverlay();
     document.getElementById('basketOverlay').classList.add('active');
     document.addEventListener('keydown', _basketKeydown, true);
+    // Rappelée ici APRÈS l'ajout de .active : le chargement du 1er item par
+    // renderBasketOverlay() (via _basketGoto) a pu déclencher un premier appel
+    // pendant que l'overlay n'était pas encore marqué actif — sa garde interne
+    // l'aurait alors annulé (cf. _basketLutRefresh).
+    _basketLutRefresh();
 }
 
 function closeBasket() {
@@ -963,6 +968,90 @@ function _basketSwapActiveVideo() {
     newActive.classList.add('bv-active');
     if(oldActive) { oldActive.classList.remove('bv-active'); oldActive.pause(); }
     if(typeof refreshAllAspectOverlays === 'function') refreshAllAspectOverlays();
+    _basketLutRefresh();
+}
+
+// ─── LUT dans le pré-montage ─────────────────────────────────────────────────
+// Retour terrain : « quand j'applique une LUT sur un clip, ça affecte aussi les
+// sélections de ce clip dans le pré-montage ». Pipeline WebGL indépendant de
+// celui du lecteur principal (js/lut.js, _lutGL/#lutCanvas) mais réutilisant
+// ses briques génériques (_lutInitGL/_lutUploadLUT/_lutApplySettings acceptent
+// un contexte GL en paramètre depuis leur refactor pour ce besoin, _lutResolveFor/
+// _lutEnsureLoaded sont déjà génériques). Un seul canvas (#basketLutCanvas)
+// pour les DEUX lecteurs du crossfade : la boucle de rendu relit _basketActiveVid()
+// à chaque frame plutôt que d'avoir sa propre notion de "lequel regarder" — le
+// swap crossfade est donc suivi automatiquement, sans synchronisation dédiée.
+let _basketLutGL = null;
+let _basketLutRaf = null;
+let _basketLutCurrentLutName = null;
+
+// Résout la LUT du clip COURANT du pré-montage (celui de l'item actif,
+// _basketPlayIdx) et (re)démarre/arrête le rendu en conséquence. À appeler à
+// chaque fois que le clip affiché change (swap, goto) — pas besoin de le
+// rappeler à chaque frame, la boucle de rendu suit déjà _basketActiveVid()
+// toute seule pour le crossfade.
+async function _basketLutRefresh() {
+    const c = document.getElementById('basketLutCanvas');
+    const overlay = document.getElementById('basketOverlay');
+    // Se ré-appelle elle-même sans condition depuis divers points (goto, swap,
+    // et — via js/lut.js — toute modification de LUT pendant que le pré-montage
+    // est ouvert) : cette garde évite qu'une boucle requestAnimationFrame ne
+    // continue de tourner indéfiniment (coût CPU pour rien) une fois l'overlay
+    // refermé, plutôt que de demander à chaque appelant de vérifier lui-même.
+    if(!c || !overlay || !overlay.classList.contains('active')) {
+        if(_basketLutRaf) { cancelAnimationFrame(_basketLutRaf); _basketLutRaf = null; }
+        if(c) c.style.display = 'none';
+        return;
+    }
+    const cur = _basketLastResolved[_basketPlayIdx];
+    if(!cur || typeof _lutEnabled === 'undefined' || !_lutEnabled) {
+        c.style.display = 'none';
+        if(_basketLutRaf) { cancelAnimationFrame(_basketLutRaf); _basketLutRaf = null; }
+        return;
+    }
+    const resolved = _lutResolveFor(cur.clip);
+    if(!resolved) {
+        c.style.display = 'none';
+        if(_basketLutRaf) { cancelAnimationFrame(_basketLutRaf); _basketLutRaf = null; }
+        return;
+    }
+    const parsed = await _lutEnsureLoaded(resolved.lutName);
+    // Le clip affiché a pu changer pendant l'attente IndexedDB (même précaution
+    // que _lutRefreshForActiveClip côté lecteur principal).
+    if(_basketLastResolved[_basketPlayIdx] !== cur) return;
+    if(!parsed) { c.style.display = 'none'; return; }
+    if(!_basketLutGL) _basketLutGL = _lutInitGL(c);
+    if(!_basketLutGL) return;
+    if(_basketLutCurrentLutName !== resolved.lutName) {
+        _lutUploadLUT(_basketLutGL, parsed);
+        _basketLutCurrentLutName = resolved.lutName;
+    }
+    _lutApplySettings(_basketLutGL, resolved.settings);
+    c.style.display = 'block';
+    if(!_basketLutRaf) _basketRenderLUT();
+}
+
+function _basketRenderLUT() {
+    _basketLutRaf = null;
+    if(!_lutEnabled || !_basketLutGL || !_basketLastResolved[_basketPlayIdx]) return;
+    _basketLutRaf = requestAnimationFrame(_basketRenderLUT);
+    const v = _basketActiveVid();
+    if(!v || v.readyState < 2 || !v.videoWidth) return;
+    const c = document.getElementById('basketLutCanvas');
+    const w = v.videoWidth, h = v.videoHeight;
+    if(c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    const {gl, videoTex, u_time} = _basketLutGL;
+    gl.viewport(0, 0, w, h);
+    gl.uniform1f(u_time, (performance.now() * 0.001) % 1000.0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    try {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v);
+    } catch(e) {
+        return;  // frame pas prête — retentera au prochain RAF
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
 // Précharge le segment SUIVANT dans la vidéo actuellement inactive, pré-seeké
@@ -1106,6 +1195,7 @@ function _basketGoto(idx, withinOffset, autoplay, scrubbing) {
     _basketCurrentItemRef = r.item;
     _highlightBasketPlaying();
     _updateBasketViewerInfo(r);
+    _basketLutRefresh();
 
     const inactive = _basketInactiveVid();
     // Chemin rapide : le segment visé (clip ET sélection, pas juste le clip —
@@ -1297,6 +1387,12 @@ function _basketReleaseViewer() {
     if(track) track.style.width = '';
     const markersLane = document.getElementById('basketSeqMarkers');
     if(markersLane) markersLane.style.width = '';
+    // Coupe la boucle de rendu LUT (inutile tant que l'overlay est fermé) —
+    // le contexte GL/canvas lui-même est conservé, réutilisé à la prochaine
+    // ouverture (même logique que le lecteur principal, jamais détruit non plus).
+    if(_basketLutRaf) { cancelAnimationFrame(_basketLutRaf); _basketLutRaf = null; }
+    const lutCanvas = document.getElementById('basketLutCanvas');
+    if(lutCanvas) lutCanvas.style.display = 'none';
 }
 
 // ─── Timeline de séquence : les sélections "collées" bout à bout ───────────
@@ -1479,6 +1575,11 @@ function _basketRenderSeqMarkers() {
         pin.style.left = Math.max(0, Math.min(100, t / total * 100)) + '%';
         pin.title = _fmtDurShort(t) + (t === _basketSelectedSeqMarker
             ? ' — sélectionné (Suppr pour retirer)' : ' — clic pour y aller');
+        // stopPropagation dès le mousedown (pas juste au click) : la lane parente
+        // écoute désormais mousedown pour distinguer clic (pose un repère) et
+        // glisser (scrub) — sans ça, presser un repère existant déclencherait
+        // AUSSI cette logique et poserait un repère parasite au même endroit.
+        pin.addEventListener('mousedown', (e) => e.stopPropagation());
         pin.onclick = (e) => { e.stopPropagation(); _basketSelectSeqMarker(t); };
         lane.appendChild(pin);
     });
@@ -1545,13 +1646,37 @@ function _basketDeleteSelectedSeqMarker() {
     showSaveStatus('📍 Repère supprimé', '#f59e0b');
 }
 
-function _basketMarkerLaneClick(e) {
+// Retour terrain : « plutôt que de placer un repère quand je clique au-dessus
+// de la timeline, que je puisse me déplacer dans la sélection quand je
+// maintiens le clic gauche. » Même distinction clic/glisser que le reste du
+// pré-montage (poignées de trim, segments à réordonner) : un simple clic
+// (pas de glisser réel) pose toujours un repère à cet endroit — un clic
+// MAINTENU et déplacé scrube la séquence à la place, comme sur la piste des
+// segments juste en-dessous (_basketSeqMouseDown/_basketSeekSeqRatio, même
+// mécanisme, juste déclenché depuis la lane des repères).
+function _basketMarkerLaneMouseDown(e) {
     const lane = document.getElementById('basketSeqMarkers');
     if(!lane) return;
-    _basketDeselectSeqMarker();
-    const rect = lane.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    _basketAddSeqMarkerAt(ratio * _basketSeqTotalDuration());
+    const startX = e.clientX;
+    let dragged = false;
+    const onMove = (e2) => {
+        if(!dragged && Math.abs(e2.clientX - startX) < 3) return;
+        dragged = true;
+        const rect = lane.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e2.clientX - rect.left) / rect.width));
+        _basketSeekSeqRatio(ratio);
+    };
+    const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if(dragged) return;  // le scrub a déjà eu lieu pendant le glisser, rien de plus à faire
+        _basketDeselectSeqMarker();
+        const rect = lane.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (startX - rect.left) / rect.width));
+        _basketAddSeqMarkerAt(ratio * _basketSeqTotalDuration());
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
 }
 
 // Repère le plus proche de `pos` (secondes-séquence) sous le seuil `tolSec`,

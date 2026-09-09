@@ -77,10 +77,24 @@ function _lutLoadAssign(pid) {
         const saved = localStorage.getItem('derush_lut_assign_' + pid);
         if (saved) _lutAssign = Object.assign({cameras: {}, clips: {}}, JSON.parse(saved));
     } catch(e) {}
+    // Retour terrain : « je veux que quand je quitte le logiciel et le relance,
+    // que la LUT apparaisse bien sur les clips où je l'ai appliquée ». Les
+    // assignations elles-mêmes (quelle LUT + quels réglages par clip/caméra)
+    // étaient déjà persistées ci-dessus — ce qui manquait, c'est l'interrupteur
+    // maître de preview (_lutEnabled), jusqu'ici toujours remis à `false` au
+    // démarrage (commentaire d'origine : "session, pas persisté"). Sans ça,
+    // rien ne s'affichait au relancement tant qu'on n'avait pas re-cliqué sur
+    // 🎨, même si toutes les données étaient bien là. Persisté par projet,
+    // comme le reste de l'assignation LUT.
+    try { _lutEnabled = localStorage.getItem('derush_lut_enabled_' + pid) === '1'; } catch(e) { _lutEnabled = false; }
 }
 function _lutPersistAssign() {
     if (!currentProjectId) return;
     try { localStorage.setItem('derush_lut_assign_' + currentProjectId, JSON.stringify(_lutAssign)); } catch(e) {}
+}
+function _lutPersistEnabled() {
+    if (!currentProjectId) return;
+    try { localStorage.setItem('derush_lut_enabled_' + currentProjectId, _lutEnabled ? '1' : '0'); } catch(e) {}
 }
 
 // ─── Résolution : quelle LUT + réglages s'appliquent à ce plan ? ────────────
@@ -133,6 +147,68 @@ function _lutSettingsUpdateUI() {
     if (cv) cv.textContent = (_lutSettings.contrast >= 0 ? '+' : '') + Math.round(_lutSettings.contrast * 100) + '%';
     if (tv) tv.textContent = (_lutSettings.temperature >= 0 ? '+' : '') + Math.round(_lutSettings.temperature * 100);
     if (nv) nv.textContent = (_lutSettings.tint >= 0 ? '+' : '') + Math.round(_lutSettings.tint * 100);
+    _lutApplyPanelCollapsed();
+}
+
+// Réduit/agrandit le panneau de réglages LUT sans le fermer — retour terrain :
+// « pouvoir la diminuer pour que ça ne prenne pas trop de place », puis, une
+// fois un premier jet (titre+Reset toujours visibles) livré : « je veux juste
+// une petite languette collée à la barre latérale au niveau de la sélection
+// des LUTs, comme un marque-page qui sortirait légèrement d'un livre. Quand
+// on clique dessus, la fenêtre de réglages réapparaît. » Réduit = le panneau
+// se cache ENTIÈREMENT (comme fermé) et #lutPanelTab (une languette collée au
+// bord de .player-toolbar, alignée sur le bouton 🎨 LUT) prend sa place.
+// Distinct du show/hide existant lié à _lutEnabled + LUT résolue (cf.
+// _lutRefreshForActiveClip, qui pilote _lutPanelShouldShow ci-dessous) :
+// replié, le "panneau" (sous une forme ou une autre — panneau complet ou
+// languette) reste affiché, il ne se referme pas tout seul. Préférence de
+// réduction persistée (pas de LUT actif au premier lancement du logiciel →
+// sans persistance, l'utilisateur la replierait à chaque session).
+let _lutPanelCollapsed = false;
+try { _lutPanelCollapsed = localStorage.getItem('derush_lut_panel_collapsed') === '1'; } catch(e) {}
+// Reflète si un panneau doit être visible EN CE MOMENT (LUT résolue + preview
+// active) — mis à jour uniquement par _lutRefreshForActiveClip(), lu ici pour
+// savoir s'il faut tout cacher ou basculer entre panneau complet et languette.
+let _lutPanelShouldShow = false;
+
+function _lutApplyPanelCollapsed() {
+    const panel = document.getElementById('lutSettingsPanel');
+    const tab = document.getElementById('lutPanelTab');
+    if (!panel || !tab) return;
+    if (!_lutPanelShouldShow) {
+        panel.style.display = 'none';
+        tab.style.display = 'none';
+        return;
+    }
+    if (_lutPanelCollapsed) {
+        panel.style.display = 'none';
+        tab.style.display = 'block';
+        _lutPositionPanelTab();
+    } else {
+        panel.style.display = 'block';
+        tab.style.display = 'none';
+    }
+}
+
+// Aligne la languette sur le bouton 🎨 LUT de la barre d'outils verticale du
+// lecteur — recalculé à chaque affichage (pas mémorisé) pour rester juste si
+// la fenêtre a été redimensionnée entre-temps, même technique que le panneau
+// du mixeur BWF (js/bwf-mixer.js) pour un problème similaire.
+function _lutPositionPanelTab() {
+    const tab = document.getElementById('lutPanelTab');
+    const btn = document.getElementById('lutBtn');
+    const wrap = document.getElementById('videoWrapper');
+    if (!tab || !btn || !wrap) return;
+    const btnRect = btn.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    tab.style.top = Math.round(btnRect.top - wrapRect.top + (btnRect.height - tab.offsetHeight) / 2) + 'px';
+    tab.style.right = Math.round(wrapRect.right - btnRect.left) + 'px';
+}
+
+function _lutTogglePanelCollapsed() {
+    _lutPanelCollapsed = !_lutPanelCollapsed;
+    try { localStorage.setItem('derush_lut_panel_collapsed', _lutPanelCollapsed ? '1' : '0'); } catch(e) {}
+    _lutApplyPanelCollapsed();
 }
 
 function setLutSetting(key, value) {
@@ -144,6 +220,10 @@ function setLutSetting(key, value) {
     _lutApplySettings();
     _lutPersistAssign();
     _lutUpdateScopeInfo({lutName: entry.lutName, scope: 'clip'});
+    // Répercute en direct si le pré-montage affiche ce clip pendant qu'on règle
+    // (retour terrain : une LUT posée sur un clip doit aussi valoir pour ses
+    // sélections dans le pré-montage) — no-op silencieux sinon (cf. sa propre garde).
+    if (typeof _basketLutRefresh === 'function') _basketLutRefresh();
 }
 
 function resetLutSettings() {
@@ -155,6 +235,7 @@ function resetLutSettings() {
     _lutApplySettings();
     _lutPersistAssign();
     _lutUpdateScopeInfo({lutName: entry.lutName, scope: 'clip'});
+    if (typeof _basketLutRefresh === 'function') _basketLutRefresh();
 }
 
 function toggleLutSettingsPanel() {
@@ -322,29 +403,37 @@ void main() {
     return {gl, prog, vao, videoTex, lutTex, u_lutSize, u_intensity, u_exposure, u_saturation, u_contrast, u_temperature, u_tint, u_time, lutUploaded: false};
 }
 
-function _lutApplySettings() {
-    if (!_lutGL || !_lutSettings) return;
-    const {gl, u_intensity, u_exposure, u_saturation, u_contrast, u_temperature, u_tint} = _lutGL;
-    gl.useProgram(_lutGL.prog);
-    gl.uniform1f(u_intensity, _lutSettings.intensity);
-    gl.uniform1f(u_exposure, _lutSettings.exposure);
-    gl.uniform1f(u_saturation, _lutSettings.saturation);
-    gl.uniform1f(u_contrast, _lutSettings.contrast);
-    gl.uniform1f(u_temperature, _lutSettings.temperature);
-    gl.uniform1f(u_tint, _lutSettings.tint);
+// `glCtx`/`settings` optionnels — par défaut le lecteur principal (_lutGL/_lutSettings),
+// mais réutilisée telle quelle pour le pipeline LUT indépendant du pré-montage
+// (_basketLutGL, cf. section dédiée plus bas) : même shader, même logique d'upload,
+// juste un contexte GL et des réglages différents.
+function _lutApplySettings(glCtx, settings) {
+    glCtx = glCtx || _lutGL;
+    settings = settings || _lutSettings;
+    if (!glCtx || !settings) return;
+    const {gl, u_intensity, u_exposure, u_saturation, u_contrast, u_temperature, u_tint} = glCtx;
+    gl.useProgram(glCtx.prog);
+    gl.uniform1f(u_intensity, settings.intensity);
+    gl.uniform1f(u_exposure, settings.exposure);
+    gl.uniform1f(u_saturation, settings.saturation);
+    gl.uniform1f(u_contrast, settings.contrast);
+    gl.uniform1f(u_temperature, settings.temperature);
+    gl.uniform1f(u_tint, settings.tint);
 }
 
-function _lutUploadLUT() {
-    if (!_lutGL || !_lut) return;
-    const {gl, lutTex, u_lutSize} = _lutGL;
+function _lutUploadLUT(glCtx, lutData) {
+    glCtx = glCtx || _lutGL;
+    lutData = lutData || _lut;
+    if (!glCtx || !lutData) return;
+    const {gl, lutTex, u_lutSize} = glCtx;
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_3D, lutTex);
     // Upload comme float 3D texture (RGB16F). Trilinéaire gratuite via LINEAR.
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB16F, _lut.size, _lut.size, _lut.size,
-                  0, gl.RGB, gl.FLOAT, _lut.data);
-    gl.uniform1f(u_lutSize, _lut.size);
-    _lutGL.lutUploaded = true;
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB16F, lutData.size, lutData.size, lutData.size,
+                  0, gl.RGB, gl.FLOAT, lutData.data);
+    gl.uniform1f(u_lutSize, lutData.size);
+    glCtx.lutUploaded = true;
 }
 
 function _renderLUT() {
@@ -467,11 +556,13 @@ function confirmLutScope() {
     _lutPersistAssign();
     closeLutScopeModal();
     _lutEnabled = true;
+    _lutPersistEnabled();
     _lutRefreshForActiveClip();
 }
 
 function toggleLUT() {
     _lutEnabled = !_lutEnabled;
+    _lutPersistEnabled();
     _lutRefreshForActiveClip();
 }
 
@@ -517,16 +608,27 @@ async function _lutRefreshForActiveClip() {
     const clipAtCall = activeClip;
     const c = document.getElementById('lutCanvas');
     const badge = document.getElementById('lutBadge');
-    const panel = document.getElementById('lutSettingsPanel');
+
+    // Répercute dans le pré-montage à chaque sortie de cette fonction (retour
+    // terrain : une LUT posée sur un clip doit aussi valoir pour ses sélections
+    // dans le pré-montage) — _lutEnabled (le toggle maître) est déjà à jour
+    // avant l'appel de _lutRefreshForActiveClip() quel que soit le chemin
+    // emprunté ici, donc un simple appel en sortie de CHAQUE branche suffit ;
+    // _basketLutRefresh résout la LUT du clip AFFICHÉ DANS LE PRÉ-MONTAGE de
+    // son côté (pas forcément le même que activeClip ici), sa propre garde
+    // gère le cas où le pré-montage n'est pas ouvert.
+    const refreshBasket = () => { if (typeof _basketLutRefresh === 'function') _basketLutRefresh(); };
 
     const resolved = _lutResolveFor(clipAtCall);
     if (!resolved) {
         if (c) c.style.display = 'none';
         if (badge) badge.style.display = 'none';
-        if (panel) panel.style.display = 'none';
+        _lutPanelShouldShow = false;
+        _lutApplyPanelCollapsed();
         _lutUpdateBtnVisual(null);
         _lutUpdateScopeInfo(null);
         if (_lutRaf) { cancelAnimationFrame(_lutRaf); _lutRaf = null; }
+        refreshBasket();
         return;
     }
 
@@ -535,9 +637,11 @@ async function _lutRefreshForActiveClip() {
     if (!parsed) {
         if (c) c.style.display = 'none';
         if (badge) badge.style.display = 'none';
-        if (panel) panel.style.display = 'none';
+        _lutPanelShouldShow = false;
+        _lutApplyPanelCollapsed();
         _lutUpdateBtnVisual(null);
         _lutUpdateScopeInfo(null);
+        refreshBasket();
         return;
     }
 
@@ -554,12 +658,15 @@ async function _lutRefreshForActiveClip() {
     const shouldRender = _lutEnabled;
     if (c) c.style.display = shouldRender ? 'block' : 'none';
     if (badge) badge.style.display = shouldRender ? 'block' : 'none';
-    if (panel) {
-        panel.style.display = shouldRender ? 'block' : 'none';
-        if (shouldRender) _lutSettingsUpdateUI();
-    }
+    // AVANT _lutSettingsUpdateUI()/_lutApplyPanelCollapsed() : la languette
+    // réduite se positionne sur #lutBtn (_lutPositionPanelTab), qui doit donc
+    // déjà être visible (display:'') pour que getBoundingClientRect() renvoie
+    // sa vraie position plutôt que des zéros.
     _lutUpdateBtnVisual(resolved);
     _lutUpdateScopeInfo(resolved);
+    _lutPanelShouldShow = shouldRender;
+    if (shouldRender) _lutSettingsUpdateUI();  // met à jour les valeurs des sliders ET appelle _lutApplyPanelCollapsed() en sortie
+    else _lutApplyPanelCollapsed();
 
     if (shouldRender) {
         if (_lutRaf) cancelAnimationFrame(_lutRaf);
@@ -567,4 +674,5 @@ async function _lutRefreshForActiveClip() {
     } else {
         if (_lutRaf) { cancelAnimationFrame(_lutRaf); _lutRaf = null; }
     }
+    refreshBasket();
 }

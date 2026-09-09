@@ -328,6 +328,12 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 9 septembre 2026 (v0.3.69)</div>
   <a href="#basket-seq-drag-reorder">Réordonner les clips directement sur la timeline de séquence</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.70–0.3.74)</div>
+  <a href="#lut-panel-collapse-basket">Panneau LUT réductible, LUT dans le pré-montage, filtre "sélection faite", scrub sur la lane des repères</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.75)</div>
+  <a href="#lut-enabled-persisted">La preview LUT réapparaît automatiquement au relancement</a>
 </nav>
 
 <main>
@@ -3555,8 +3561,42 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="lut-panel-collapse-basket">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.70–0.3.74</span>
+    <span class="entry-title">Panneau LUT réductible, LUT dans le pré-montage, filtre "sélection faite", scrub sur la lane des repères</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Quatre retours terrain traités ensemble.</p>
+
+  <p><strong>1. Panneau de réglages LUT réductible</strong> — trois retours terrain successifs pour trouver le bon comportement : « pouvoir la diminuer pour que ça ne prenne pas trop de place », puis « je veux que Réglages LUT et Reset ne soit plus visible, juste un petit bout qui dépasse, comme Photoshop », puis enfin « je veux juste une petite languette collée à la barre latérale au niveau de la sélection des LUTs, comme un marque-page qui sortirait légèrement d'un livre ». Le bouton <strong>▾</strong> fait maintenant disparaître le panneau entièrement — une petite languette apparaît à la place, collée contre le bouton <strong>🎨 LUT</strong> de la barre d'outils verticale. Cliquer la languette rouvre le panneau complet. Préférence mémorisée d'une session à l'autre.</p>
+
+  <p><strong>2. La LUT s'affiche aussi dans le pré-montage</strong> — « quand j'applique une LUT sur un clip, ça affecte aussi les sélections de ce clip dans le pré-montage ». La LUT assignée à un clip (par caméra ou par plan, avec ses réglages propres) s'applique désormais automatiquement à toutes ses sélections dans votre bobine 📽️, tant que la prévisualisation LUT (🎨) est active — aucun réglage séparé à faire, l'interrupteur et l'assignation sont partagés avec le lecteur principal.</p>
+
+  <p><strong>3. Filtre "sélection déjà faite"</strong> — nouveau chip <strong>✂️</strong> dans la barre de filtres (en haut à gauche de la liste des clips) : ne garde que les clips ayant déjà au moins une sélection créée. Pratique pour revenir sur son travail de dérushage déjà commencé sans se laisser distraire par les clips pas encore traités.</p>
+
+  <p><strong>4. La lane des repères navigue au lieu de toujours en poser un</strong> — « plutôt que de placer un repère quand je clique au-dessus de la timeline, que je puisse me déplacer dans la sélection quand je maintiens le clic gauche ». Un clic simple sur la bande des repères en pose toujours un ; un clic <strong>maintenu et glissé</strong> navigue dans la séquence à la place (même comportement que la piste des clips juste en-dessous). Le bouton ♦ Repère et la touche <code>M</code> restent le moyen le plus direct de poser un repère sans ambiguïté.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="lut-enabled-persisted">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.75</span>
+    <span class="entry-title">La preview LUT réapparaît automatiquement au relancement</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain : « je veux aussi que ça garde en mémoire pour chaque clip le fait qu'on a appliqué des réglages au LUT, mais aussi quand je quitte le logiciel et le relance que la LUT apparaisse bien sur les clips où je l'ai appliqué (avec ses réglages propres). »</p>
+
+  <p>Les réglages LUT propres à chaque plan étaient déjà mémorisés d'une session à l'autre — ce qui manquait, c'est que l'interrupteur général <strong>🎨 LUT</strong> repartait toujours désactivé au lancement de l'application, même si vous l'aviez laissé actif en quittant. Résultat : rien ne s'affichait tant qu'on n'avait pas re-cliqué sur 🎨, alors que toutes les LUT et tous les réglages étaient bel et bien encore là. Corrigé : l'état de l'interrupteur est maintenant mémorisé par projet — s'il était actif à la fermeture, il l'est de nouveau à la réouverture, et chaque plan retrouve directement sa LUT avec ses réglages propres.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 9 septembre 2026 (v0.3.69 — réordonner les clips directement sur la timeline de séquence)
+  Derush Tool · Journal de développement · Dernière mise à jour 9 septembre 2026 (v0.3.75 — la preview LUT réapparaît automatiquement au relancement)
 </div>
 
 </main>

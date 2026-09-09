@@ -247,6 +247,13 @@
 
         /* LUT canvas overlay */
         #lutCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; z-index: 1; }
+        /* Panneau LUT réduit : le panneau se cache entièrement (comme fermé) et une
+           languette séparée (#lutPanelTab) prend sa place, collée au bord de la
+           barre d'outils verticale du lecteur — façon marque-page qui dépasse d'un
+           livre. Position verticale calculée en JS (_lutPositionPanelTab, alignée
+           sur le bouton 🎨 LUT) plutôt qu'en CSS fixe : sa hauteur dans la colonne
+           d'icônes peut changer si d'autres boutons y apparaissent/disparaissent. */
+        #lutPanelTab { display: none; position: absolute; z-index: 3; width: 12px; height: 30px; padding: 0; border-radius: 6px 0 0 6px; background: var(--accent); border: 1px solid var(--border); border-right: none; cursor: pointer; box-shadow: -2px 0 6px rgba(0,0,0,.4); }
         #lutBadge { display: none; position: absolute; top: 8px; right: 8px; background: rgba(99,102,241,.9); color: #fff; font-size: 0.7em; font-weight: 700; padding: 2px 8px; border-radius: 4px; z-index: 2; pointer-events: none; }
         /* Overlay cadrage : masques + ligne de cadre + label */
         /* Global (pas seulement #aspectOverlay) : les overlays cadre du comparateur et du
@@ -804,6 +811,7 @@
                 <button class="fchip" data-filter="3" onclick="setFilter('3')">⭐⭐⭐</button>
                 <button class="fchip" data-filter="2+" onclick="setFilter('2+')">⭐⭐+</button>
                 <button class="fchip" data-filter="markers" onclick="setFilter('markers')">📌</button>
+                <button class="fchip" data-filter="hasselect" onclick="setFilter('hasselect')" title="Seulement les clips avec au moins une sélection créée">✂️</button>
                 <button class="fchip" data-filter="unseen" onclick="setFilter('unseen')">Non vus</button>
                 <button class="fchip" data-filter="rejected" onclick="setFilter('rejected')">❌</button>
                 <button class="fchip" data-filter="disagree" onclick="setFilter('disagree')">⚡ Désaccord</button>
@@ -1114,28 +1122,34 @@
                     <span id="aspLabel"></span>
                 </div>
                 <div id="lutSettingsPanel" style="display:none;position:absolute;top:8px;right:56px;z-index:3;background:rgba(15,15,22,.96);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:240px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.6);">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;">
                         <strong style="font-size:0.82em;color:var(--accent);">🎚️ Réglages LUT</strong>
-                        <button onclick="resetLutSettings()" style="font-size:0.7em;padding:1px 6px;background:none;border:1px solid var(--border);color:var(--dim);">Reset</button>
+                        <div style="display:flex;gap:4px;">
+                            <button onclick="resetLutSettings()" style="font-size:0.7em;padding:1px 6px;background:none;border:1px solid var(--border);color:var(--dim);">Reset</button>
+                            <button onclick="_lutTogglePanelCollapsed()" title="Réduire le panneau" style="font-size:0.7em;padding:1px 6px;background:none;border:1px solid var(--border);color:var(--dim);">▾</button>
+                        </div>
                     </div>
-                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Intensité <span id="lutIntensityVal" style="color:var(--text);float:right;font-family:monospace;">100%</span></label>
-                    <input type="range" id="lutIntensity" min="0" max="1" step="0.01" value="1" oninput="setLutSetting('intensity', this.value)" style="width:100%;margin-bottom:10px;">
-                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Exposition <span id="lutExposureVal" style="color:var(--text);float:right;font-family:monospace;">+0.00 EV</span></label>
-                    <input type="range" id="lutExposure" min="-2" max="2" step="0.05" value="0" oninput="setLutSetting('exposure', this.value)" style="width:100%;margin-bottom:10px;">
-                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Saturation <span id="lutSaturationVal" style="color:var(--text);float:right;font-family:monospace;">100%</span></label>
-                    <input type="range" id="lutSaturation" min="0" max="2" step="0.01" value="1" oninput="setLutSetting('saturation', this.value)" style="width:100%;margin-bottom:10px;">
-                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Contraste <span id="lutContrastVal" style="color:var(--text);float:right;font-family:monospace;">0%</span></label>
-                    <input type="range" id="lutContrast" min="-1" max="1" step="0.01" value="0" oninput="setLutSetting('contrast', this.value)" style="width:100%;margin-bottom:10px;">
-                    <div style="border-top:1px solid var(--border);margin:10px 0;padding-top:8px;font-size:0.7em;color:var(--dim);text-transform:uppercase;letter-spacing:0.03em;">Balance des couleurs</div>
-                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Température <span id="lutTemperatureVal" style="color:var(--text);float:right;font-family:monospace;">0</span></label>
-                    <input type="range" id="lutTemperature" min="-1" max="1" step="0.01" value="0" oninput="setLutSetting('temperature', this.value)" style="width:100%;margin-bottom:10px;">
-                    <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Teinte (vert/magenta) <span id="lutTintVal" style="color:var(--text);float:right;font-family:monospace;">0</span></label>
-                    <input type="range" id="lutTint" min="-1" max="1" step="0.01" value="0" oninput="setLutSetting('tint', this.value)" style="width:100%;">
-                    <div id="lutRemoveWrap" style="display:none;border-top:1px solid var(--border);margin-top:10px;padding-top:8px;">
-                        <div id="lutScopeInfo" style="font-size:0.7em;color:var(--dim);margin-bottom:6px;"></div>
-                        <button id="lutRemoveBtn" onclick="_lutRemoveForActiveClip()" style="width:100%;font-size:0.72em;padding:4px;background:none;border:1px solid var(--border);color:var(--dim);">🗑 Retirer la LUT de ce plan</button>
+                    <div style="margin-top:10px;">
+                        <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Intensité <span id="lutIntensityVal" style="color:var(--text);float:right;font-family:monospace;">100%</span></label>
+                        <input type="range" id="lutIntensity" min="0" max="1" step="0.01" value="1" oninput="setLutSetting('intensity', this.value)" style="width:100%;margin-bottom:10px;">
+                        <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Exposition <span id="lutExposureVal" style="color:var(--text);float:right;font-family:monospace;">+0.00 EV</span></label>
+                        <input type="range" id="lutExposure" min="-2" max="2" step="0.05" value="0" oninput="setLutSetting('exposure', this.value)" style="width:100%;margin-bottom:10px;">
+                        <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Saturation <span id="lutSaturationVal" style="color:var(--text);float:right;font-family:monospace;">100%</span></label>
+                        <input type="range" id="lutSaturation" min="0" max="2" step="0.01" value="1" oninput="setLutSetting('saturation', this.value)" style="width:100%;margin-bottom:10px;">
+                        <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Contraste <span id="lutContrastVal" style="color:var(--text);float:right;font-family:monospace;">0%</span></label>
+                        <input type="range" id="lutContrast" min="-1" max="1" step="0.01" value="0" oninput="setLutSetting('contrast', this.value)" style="width:100%;margin-bottom:10px;">
+                        <div style="border-top:1px solid var(--border);margin:10px 0;padding-top:8px;font-size:0.7em;color:var(--dim);text-transform:uppercase;letter-spacing:0.03em;">Balance des couleurs</div>
+                        <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Température <span id="lutTemperatureVal" style="color:var(--text);float:right;font-family:monospace;">0</span></label>
+                        <input type="range" id="lutTemperature" min="-1" max="1" step="0.01" value="0" oninput="setLutSetting('temperature', this.value)" style="width:100%;margin-bottom:10px;">
+                        <label style="display:block;font-size:0.74em;color:var(--dim);margin-bottom:2px;">Teinte (vert/magenta) <span id="lutTintVal" style="color:var(--text);float:right;font-family:monospace;">0</span></label>
+                        <input type="range" id="lutTint" min="-1" max="1" step="0.01" value="0" oninput="setLutSetting('tint', this.value)" style="width:100%;">
+                        <div id="lutRemoveWrap" style="display:none;border-top:1px solid var(--border);margin-top:10px;padding-top:8px;">
+                            <div id="lutScopeInfo" style="font-size:0.7em;color:var(--dim);margin-bottom:6px;"></div>
+                            <button id="lutRemoveBtn" onclick="_lutRemoveForActiveClip()" style="width:100%;font-size:0.72em;padding:4px;background:none;border:1px solid var(--border);color:var(--dim);">🗑 Retirer la LUT de ce plan</button>
+                        </div>
                     </div>
                 </div>
+                <button id="lutPanelTab" onclick="_lutTogglePanelCollapsed()" title="Afficher les réglages LUT"></button>
             </div>
             
             <div class="draw-tools" style="display:none;" id="drawTools">
@@ -2311,6 +2325,7 @@ function renderClipList() {
         if(activeFilter === '3' && rating != 3) return;
         if(activeFilter === '2+' && ratingNum < 2) return;
         if(activeFilter === 'markers' && !markerCount) return;
+        if(activeFilter === 'hasselect' && !hasSelect) return;
         if(activeFilter === 'unseen' && (isSeen || hasAnyNote)) return;
         if(activeFilter === 'rejected' && rating !== 'X') return;
         if(activeSearch) {
@@ -4568,7 +4583,7 @@ function renderSavedFilters() {
 function _saveCurrentFilter() {
     const camVal = (document.getElementById('filterCam') || {}).value || '';
     const dayVal = (document.getElementById('filterDay') || {}).value || '';
-    const labels = {all:'Tous','3':'⭐⭐⭐','2+':'⭐⭐+',markers:'📌',unseen:'Non vus',rejected:'❌',disagree:'⚡'};
+    const labels = {all:'Tous','3':'⭐⭐⭐','2+':'⭐⭐+',markers:'📌',hasselect:'✂️',unseen:'Non vus',rejected:'❌',disagree:'⚡'};
     const parts = [];
     if (activeFilter && activeFilter !== 'all') parts.push(labels[activeFilter] || activeFilter);
     if (camVal) parts.push('📷 ' + camVal.replace('ILME-',''));
@@ -4759,6 +4774,7 @@ _loadVersionAndChangelog();
             <div class="basket-viewer-videowrap" id="basketViewerVideoWrap">
                 <video id="basketVid" class="bv-active" playsinline></video>
                 <video id="basketVidB" playsinline></video>
+                <canvas id="basketLutCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:0;display:none;pointer-events:none;"></canvas>
                 <p id="basketViewerPlaceholder" style="color:rgba(255,255,255,.4);font-size:0.85em;position:absolute;">Clique une sélection à gauche pour la charger ici</p>
             </div>
             <div class="basket-viewer-info">
@@ -4769,7 +4785,7 @@ _loadVersionAndChangelog();
                 <button id="basketAddMarkerBtn" onclick="_basketAddSeqMarkerAtPlayhead()" title="Ajouter un repère à la position de lecture (raccourci : M)"><span class="bseq-marker-diamond"></span> Repère</button>
             </div>
             <div class="basket-seq-timeline-scroll" id="basketSeqTimelineScroll" onwheel="_basketSeqWheel(event)">
-                <div class="basket-seq-markers" id="basketSeqMarkers" onclick="_basketMarkerLaneClick(event)" title="Clic : ajouter un repère ici · Touche M : repère à la position de lecture · Clic sur un repère : y aller · Suppr : le retirer (une fois sélectionné)"></div>
+                <div class="basket-seq-markers" id="basketSeqMarkers" onmousedown="_basketMarkerLaneMouseDown(event)" title="Clic : ajouter un repère ici · Glisser (maintenir) : se déplacer dans la séquence · Touche M : repère à la position de lecture · Clic sur un repère : y aller · Suppr : le retirer (une fois sélectionné)"></div>
                 <div class="basket-seq-timeline" id="basketSeqTimeline" onmousedown="_basketSeqMouseDown(event)">
                     <div class="basket-seq-head" id="basketSeqHead"></div>
                 </div>
