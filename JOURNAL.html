@@ -310,6 +310,24 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 2 septembre 2026 (v0.3.63)</div>
   <a href="#marker-popup-fullscreen">Fenêtre "Nouveau marqueur" invisible en plein écran</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.64)</div>
+  <a href="#select-popup-tag-autocomplete">Autocomplete des tags dans la fenêtre de sélection (pré-montage)</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.65)</div>
+  <a href="#basket-transition-freeze">Gel vidéo entre deux sélections du pré-montage</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.66)</div>
+  <a href="#basket-trim-precision">Précision de trim façon DaVinci dans le pré-montage</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.67)</div>
+  <a href="#basket-seq-markers">Repères de séquence + magnétisme dans le pré-montage</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.68)</div>
+  <a href="#basket-duplicate-item">Dupliquer une sélection dans le pré-montage</a>
+
+  <div class="nav-section">Session 9 septembre 2026 (v0.3.69)</div>
+  <a href="#basket-seq-drag-reorder">Réordonner les clips directement sur la timeline de séquence</a>
 </nav>
 
 <main>
@@ -3425,8 +3443,120 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="select-popup-tag-autocomplete">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.64</span>
+    <span class="entry-title">Autocomplete des tags dans la fenêtre de sélection (pré-montage)</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Demande terrain : « quand je choisis une sélection qui apparaîtra dans le pré-montage, quand la fenêtre demande les tags, je voudrais que ça propose un menu déroulant comme quand j'écris un tag sur la vidéo ». Le champ tag de la fenêtre ✂️ Nouvelle sélection affichait déjà une liste de suggestions (<code>#selectPopupTagSuggest</code>), mais figée : tous les tags déjà créés dans le projet, non filtrée par ce qui était tapé — contrairement au champ tag du panneau de notes (<code>#tagInput</code>) qui affine sa liste lettre après lettre.</p>
+
+  <p>La liste est maintenant filtrée en direct par sous-séquence (<code>_tagSubsequenceScore</code>, déjà utilisé par l'autocomplete du panneau de notes — même fonction, réutilisée telle quelle) : les lettres tapées doivent apparaître dans le tag existant dans le même ordre, pas forcément contiguës (ex. <code>gh</code> matche <code>golden hour</code>), triée par pertinence puis alphabétique, limitée à 8 résultats. Champ vide → liste complète pour parcourir librement, comme avant.</p>
+
+  <p>Navigation clavier alignée sur le champ tag du panneau de notes : ↑/↓ déplace la suggestion surlignée (<code>_spTagAcIndex</code>) dans <code>#selectPopupTagSuggest</code>, Entrée valide la suggestion surlignée s'il y en a une (sinon crée un tag libre avec le texte tapé, comportement inchangé), Échap désélectionne la surbrillance sans vider le champ. Fonctions ajoutées dans <code>js/selects.js</code> : <code>_spCurrentMatches(val)</code>, <code>_spOnTagInput()</code> (câblé en <code>oninput</code> sur <code>#selectPopupTagInput</code>) ; <code>_spRenderTagSuggestions()</code> et <code>_spTagInputKeydown()</code> étendues plutôt que remplacées.</p>
+
+  <p>Le menu reste la liste inline existante (pas un popup flottant façon <code>#tagAutocomplete</code>) : la fenêtre de sélection n'est pas dans un conteneur à <code>overflow</code> restreint comme <code>.note-area</code>, donc pas besoin du repositionnement <code>position:fixed</code>/flip-vers-le-haut qu'avait nécessité l'autocomplete du panneau de notes (voir <code>CLAUDE.md</code> § Autocomplete tags).</p>
+
+  <p>Retour terrain immédiat : « la fenêtre change de taille en composant un tag ». Premier correctif — hauteur <strong>fixe</strong> sur <code>.sp-tag-suggest</code> (<code>height:74px</code> au lieu de <code>max-height</code>, + <code>align-content:flex-start</code> pour garder les puces alignées en haut plutôt qu'étirées) — insuffisant : « la fenêtre continue de changer de taille et de forme ».</p>
+
+  <p>Vraie cause, en largeur cette fois : <code>.marker-popup</code> (classe partagée par les popups marqueur et sélection) n'avait qu'un <code>min-width:360px</code>, jamais de largeur fixe. Un conteneur <code>flex-wrap</code> sans largeur imposée par un ancêtre se dimensionne en <em>shrink-to-fit</em> : le navigateur essaie d'abord de caser tout le contenu sur une seule ligne avant d'envisager le retour à la ligne — donc plus il y avait de suggestions de tags filtrées, plus toute la popup s'élargissait pour les accueillir sans wrap, puis se recentrait (elle est positionnée en <code>top/left:50%</code> + <code>transform:translate(-50%,-50%)</code>), donnant l'impression d'une fenêtre qui change de taille <em>et</em> de position à chaque lettre tapée. Fix : <code>.marker-popup { width: 400px; }</code> à la place de <code>min-width</code> — largeur désormais fixe, le flex-wrap des suggestions et des puces de tags déjà posés est contraint à l'intérieur, plus aucune variation de forme possible.</p>
+
+  <p>Retour terrain suivant : 400px se sentait plus étroit qu'avant (quand la popup pouvait s'élargir librement au contenu). Élargi à <code>width: 520px</code> — toujours fixe, juste une valeur plus confortable.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-transition-freeze">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.65</span>
+    <span class="entry-title">Gel vidéo entre deux sélections du pré-montage</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain : « dans prémontage la transition entre deux sélections n'est pas très fluide, parfois ça freeze un peu la vidéo qui vient ». Le double-lecteur crossfade du pré-montage (📽️, <code>js/selects.js</code>) préchargeait déjà systématiquement le segment suivant dans un lecteur caché pour basculer instantanément — sauf dans un cas précis : quand le segment suivant provient du <strong>même rush</strong> que celui en cours de lecture. L'hypothèse d'origine (« même clip → un seek direct suffit, il est déjà instantané ») ne tenait pas : sur un flux vidéo H.264/H.265 en cours de lecture, un seek doit retrouver la keyframe la plus proche et redécoder depuis là, ce qui gèle l'image une fraction de seconde — exactement le symptôme décrit. Et le pré-montage contient très souvent plusieurs sélections découpées dans le même long rush, donc c'était le cas le plus fréquent, pas un cas rare.</p>
+
+  <p>Deuxième faiblesse plus fine : le chemin rapide de bascule acceptait un lecteur préchargé dès qu'il avait l'image du point de reprise disponible, sans garantie de pouvoir enchaîner la lecture sans re-tamponner aussitôt — un gel pouvait donc se produire juste après la bascule plutôt qu'avant.</p>
+
+  <p>Fix (premier jet) : le segment suivant était rendu <strong>toujours</strong> préchargé en arrière-plan, même quand c'est le même fichier source (identifié précisément par clip <em>et</em> par sélection, un même rush pouvant fournir plusieurs sélections différentes dans le pré-montage) — et la bascule n'avait lieu que si ce préchargement était <strong>réellement</strong> prêt à enchaîner la lecture, pas juste "chargé". Le chemin de repli (pause → seek → attend l'évènement <code>seeked</code> → reprend) restait disponible si le préchargement n'avait pas eu le temps de finir, sans dégrader la réactivité du <strong>scrub</strong> (glisser sur la timeline de séquence), qui garde son seek instantané d'origine.</p>
+
+  <p><strong>Corrigé le jour même</strong> — retour terrain sur la build Electron packagée : « ça a crashé lorsque j'ai lu les clips dans prémontage, notamment au niveau des transitions. Un noir entre chaque clip. Après deux lectures, crash. » Le pré-montage contient très souvent une <strong>suite</strong> de sélections découpées dans le même rush (pas un cas isolé) — le préchargement "toujours, même même clip" du premier jet déclenchait alors un rechargement complet du fichier à chaque transition de cette suite, alors qu'il était déjà en train d'être décodé dans l'autre lecteur. Ce rechargement n'avait presque jamais le temps de finir → flash noir à chaque transition → épuisement des décodeurs vidéo du renderer Electron → crash après une ou deux lectures. <strong>Fix définitif</strong> : le préchargement redondant est supprimé pour ce cas précis (même clip que l'actif) — le chemin de repli (pause/seek/attend <code>seeked</code>/reprend), qui réutilise l'élément déjà chargé sans jamais recharger de fichier, suffisait déjà à lui seul à rendre la transition fluide. Le préchargement dans le lecteur caché reste utilisé, inchangé, pour les transitions vers un clip différent.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-trim-precision">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.66</span>
+    <span class="entry-title">Précision de trim façon DaVinci dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « je trouve l'outil de pré-montage très pratique à utiliser, notamment quand on veut raccourcir ou étendre un clip. On perd vite l'endroit précis où l'on voulait atterrir. Pourrais-tu t'inspirer fortement de DaVinci Resolve pour faire en sorte qu'il soit très pratique de faire un mini montage dans cette section ? ». Trois ajouts sur les poignées de trim de la <strong>timeline de séquence</strong> du pré-montage (📽️ → glisser le bord d'un segment).</p>
+
+  <p><strong>1. Snap sur la grille de frames</strong> : un glisser souris atterrissait auparavant sur une position en secondes flottantes arbitraires (résolution pixel de l'écran). Le point trimmé est désormais toujours arrondi à la frame exacte la plus proche, glisser souris comme trim clavier (voir ci-dessous) — plus de flou sous-frame.</p>
+
+  <p><strong>2. Bulle flottante TC + delta pendant le geste</strong> : au-dessus de la poignée qu'on manipule, affiche en continu le timecode exact du point courant et l'écart depuis le point de départ (<code>+1s04f</code> / <code>−12f</code> / <code>±0f</code>, coloré vert quand on étend, rouge quand on raccourcit) — la réponse directe à « on perd l'endroit précis où l'on voulait atterrir » : on sait toujours exactement où on est et de combien on a bougé, sans avoir à deviner.</p>
+
+  <p><strong>3. Trim armé au clavier, façon DaVinci</strong> : cliquer une poignée <strong>sans glisser</strong> ne fait plus rien — elle s'« arme » pour un ajustement clavier frame-exact, le geste de précision de référence dans DaVinci (sélectionner un point de montage puis flèches pour l'ajuster). <code>←</code>/<code>→</code> trimme d'1 frame, <code>Maj+←</code>/<code>→</code> d'1 seconde, <code>Entrée</code> valide, <code>Échap</code> annule sans rien changer. Hors trim armé, ces mêmes flèches déplacent maintenant la tête de lecture de la visionneuse pré-montage frame par frame (pour retrouver la frame exacte visée avant même de lancer un trim) — mêmes raccourcis que le lecteur principal.</p>
+
+  <p>Périmètre volontairement resserré sur la timeline de séquence du pré-montage — les poignées de sélection in/out du lecteur principal ne sont pas concernées, pas demandées par ce retour terrain.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-seq-markers">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.67</span>
+    <span class="entry-title">Repères de séquence + magnétisme dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain, dans la foulée de la précision de trim ci-dessus : « ça serait pas mal aussi de pouvoir mettre des petits marqueurs (comme dans DaVinci) qui ne sont pas les marqueurs que l'on mettait sur la vidéo avec des commentaires etc, juste des repères qui nous permettent de faire coulisser les poignées à cet endroit précis avec un peu de magnétisme. »</p>
+
+  <p>Nouvelle fine bande au-dessus de la timeline de séquence du pré-montage : <strong>clic dedans</strong> pour poser un repère à cet endroit, ou <strong>bouton ♦ Repère</strong> (en haut à gauche, même losange ambre que les repères posés) / <strong>touche <code>M</code></strong> pour en poser un à la position de lecture courante. Volontairement distincts des marqueurs annotés du lecteur principal (catégorie, description, discussion, partagés avec l'équipe) — ce sont de simples points d'accroche personnels, propres à votre pré-montage sur ce projet, sans commentaire ni catégorie.</p>
+
+  <p>Retour terrain immédiat sur le premier jet (clic = suppression) : « je ne veux pas que ça s'efface, je veux que ça avance le clip à ce niveau-là et qu'on voit l'image dans la preview. Si le marqueur est sélectionné et que j'appuie sur Suppr, je le supprime. » Revu en conséquence : <strong>cliquer un repère</strong> (petit losange ambre) le sélectionne (surbrillance verte) <strong>et avance la tête de lecture dessus</strong> — la visionneuse affiche l'image exacte à cet endroit, en pause. La <strong>suppression</strong> devient un geste séparé et volontaire : sélectionner le repère puis <code>Suppr</code>/<code>Retour arrière</code>. <code>Échap</code> désélectionne le repère (avant de fermer le pré-montage sur un second appui, ou après avoir annulé un trim armé au clavier si un trim était en cours).</p>
+
+  <p><strong>Magnétisme</strong> : glisser une poignée de trim à proximité d'un repère (rayon d'accroche fixe à l'écran, indépendant du niveau de zoom) l'aimante dessus — la poignée se cale automatiquement sur le repère plutôt que de devoir viser le pixel exact. Toujours re-calé ensuite sur la grille de frames (comme le reste du trim), donc l'accroche peut être à moins d'une frame du repère si celui-ci ne tombait pas pile sur une frame. La bulle TC affiche un petit 🧲 quand elle est effectivement accrochée. Le trim au clavier (poignée « armée », voir ci-dessus) reste volontairement non-magnétique — il est déjà exact par construction, aimanter par-dessus n'aurait fait qu'ajouter de l'imprévisibilité à un geste déjà précis.</p>
+
+  <p>Repères persistés localement par projet (pas dans les données partagées du projet — un outil d'aide au montage personnel, pas une annotation à faire remonter à l'équipe).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-duplicate-item">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.68</span>
+    <span class="entry-title">Dupliquer une sélection dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « j'aimerais aussi que l'on puisse copier coller une sélection plusieurs fois dans le prémontage. » Nouveau bouton <strong>⧉</strong> sur chaque ligne du pré-montage, à côté de ▶ et 🗑 : insère une copie de cette sélection juste après l'original dans la liste. Re-cliquez (sur l'original ou une copie) pour en ajouter d'autres — l'équivalent d'un « coller plusieurs fois », sans presse-papier séparé à gérer. Combinez avec le glisser-déposer déjà existant pour replacer chaque copie où vous le voulez dans la bobine (début, milieu, fin — pas forcément collée à l'original).</p>
+
+  <p>Chaque copie est une <strong>sélection indépendante</strong> (mêmes bornes, tags et commentaire au départ, mais son propre enregistrement) — la retrimmer depuis la timeline de séquence n'affecte ni l'original ni les autres copies. Les copies apparaissent aussi dans le panneau ✂️ Sélections du clip d'origine, suffixées « (copie) » pour les distinguer.</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-seq-drag-reorder">
+  <div class="entry-header">
+    <span class="entry-date">9 septembre 2026 · v0.3.69</span>
+    <span class="entry-title">Réordonner les clips directement sur la timeline de séquence</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « ça serait bien aussi de pouvoir, lorsqu'on clique gauche sur un clip dans la timeline, le déplacer sur celle-ci pour l'intercaler entre deux clips ou au début/fin de la séquence. Comme DaVinci. » Jusqu'ici, seul le glisser-déposer des lignes de la liste (à gauche) permettait de réordonner le pré-montage — la timeline de séquence elle-même ne servait qu'à naviguer et trimmer.</p>
+
+  <p>Glissez maintenant un clip <strong>par son corps</strong> (pas par ses bords, réservés au trim) directement sur la timeline de séquence pour le déplacer. Lâchez sur la <strong>moitié gauche ou droite</strong> d'un autre clip pour l'intercaler précisément avant ou après lui (un liseré vert indique de quel côté avant de lâcher) — visez la moitié extérieure du tout premier ou tout dernier clip pour l'envoyer en début ou fin de bobine. Annulable avec Ctrl+Z, comme les autres réorganisations.</p>
+
+  <p>Coexiste avec les poignées de trim (glisser un bord) et le scrub (cliquer pour naviguer) déjà présents sur la même timeline — chacun a sa propre zone ou son propre mécanisme de détection, sans se marcher dessus.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 2 septembre 2026 (v0.3.63 — fenêtre "Nouveau marqueur" invisible en plein écran)
+  Derush Tool · Journal de développement · Dernière mise à jour 9 septembre 2026 (v0.3.69 — réordonner les clips directement sur la timeline de séquence)
 </div>
 
 </main>

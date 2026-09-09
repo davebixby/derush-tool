@@ -347,11 +347,33 @@
            les largeurs en % des segments restent relatives à LEUR parent (la track),
            donc se recalculent automatiquement au zoom sans toucher au JS de rendu. */
         .basket-seq-timeline-scroll { margin: 6px 14px; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; }
+        .basket-seq-toolbar { display: flex; justify-content: flex-start; margin: 0 14px; }
+        .basket-seq-toolbar button { font-size: 0.75em; padding: 3px 9px; display: inline-flex; align-items: center; gap: 5px; }
+        /* Losange ambre partagé par le bouton d'ajout ET les repères posés sur la
+           timeline (.basket-seq-marker-pin ci-dessous étend cette base) — même forme,
+           même couleur, pour que le bouton affiche visuellement le symbole qu'il pose. */
+        .bseq-marker-diamond { display: inline-block; width: 8px; height: 8px; background: #fbbf24; clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%); flex-shrink: 0; }
+        /* Repères de séquence (façon DaVinci) : lane fine juste au-dessus de la piste
+           de segments, PAS liée à un clip précis (contrairement aux marqueurs annotés
+           du lecteur principal — cf. addMarker) — juste des points d'accroche pour le
+           magnétisme des poignées de trim. Largeur synchronisée avec #basketSeqTimeline
+           en JS à chaque zoom (_basketSeqWheel) pour rester alignée pendant le scroll. */
+        .basket-seq-markers { position: relative; height: 12px; width: 100%; cursor: crosshair; margin-bottom: 2px; }
+        .basket-seq-marker-pin { position: absolute; top: 1px; width: 9px; height: 9px; margin-left: -4.5px; cursor: pointer; box-shadow: 0 0 3px rgba(0,0,0,.6); }
+        .basket-seq-marker-pin:hover { background: #fff; transform: scale(1.3); }
+        .basket-seq-marker-pin.selected { background: #fff; box-shadow: 0 0 0 2px #34d399, 0 0 6px rgba(52,211,153,.8); transform: scale(1.3); }
         .basket-seq-timeline { position: relative; height: 44px; width: 100%; background: rgba(255,255,255,.06); border-radius: 4px; display: flex; overflow: hidden; cursor: pointer; }
         .basket-seq-seg { position: relative; height: 100%; background: center/cover no-repeat #1a1a24; border-right: 1px solid rgba(0,0,0,.55); display: flex; align-items: flex-end; box-sizing: border-box; flex-shrink: 0; }
         .basket-seq-seg:last-child { border-right: none; }
         .basket-seq-seg.active { outline: 2px solid #34d399; outline-offset: -2px; z-index: 1; }
         .basket-seq-seg::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.15); }
+        /* Glisser un clip pour le réordonner sur la timeline de séquence (façon
+           DaVinci) — cf. _wireBasketSeqSegDrag. .dragging = le clip qu'on tient ;
+           .drop-before/.drop-after = trait indiquant de quel côté de la cible
+           survolée il s'intercalera si on lâche maintenant. */
+        .basket-seq-seg.dragging { opacity: 0.35; }
+        .basket-seq-seg.drop-before { box-shadow: inset 3px 0 0 0 #34d399; }
+        .basket-seq-seg.drop-after { box-shadow: inset -3px 0 0 0 #34d399; }
         .basket-seq-seg-label { position: relative; z-index: 1; font-size: 0.62em; color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 2px; margin: 2px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .basket-seq-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 5px #000; pointer-events: none; left: 0%; z-index: 2; }
         .basket-seq-tc { text-align: center; font-family: monospace; font-size: 0.78em; color: rgba(255,255,255,.65); padding: 0 0 10px; flex-shrink: 0; }
@@ -369,6 +391,19 @@
         .bseq-handle::after { content: ''; position: absolute; top: 5px; bottom: 5px; left: 50%; width: 3px; margin-left: -1.5px; background: transparent; border-radius: 2px; transition: background .1s; }
         .basket-seq-seg:hover .bseq-handle::after { background: rgba(255,255,255,.5); }
         .bseq-handle:hover::after { background: #fff !important; }
+        /* Poignée "armée" (clic sans glisser) : trim au clavier façon DaVinci —
+           ←/→ pousse le point par frame exacte, tant qu'aucun autre point n'est
+           armé ou que la session n'est pas validée/annulée (voir _basketArmedTrim). */
+        .bseq-handle.armed::after { background: #34d399 !important; box-shadow: 0 0 8px #34d399; width: 4px; margin-left: -2px; }
+        /* HUD flottant TC + delta pendant un trim (glisser OU armé au clavier) —
+           positionné en JS au-dessus de la poignée concernée (_basketShowTrimHud). */
+        .basket-trim-hud { position: fixed; transform: translate(-50%, -100%); background: rgba(10,10,20,.95); border: 1px solid rgba(52,211,153,.5); border-radius: 6px; padding: 6px 11px; font-family: monospace; z-index: 400; pointer-events: none; text-align: center; white-space: nowrap; box-shadow: 0 8px 24px rgba(0,0,0,.55); display: none; }
+        .basket-trim-hud .bth-tc { font-size: 0.95em; font-weight: 600; color: #fff; }
+        .basket-trim-hud .bth-delta { margin-top: 2px; font-size: 0.8em; }
+        .basket-trim-hud .bth-delta.pos { color: #34d399; }
+        .basket-trim-hud .bth-delta.neg { color: #f87171; }
+        .basket-trim-hud .bth-delta.zero { color: rgba(255,255,255,.5); }
+        .basket-trim-hud .bth-hint { margin-top: 3px; font-size: 0.68em; color: rgba(255,255,255,.4); }
         #basketViewerPlaceholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 30px; pointer-events: none; }
         .cmp-combo-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .compare-video-area { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 0; position: relative; }
@@ -397,7 +432,7 @@
         /* Overlay = juste un voile visuel, JAMAIS interactif. Ferme via Escape ou bouton.
            Pointer-events:none empêche tout risque d'interception du click sur la textarea du popup. */
         .popup-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 299; pointer-events: none; }
-        .marker-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--surface); border: 1px solid rgba(167,139,250,.3); border-radius: 14px; padding: 24px; z-index: 300; box-shadow: 0 24px 64px rgba(0,0,0,.8); min-width: 360px; }
+        .marker-popup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--surface); border: 1px solid rgba(167,139,250,.3); border-radius: 14px; padding: 24px; z-index: 300; box-shadow: 0 24px 64px rgba(0,0,0,.8); width: 520px; }
         .marker-popup h3 { color: var(--accent); margin-bottom: 14px; font-size: 1em; display: flex; align-items: center; gap: 8px; }
         .marker-popup .cat-btns { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
         .marker-popup .cat-btns button { font-size: 0.85em; padding: 5px 12px; opacity: 0.45; transition: opacity .15s, transform .1s; }
@@ -405,9 +440,10 @@
         .marker-popup .cat-btns button.selected { opacity: 1; outline: 2px solid var(--accent); transform: scale(1.05); }
         .marker-popup textarea { width: 100%; height: 70px; margin-bottom: 12px; }
         .marker-popup .popup-actions { display: flex; gap: 8px; justify-content: flex-end; }
-        .sp-tag-suggest { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; max-height: 74px; overflow-y: auto; }
+        .sp-tag-suggest { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; margin-bottom: 12px; height: 74px; overflow-y: auto; }
         .sp-tag-suggest .sp-tag-pill { font-size: 0.72em; padding: 2px 9px; border-radius: 10px; background: transparent; border: 1px dashed rgba(167,139,250,.4); color: #a78bfa; cursor: pointer; }
         .sp-tag-suggest .sp-tag-pill:hover { background: rgba(167,139,250,.15); border-style: solid; }
+        .sp-tag-suggest .sp-tag-pill.active { background: #a78bfa; border-style: solid; color: #0a0a14; }
         .sp-tag-suggest-empty { font-size: 0.72em; color: var(--dim); }
 
         .notes-panel { height: 370px; background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; }
@@ -1215,7 +1251,7 @@
             <h3>✂️ Nouvelle sélection <span id="selectPopupTc" style="font-family:monospace;font-size:0.85em;color:var(--dim);"></span></h3>
             <input type="text" id="selectPopupName" placeholder="Nom de la sélection..." style="width:100%;margin-bottom:10px;box-sizing:border-box;">
             <div id="selectPopupTagsChips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;"></div>
-            <input type="text" id="selectPopupTagInput" placeholder="Ajouter un tag (Entrée ou virgule)..." style="width:100%;margin-bottom:6px;box-sizing:border-box;" onkeydown="_spTagInputKeydown(event)">
+            <input type="text" id="selectPopupTagInput" placeholder="Ajouter un tag (Entrée ou virgule)..." style="width:100%;margin-bottom:6px;box-sizing:border-box;" onkeydown="_spTagInputKeydown(event)" oninput="_spOnTagInput()">
             <div id="selectPopupTagSuggest" class="sp-tag-suggest"></div>
             <textarea id="selectPopupDesc" placeholder="Commentaire (optionnel)..." style="height:56px;"></textarea>
             <div class="popup-actions">
@@ -4729,12 +4765,17 @@ _loadVersionAndChangelog();
                 <div class="bv-name" id="basketViewerName">—</div>
                 <div class="bv-meta" id="basketViewerMeta">--:--:--:-- → --:--:--:--</div>
             </div>
+            <div class="basket-seq-toolbar">
+                <button id="basketAddMarkerBtn" onclick="_basketAddSeqMarkerAtPlayhead()" title="Ajouter un repère à la position de lecture (raccourci : M)"><span class="bseq-marker-diamond"></span> Repère</button>
+            </div>
             <div class="basket-seq-timeline-scroll" id="basketSeqTimelineScroll" onwheel="_basketSeqWheel(event)">
+                <div class="basket-seq-markers" id="basketSeqMarkers" onclick="_basketMarkerLaneClick(event)" title="Clic : ajouter un repère ici · Touche M : repère à la position de lecture · Clic sur un repère : y aller · Suppr : le retirer (une fois sélectionné)"></div>
                 <div class="basket-seq-timeline" id="basketSeqTimeline" onmousedown="_basketSeqMouseDown(event)">
                     <div class="basket-seq-head" id="basketSeqHead"></div>
                 </div>
             </div>
             <div class="basket-seq-tc" id="basketSeqTc">00:00 / 00:00</div>
+            <div class="basket-trim-hud" id="basketTrimHud"></div>
         </div>
     </div>
 </div>

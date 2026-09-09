@@ -1172,3 +1172,116 @@ Purges par globs séparés : le rolling exclut explicitement `_daily_` du décom
 
 ## Leçon (condensée dans `CLAUDE.md` piège #30)
 Le sync est une réconciliation last-writer-wins par utilisateur, pas un historique : il propage aussi bien les ajouts que les régressions. Les sauvegardes sont le vrai filet. En récupération après un rollback/restauration : ne pas relancer l'app avant d'avoir récupéré `derush_data/backups/<pid>/` par FTP (chaque démarrage peut re-pusher et faire tourner les backups serveur).
+
+# État au 9 septembre 2026 — v0.3.65 : gel vidéo entre deux sélections du pré-montage
+
+## Signalement
+« Dans prémontage la transition entre deux sélections n'est pas très fluide, parfois ça freeze un peu la vidéo qui vient. »
+
+## Diagnostic
+Le double-lecteur crossfade de `js/selects.js` (v0.3.42, voir plus haut) reposait sur une hypothèse fausse dans `_basketPreloadNextSegment()` : « si le prochain segment est sur le MÊME clip que celui en cours de lecture, un swap de source est inutile — le seek direct dans `_basketGoto` suffit et est déjà instantané ». Ce n'est vrai que pour un fichier entièrement décodé/en cache. Sur un flux H.264/H.265 long-GOP **en cours de lecture**, un seek vers un point quelconque doit retrouver la keyframe la plus proche puis redécoder jusqu'à la cible — ce qui gèle visiblement l'image une fraction de seconde, surtout sur un proxy volumineux ou un disque/réseau lent. Le pré-montage contient très souvent plusieurs sélections découpées dans le **même** rush (plusieurs bons moments sur un même plan long) — c'était donc le cas le plus fréquent qui ne bénéficiait d'aucun préchargement.
+
+Deuxième faiblesse, plus fine : le "chemin rapide" de `_basketGoto()` acceptait un lecteur inactif dès `readyState >= 2` (`HAVE_CURRENT_DATA` — l'image du point de seek est là, mais rien ne garantit de pouvoir continuer à jouer sans re-bufferiser aussitôt). Un swap pouvait donc se déclencher vers un segment "préchargé" mais pas réellement prêt à jouer en continu, déplaçant le gel juste après la bascule au lieu de l'éviter.
+
+## Fix (premier jet)
+- `_basketPreloadNextSegment()` préchargeait **systématiquement** le segment suivant dans le lecteur inactif, même quand c'est le même fichier source que l'actif — identité de préchargement suivie par clip **et** par sélection (`dataset.selectId` en plus de `dataset.clipId`, car un même clip peut apparaître plusieurs fois dans le pré-montage avec des in/out différents). **Revu quelques heures plus tard, voir addendum ci-dessous — ce point précis s'est révélé être une régression, pas un fix.**
+- Nouvelle garde `_basketSegmentReady(video, atTime)` : exige `readyState >= 3` (`HAVE_FUTURE_DATA`) **et** une vraie marge tampon (`buffered`) autour du point de reprise, remplace le `readyState >= 2` trop permissif du chemin rapide de `_basketGoto()`.
+- Chemin de repli (préchargement pas encore prêt — segment précédent trop court) revu : au lieu de seeker à vif sur l'élément qui joue, on `pause()`, on seek, puis on attend l'évènement `seeked` avant de relancer la lecture — évite un sursaut de frames pendant que le navigateur retrouve la keyframe. Filet de sécurité (`setTimeout` 700ms) au cas où `currentTime` vaudrait déjà la cible et où `seeked` ne se déclencherait jamais (seek no-op, dépend du navigateur).
+- Ce chemin de repli "attend `seeked`" est **désactivé** pendant un scrub actif sur la timeline de séquence (nouveau paramètre `scrubbing` de `_basketGoto`, utilisé par `_basketSeekSeqRatio` pendant le `mousemove` du drag) — sinon la réactivité du glisser en aurait pâti (des dizaines d'appels/s, chacun attendant potentiellement 700ms). Le scrub garde le seek instantané d'origine.
+
+## Non couvert (constaté à l'époque)
+Si le segment précédent est trop court pour laisser le temps au préchargement de se terminer (quelques centaines de ms), le chemin de repli reste utilisé et un léger gel résiduel reste possible — inhérent à toute lecture bout-à-bout de segments très courts sans buffer d'avance illimité.
+
+## Addendum même jour : régression découverte sur la build Electron packagée → crash
+
+### Signalement
+« La build electron a crashé lorsque j'ai lu les clips dans prémontage, notamment au niveau des transitions. J'ai constaté qu'il y avait comme un noir entre chaque clip alors que je veux une transition fluide entre deux clips (comme DaVinci). Après deux lectures, il a crashé. »
+
+### Diagnostic
+Le préchargement "systématique même sur le même clip" (premier jet ci-dessus) semblait correct pour UNE transition isolée entre deux sélections du même rush, mais le pré-montage contient très souvent une SUITE de plusieurs sélections découpées dans le **même** long rush (le cas le plus courant, pas l'exception) — exactement le scénario testé par l'utilisateur. Pour chaque transition dans cette suite, `_basketPreloadNextSegment()` déclenchait un rechargement **complet** (nouveau décodeur, éventuellement un nouveau fetch réseau) d'un fichier qui était déjà, à ce moment précis, en train d'être décodé dans l'AUTRE élément `<video>` — juste pour y rebasculer l'instant d'après. Ce rechargement n'avait quasiment jamais le temps de finir avant la transition suivante → `_basketSegmentReady` refusait le swap rapide à chaque fois → chemin de repli déclenché en boucle → flash noir à **chaque** transition (pas seulement occasionnellement). Répété sur toute une lecture bout-à-bout, ce cycle d'ouverture/fermeture de décodeurs vidéo sur le même fichier a fini par épuiser les ressources du renderer Electron → crash après une ou deux lectures complètes.
+
+### Fix définitif
+`_basketPreloadNextSegment()` **s'abstient désormais explicitement** de précharger quand le segment suivant est sur le MÊME clip que celui actuellement dans l'élément **actif** (`if(next.clip.id === active.dataset.clipId) return;` — littéralement le garde-fou d'origine d'avant ce fix, réintroduit). Le "chemin de repli" pause→seek→attend `seeked`→reprend de `_basketGoto` (ajouté dans le fix ci-dessus et resté inchangé) suffit à lui seul à rendre cette transition fluide, PARCE QU'IL RÉUTILISE L'ÉLÉMENT DÉJÀ CHARGÉ au lieu d'en recréer un — aucun rechargement, donc aucun flash noir, et aucune pression sur les décodeurs. Le préchargement dans le lecteur inactif reste utilisé, inchangé, pour les transitions vers un clip **différent** (le cas d'usage d'origine du double-lecteur crossfade, v0.3.42, qui fonctionnait déjà bien).
+
+### Leçon (condensée dans `CLAUDE.md` piège #33)
+Corriger un problème de fluidité en préchargeant "pour être sûr" — y compris quand la cible est déjà ouverte ailleurs sous une forme réutilisable — peut être pire que le problème d'origine. Le bon réflexe était déjà présent dans le même correctif (le chemin de repli gentil) ; il n'y avait pas besoin du préchargement redondant en plus.
+
+# État au 9 septembre 2026 — v0.3.66 : précision de trim façon DaVinci dans le pré-montage
+
+## Signalement
+« Je trouve l'outil de pré-montage très pratique à utiliser, notamment quand on veut raccourcir ou étendre un clip. [Mais] on perd vite l'endroit précis où l'on voulait atterrir. Pourrais-tu t'inspirer fortement de DaVinci Resolve pour faire en sorte qu'il soit très pratique de faire un mini montage dans cette section ? »
+
+## Diagnostic
+Glisser une poignée `.bseq-handle-in`/`-out` sur la timeline de séquence du pré-montage (`_wireBasketSeqHandle`, `js/selects.js`) produisait un `sel.in`/`sel.out` en secondes flottantes arbitraires — résolution pixel de l'écran, pas résolution frame. Aucun repère visuel du point exact visé pendant le geste (pas de TC affiché, pas de delta par rapport au point de départ) : impossible de savoir, en glissant, si on venait de dépasser ou pas le point voulu, ni de revenir dessus avec précision une fois raté. Aucune façon de corriger frame par frame après coup — seule option : recommencer le glisser à l'aveugle.
+
+## Fix — trois briques inspirées de DaVinci Resolve
+1. **Snap sur la grille de frames** (`_basketSnapClamp`) : le point trimmé est désormais TOUJOURS arrondi à la frame exacte la plus proche (`Math.round(t*fps)/fps`), que ce soit pendant un glisser souris ou un nudge clavier — élimine le flou sous-frame par construction.
+2. **HUD flottant TC + delta pendant le geste** (`_basketShowTrimHud`/`_basketHideTrimHud`, `#basketTrimHud`) : bulle positionnée au-dessus de la poignée, affichant le timecode exact du point courant ET l'écart depuis le point de départ (`+1s04f`/`−12f`/`±0f`, coloré vert/rouge/gris) — visible en continu pendant tout le geste (glisser OU nudge clavier), directement pensé pour répondre à « on perd l'endroit précis où l'on voulait atterrir ».
+3. **Trim armé au clavier** (`_basketArmedTrim`, `_basketArmTrimHandle`/`_basketNudgeArmedTrim`/`_basketCommitArmedTrim`/`_basketCancelArmedTrim`) : cliquer une poignée SANS glisser ne fait plus rien de spécial → l'« arme » pour un ajustement clavier frame-exact, exactement le geste de précision de référence dans DaVinci (sélectionner un point de montage, puis `←`/`→` pour le trimmer). `←`/`→` = 1 frame, `Maj+←`/`→` = 1 seconde, `Entrée` valide, `Échap` annule sans rien modifier. Comme le glisser, `sel.in`/`out` ne sont mutés qu'à la validation — un seul `pushUndo`/`saveNotes` par session de trim, pas un par frappe.
+4. **Flèches à double rôle hors trim armé** : `←`/`→` (et `Maj+←`/`→`) nudgent maintenant la tête de lecture de la visionneuse pré-montage (1 frame / 1s), pour retrouver la frame exacte visée AVANT même de lancer un trim — mêmes conventions que le lecteur principal.
+
+## Piège rencontré et corrigé en cours de route
+Valider un trim armé au clavier reconstruit toute la timeline de séquence (`_basketRenderSeqTimeline` détruit/recrée chaque poignée). Committer ce trim depuis le `mousedown` d'une AUTRE poignée détruisait donc la poignée qu'on venait de presser dans le même geste — la référence DOM devenait détachée, un `getBoundingClientRect()` dessus renvoyant des zéros aurait affiché le HUD en haut à gauche de l'écran. Fix : `_wireBasketSeqHandle` flush un trim en attente puis `return` immédiatement plutôt que de continuer sur une référence potentiellement obsolète — un second clic engage la nouvelle poignée sur un DOM frais. Condensé en piège CLAUDE.md #32 (leçon générale : un re-rendu déclenché en plein milieu d'un geste peut invalider les références DOM que ce geste tient encore).
+
+## Portée
+Snap-frame, HUD et trim armé s'appliquent uniquement aux poignées de la **timeline de séquence du pré-montage** (`.bseq-handle`, `#basketSeqTimeline`) — pas aux poignées de sélection in/out du lecteur principal (`.tsr-handle`, `_wireSelectRangeHandle`), qui restent sur leur comportement existant (non demandé par le retour terrain, périmètre volontairement resserré sur le pré-montage).
+
+# État au 9 septembre 2026 — v0.3.67 : repères de séquence + magnétisme dans le pré-montage
+
+## Signalement
+« Ça serait pas mal aussi de pouvoir mettre des petits marqueurs (comme dans DaVinci) qui ne sont pas les marqueurs que l'on mettait sur la vidéo avec des commentaires etc, juste des repères qui nous permettent de faire coulisser les poignées à cet endroit précis avec un peu de magnétisme. » — suite directe de la précision de trim v0.3.66.
+
+## Design : où vivent les repères ?
+Question centrale avant d'écrire du code : un repère est-il défini en temps CLIP-LOCAL (une frame précise d'un clip source donné) ou en temps SÉQUENCE (une position dans la bobine assemblée) ? DaVinci place ses marqueurs de timeline sur la SÉQUENCE, pas sur un clip — et c'est aussi la seule interprétation cohérente avec le fonctionnement réel de `_basketSeqSegments()` : chaque segment est positionné en cumulant les durées de TOUS les segments qui le précèdent (`acc += dur`, jamais l'inverse) — sa frontière avec le PRÉCÉDENT ne bouge donc JAMAIS quand on trimme ce segment lui-même, seule sa frontière avec le SUIVANT se déplace. Un repère en position-séquence est le seul modèle qui reste cohérent avec cette mécanique bout-à-bout.
+
+Conséquence directe pour le calcul de magnétisme (voir plus bas) : peu importe la poignée tenue (in ou out), c'est TOUJOURS `seg.start + dur_live` — la frontière avec le segment suivant — qu'il faut comparer aux repères, jamais `seg.start` seul (invariant) ni une lecture naïve "poignée in = bord gauche qui bouge".
+
+## Implémentation (`js/selects.js`)
+- **Données** : `_basketSeqMarkers` (array de secondes-séquence, triées), persisté en `localStorage['derush_basket_seq_markers_' + pid]` — personnel, jamais dans `allNotes`/le projet partagé (ce n'est pas une annotation à faire remonter à l'équipe, juste un outil d'aide au montage). Chargé à `openBasket()`.
+- **UI** : nouvelle lane `#basketSeqMarkers` (12px, au-dessus de `#basketSeqTimeline`, largeur resynchronisée à chaque zoom dans `_basketSeqWheel` pour rester alignée). Clic sur la lane = ajoute (`_basketMarkerLaneClick` → `_basketAddSeqMarkerAt`, désélectionne d'abord tout repère sélectionné). Bouton `Repère` (`#basketAddMarkerBtn`, `.basket-seq-toolbar` alignée à gauche, icône = même losange ambre que les repères sur la timeline via la classe partagée `.bseq-marker-diamond`) + touche `M` = ajoute à la position de lecture courante (`_basketAddSeqMarkerAtPlayhead`, même formule de position-séquence que `_basketUpdateSeqHead`).
+- **Magnétisme** (`onMove` de `_wireBasketSeqHandle`, drag souris uniquement) : rayon d'accroche fixé en PIXELS ÉCRAN (10px), converti en secondes via `pxPerSec` du zoom courant — reste "collant" pareil quel que soit le niveau de zoom, comme le magnétisme DaVinci. `_basketNearestSeqMarker(pos, tol)` trouve le repère le plus proche sous le seuil ; si trouvé, la durée cible du segment est recalculée pour que `seg.start + dur === repère`, puis repassée dans `_basketSnapClamp` existant (donc re-alignée sur la grille de frames — l'accroche peut être à moins d'une frame pile du repère si celui-ci ne tombait pas sur une frame exacte). HUD : petit 🧲 ajouté au TC affiché quand l'accroche est active.
+- **Volontairement PAS de magnétisme sur le trim clavier armé** (v0.3.66) : ce geste est déjà exact par construction (nudge frame par frame) ; superposer un magnétisme aurait juste réintroduit de l'imprévisibilité sur un geste déjà précis. Reste un moyen fiable de bypasser le magnétisme quand on veut viser à côté d'un repère.
+
+## Itération immédiate : clic = suppression rejeté par le retour terrain
+Premier jet : cliquer un repère le retirait directement (`_basketRemoveSeqMarker`). Retour terrain quasi immédiat : « je ne veux pas que ça s'efface, je veux que ça avance le clip à ce niveau-là et qu'on voit l'image dans la preview. Par contre si le marqueur est sélectionné (en cliquant dessus) et que j'appuie sur Suppr, je le supprime. » Revu :
+- `_basketSelectedSeqMarker` (la VALEUR du repère sélectionné, pas un index — un index se périmerait au moindre ajout/retrait puisque le tableau est retrié à chaque insertion).
+- Cliquer un repère → `_basketSelectSeqMarker(t)` : sélectionne (classe CSS `.selected`, anneau vert) **et** traduit la position-séquence en `{idx, offset}` (`_basketSeqTimeToSegmentOffset`, cherche le premier segment dont `t` tombe avant la fin, sinon le dernier) pour appeler `_basketGoto(idx, offset, false)` — la visionneuse affiche l'image exacte, en pause.
+- `Suppr`/`Backspace` dans `_basketKeydown` (seulement si un repère est sélectionné) → `_basketDeleteSelectedSeqMarker()`.
+- `Échap` : cascade — annule d'abord un trim clavier armé s'il y en a un, sinon désélectionne le repère (`_basketDeselectSeqMarker()`, retourne `false` si rien n'était sélectionné), sinon ferme l'overlay.
+- Bouton `Repère` ajouté au passage (juste au-dessus de la timeline) — la touche `M` seule n'était pas assez découvrable pour un geste destiné à être posé souvent. Retour terrain suivant : aligné à **gauche** (pas à droite) et icône remplacée par le même losange ambre CSS que les repères sur la timeline (`.bseq-marker-diamond`, classe de base extraite et réutilisée par `.basket-seq-marker-pin`) plutôt que l'émoji 📍 initial — pour que le bouton affiche visuellement le symbole qu'il pose.
+
+## Limite assumée
+Un repère est un nombre figé en secondes-séquence — retrimmer fortement un segment plus tôt dans la bobine (ou réordonner) ne fait PAS "ripple" les repères qui suivent : leur position logique visée à la création peut ne plus correspondre au même instant après coup. Comportement standard de la plupart des NLE hors mode ripple-marker dédié (non demandé, hors scope).
+
+# État au 9 septembre 2026 — v0.3.68 : dupliquer une sélection dans le pré-montage
+
+## Signalement
+« J'aimerais aussi que l'on puisse copier coller une sélection plusieurs fois dans le prémontage. »
+
+## Design
+Deux options envisagées : (a) un vrai copier/coller avec presse-papier — sélectionner une ligne (Ctrl+C), coller (Ctrl+V) à la position du curseur/de la ligne active, répétable ; (b) un bouton "dupliquer" par ligne — insère immédiatement une copie juste après, re-cliquable pour en ajouter d'autres. Choix : **(b)**, pour plusieurs raisons — le pré-montage n'a pas de concept de "ligne sélectionnée" indépendant du clic-pour-lire déjà en place (cliquer une ligne = `_basketPlayFrom`, pas une sélection au sens UI) ; en introduire un aurait demandé un nouvel état + une nouvelle affordance de clic (ex. Ctrl+clic) pour ne pas entrer en collision avec l'existant. Le glisser-déposer, lui, existe déjà et permet de replacer une copie n'importe où dans la bobine après duplication — donc "dupliquer ici puis glisser où on veut" couvre le même besoin que "copier puis coller ailleurs", en réutilisant une brique déjà là plutôt qu'en construisant un état de presse-papier séparé.
+
+## Implémentation (`_basketDuplicateItem(idx)`, `js/selects.js`)
+- Bouton `⧉` ajouté dans `.basket-item-actions` de chaque ligne (à côté de ▶ et 🗑), visible seulement `isMine` (cohérent avec le reste des contrôles d'édition du pré-montage).
+- Crée une **sélection indépendante** dans `n.selects` (nouvel id aléatoire, mêmes `in`/`out`/`tags`/`desc` que la source, nom suffixé `" (copie)"`) — PAS une simple deuxième entrée `allBaskets` pointant vers le même `select_id`. Raison : la timeline de séquence du pré-montage (`_wireBasketSeqHandle`) mute `sel.in`/`sel.out` **en place** sur l'objet sélection partagé — si deux items du pré-montage pointaient vers le même `select_id`, retrimmer l'un aurait aussi silencieusement changé l'autre. Chaque copie doit rester ajustable indépendamment, comme dupliquer un clip sur une timeline DaVinci (qui référence le même média mais reste un point de montage distinct).
+- Nouvel item `allBaskets[uid]` inséré à `realIdx + 1` (juste après l'original, pas en fin de liste) — facile à repérer visuellement pour le glisser ensuite si besoin.
+- Deux poussées d'annulation distinctes sur `undoStack` : `pushUndo(clip.id)` pour la nouvelle entrée dans `allNotes[uid][clip.id].selects`, `_pushBasketUndo()` pour la nouvelle entrée dans `allBaskets[uid]` — même pattern déjà utilisé par `confirmSelect()` quand une sélection nouvellement créée est auto-ajoutée au pré-montage. Ctrl+Z peut donc demander deux appuis pour tout annuler d'un coup ; comportement existant, pas une régression introduite ici.
+- `saveNotes(true)` + `saveBasket()` appelés l'un après l'autre pour persister les deux moitiés du changement côté serveur.
+
+# État au 9 septembre 2026 — v0.3.69 : réordonner les clips directement sur la timeline de séquence
+
+## Signalement
+« Ça serait aussi bien de pouvoir, lorsqu'on clique gauche sur un clip dans la timeline, le déplacer sur celle-ci pour l'intercaler entre deux clips ou au début/fin de la séquence. Comme DaVinci. »
+
+## Design
+Le réordonnancement existait déjà (glisser une ligne de la LISTE, `_wireBasketDrag`), mais pas depuis la timeline de séquence elle-même — celle-ci ne servait qu'à naviguer (`_basketSeqMouseDown`, clic/glisser = scrub) et trimmer (`_wireBasketSeqHandle`, glisser un bord). Ajouter le réordonnancement DIRECT sur cette même timeline demandait de faire coexister trois interactions sur les mêmes éléments DOM sans qu'elles ne se marchent dessus :
+- **Scrub** : mousedown n'importe où sur `#basketSeqTimeline` (ancêtre).
+- **Trim** : mousedown sur une poignée (`.bseq-handle-in`/`-out`, enfant positionné aux bords, `stopPropagation`+`preventDefault`).
+- **Réordonner** (nouveau) : glisser le CORPS d'un segment (`.basket-seq-seg`).
+
+## Implémentation (`_wireBasketSeqSegDrag`, `_basketSeqReorder`, `js/selects.js`)
+Choix : drag-and-drop **natif HTML5** (`draggable="true"` + `dragstart`/`dragover`/`drop`) sur le corps du segment, plutôt qu'un pattern mousedown/mousemove custom (celui déjà utilisé par les poignées de trim, qui a besoin d'aperçu live et de contrôle fin — pas nécessaire ici, un simple réordonnancement n'a besoin que d'un point de dépôt).
+- **Coexistence avec les poignées** : `handleIn.draggable = handleOut.draggable = false` (override explicite de l'attribut `draggable` hérité du parent) + leur `mousedown` existant fait déjà `preventDefault()`/`stopPropagation()` — les deux couches empêchent le drag natif du segment parent de démarrer quand on saisit précisément une poignée.
+- **Coexistence avec le scrub** : `_basketSeqMouseDown` reste attaché à l'ancêtre `#basketSeqTimeline`, non court-circuité — un clic sur un segment déclenche donc TOUJOURS le scrub existant (la tête de lecture saute au point cliqué) avant qu'un éventuel drag natif ne prenne la main sur les évènements mousemove suivants. Effet de bord accepté sciemment (pas invasif, plutôt cohérent : on voit où on a "attrapé" le clip) plutôt que de complexifier l'interaction pour le supprimer.
+- **Insertion avant/après** : `dragover` compare `e.clientX` à la moitié de la largeur du segment cible (`rect.width/2`) et bascule les classes `.drop-before`/`.drop-after` (liseré vert CSS `box-shadow: inset`) en conséquence. `_basketSeqReorder(fromIdx, toIdx, before)` traduit ça en `splice` sur `allBaskets[uid]` — même sous-jacent que `_wireBasketDrag` (liste), logique d'index légèrement différente pour gérer le avant/après (`if(fromRealIdx < toRealIdx) toRealIdx--` après le retrait, puis insertion à `toRealIdx` ou `toRealIdx+1`) : vérifié à la main sur les 4 cas limites (déplacer vers l'avant/l'arrière, avant/après la cible, y compris tout au début ou toute la fin de la bobine) avant implémentation.
+- `_pushBasketUndo()` avant la mutation, `saveBasket()` après — mêmes conventions que le reste des mutations `allBaskets`.
