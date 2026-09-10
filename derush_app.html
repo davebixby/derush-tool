@@ -354,7 +354,7 @@
            les largeurs en % des segments restent relatives à LEUR parent (la track),
            donc se recalculent automatiquement au zoom sans toucher au JS de rendu. */
         .basket-seq-timeline-scroll { margin: 6px 14px; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; }
-        .basket-seq-toolbar { display: flex; justify-content: flex-start; margin: 0 14px; }
+        .basket-seq-toolbar { display: flex; justify-content: flex-start; gap: 6px; margin: 0 14px; }
         .basket-seq-toolbar button { font-size: 0.75em; padding: 3px 9px; display: inline-flex; align-items: center; gap: 5px; }
         /* Losange ambre partagé par le bouton d'ajout ET les repères posés sur la
            timeline (.basket-seq-marker-pin ci-dessous étend cette base) — même forme,
@@ -4783,6 +4783,7 @@ _loadVersionAndChangelog();
             </div>
             <div class="basket-seq-toolbar">
                 <button id="basketAddMarkerBtn" onclick="_basketAddSeqMarkerAtPlayhead()" title="Ajouter un repère à la position de lecture (raccourci : M)"><span class="bseq-marker-diamond"></span> Repère</button>
+                <button id="basketCutBtn" onclick="_basketCutAtPlayhead()" title="Couper la sélection en deux à la position de lecture (raccourci : C)">✂ Couper</button>
             </div>
             <div class="basket-seq-timeline-scroll" id="basketSeqTimelineScroll" onwheel="_basketSeqWheel(event)">
                 <div class="basket-seq-markers" id="basketSeqMarkers" onmousedown="_basketMarkerLaneMouseDown(event)" title="Clic : ajouter un repère ici · Glisser (maintenir) : se déplacer dans la séquence · Touche M : repère à la position de lecture · Clic sur un repère : y aller · Suppr : le retirer (une fois sélectionné)"></div>
@@ -4792,6 +4793,18 @@ _loadVersionAndChangelog();
             </div>
             <div class="basket-seq-tc" id="basketSeqTc">00:00 / 00:00</div>
             <div class="basket-trim-hud" id="basketTrimHud"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Renommer une sélection du pré-montage -->
+<div id="basketRenameOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:220;align-items:center;justify-content:center;" onclick="if(event.target===this)_basketCancelRename()">
+    <div class="card" style="max-width:360px;width:92%;">
+        <h2 style="font-size:1em;margin-bottom:12px;">✏️ Renommer la sélection</h2>
+        <input type="text" id="basketRenameInput" placeholder="Nom de la sélection..." style="width:100%;box-sizing:border-box;" maxlength="120" onkeydown="_basketRenameKeydown(event)">
+        <div style="display:flex;gap:8px;margin-top:14px;">
+            <button style="flex:1;" onclick="_basketConfirmRename()">Valider</button>
+            <button style="flex:1;" onclick="_basketCancelRename()">Annuler</button>
         </div>
     </div>
 </div>

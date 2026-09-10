@@ -334,6 +334,15 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 9 septembre 2026 (v0.3.75)</div>
   <a href="#lut-enabled-persisted">La preview LUT réapparaît automatiquement au relancement</a>
+
+  <div class="nav-section">Session 10 septembre 2026 (v0.3.76)</div>
+  <a href="#basket-cut-tool">Outil Couper dans le pré-montage</a>
+
+  <div class="nav-section">Session 10 septembre 2026 (v0.3.77)</div>
+  <a href="#basket-numbered-suffix">Copies et coupes numérotées dans le pré-montage</a>
+
+  <div class="nav-section">Session 10 septembre 2026 (v0.3.78)</div>
+  <a href="#basket-rename">Renommer une sélection dans le pré-montage</a>
 </nav>
 
 <main>
@@ -3595,8 +3604,52 @@ result['users'] = [u for u in result.get('users', [])
 
 <hr class="section">
 
+<div class="entry" id="basket-cut-tool">
+  <div class="entry-header">
+    <span class="entry-date">10 septembre 2026 · v0.3.76</span>
+    <span class="entry-title">Outil Couper dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « pourrais-tu ajouter un outil cut dans le prémontage à côté de repère mais aussi en appuyant sur C qui me permet de couper un clip dans la timeline. » Nouveau bouton <strong>✂ Couper</strong> juste à côté de <strong>♦ Repère</strong>, et raccourci <strong>C</strong> — scinde en deux la sélection en cours de lecture dans la visionneuse, pile à la position de la tête de lecture (outil Lame/Razor, comme dans un NLE classique).</p>
+
+  <p>Les deux moitiés deviennent immédiatement deux <strong>sélections indépendantes</strong> l'une de l'autre — retrimmer l'une (poignées de la timeline de séquence), la déplacer ou la supprimer n'affecte jamais l'autre. Même schéma de fond que <a href="#basket-duplicate-item">dupliquer une sélection</a> : la 2<sup>e</sup> moitié est un nouvel enregistrement, insérée juste après la 1<sup>re</sup> dans la bobine. Le point de coupe est calé sur une frame exacte (même snap que les poignées de trim), et la coupe est refusée si le point visé laisserait une des deux moitiés trop courte (moins de ~2 frames).</p>
+
+  <p>Réservé à l'auteur du pré-montage affiché, comme le reste des outils d'édition (bouton masqué et raccourci sans effet en consultant celui d'un collaborateur).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-numbered-suffix">
+  <div class="entry-header">
+    <span class="entry-date">10 septembre 2026 · v0.3.77</span>
+    <span class="entry-title">Copies et coupes numérotées dans le pré-montage</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain sur les deux fonctions ci-dessus : « quand tu génères une nouvelle sélection lorsqu'on cut un plan tu peux la nommer avec le suffixe cut et un numéro. Quand je copie un même clip tu peux la nommer avec le suffixe copie et un numéro. »</p>
+
+  <p>Avant : chaque copie s'appelait <code>"NomDuPlan (copie)"</code> à l'identique (impossible de distinguer la 1<sup>re</sup> copie de la 3<sup>e</sup> par son nom), et chaque coupe donnait toujours <code>"NomDuPlan (2)"</code>. Désormais numérotés : <code>(copie 1)</code>, <code>(copie 2)</code>… pour <strong>⧉ Dupliquer</strong>, <code>(cut 1)</code>, <code>(cut 2)</code>… pour <strong>✂ Couper</strong> — chaque suffixe a son propre compteur, qui repart toujours du nom de base même si vous dupliquez une copie ou recoupez un segment déjà issu d'une coupe (jamais d'empilement du type <code>(copie 1) (copie 1)</code>).</p>
+</div>
+
+<hr class="section">
+
+<div class="entry" id="basket-rename">
+  <div class="entry-header">
+    <span class="entry-date">10 septembre 2026 · v0.3.78</span>
+    <span class="entry-title">Renommer une sélection dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « je voudrais pouvoir aussi renommer les sélections dans le prémontage à côté de copie et supprimer, peux-tu faire un bouton renommer. » Nouveau bouton <strong>✏️</strong> sur chaque ligne du pré-montage, entre <strong>⧉</strong> (dupliquer) et <strong>🗑</strong> (retirer) : ouvre une petite fenêtre avec le nom actuel pré-rempli, <code>Entrée</code> valide, <code>Échap</code> annule.</p>
+
+  <p>Pratique après une copie ou une coupe (qui suffixent automatiquement <code>(copie N)</code>/<code>(cut N)</code>, cf. entrée précédente) pour redonner un nom clair à chaque moitié — par exemple distinguer "Sourire caméra" et "Regard côté" plutôt que garder deux "Sélection 3 (cut 1)"/"(cut 2)". Réservé à l'auteur du pré-montage affiché, comme les autres boutons d'édition de la liste.</p>
+</div>
+
+<hr class="section">
+
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 9 septembre 2026 (v0.3.75 — la preview LUT réapparaît automatiquement au relancement)
+  Derush Tool · Journal de développement · Dernière mise à jour 10 septembre 2026 (v0.3.78 — renommer une sélection dans le pré-montage)
 </div>
 
 </main>

@@ -558,6 +558,7 @@ function openBasket() {
 
 function closeBasket() {
     _basketCommitArmedTrim();  // valide un trim clavier resté en attente plutôt que de le perdre silencieusement
+    _basketCancelRename();
     _basketStop();
     _basketReleaseViewer();
     _basketCurrentItemRef = null;
@@ -624,6 +625,10 @@ function _basketKeydown(e) {
             e.preventDefault(); e.stopPropagation();
             _basketAddSeqMarkerAtPlayhead();
             return;
+        case 'c': case 'C':
+            e.preventDefault(); e.stopPropagation();
+            _basketCutAtPlayhead();
+            return;
     }
 }
 
@@ -677,6 +682,8 @@ function renderBasketOverlay() {
     const isMine = _basketViewUser === currentSession.user_id;
     const clearBtn = document.getElementById('basketClearBtn');
     if(clearBtn) clearBtn.style.display = isMine ? '' : 'none';
+    const cutBtn = document.getElementById('basketCutBtn');
+    if(cutBtn) cutBtn.style.display = isMine ? '' : 'none';
 
     const items = allBaskets[_basketViewUser] || [];
     const resolved = items.map(it => {
@@ -731,6 +738,7 @@ function renderBasketOverlay() {
             <div class="basket-item-actions">
                 <button title="Lire depuis ici" onclick="_basketPlayFrom(${idx})">▶</button>
                 ${isMine ? `<button title="Dupliquer cette sélection (répéter le plan dans le pré-montage)" onclick="_basketDuplicateItem(${idx})">⧉</button>` : ''}
+                ${isMine ? `<button title="Renommer cette sélection" onclick="_basketRenameItem(${idx})">✏️</button>` : ''}
                 ${isMine ? `<button title="Retirer du pré-montage" onclick="_basketRemoveAt(${idx})" style="color:#ef4444;">🗑</button>` : ''}
             </div>`;
         if(isMine) _wireBasketDrag(row);
@@ -865,6 +873,30 @@ function _basketRemoveAt(idx) {
     saveBasket();
 }
 
+// Suffixe numéroté ("copie 2", "cut 3"…) plutôt qu'un suffixe fixe identique à
+// chaque nouvelle occurrence — retour terrain : « tu peux la nommer avec le
+// suffixe cut et un numéro [...] quand je copie un même clip tu peux la
+// nommer avec le suffixe copie et un numéro ». Repart toujours du nom de BASE
+// (sans suffixe) pour numéroter à plat : dupliquer une copie, ou couper un
+// segment déjà issu d'une coupe, ne doit pas empiler les suffixes
+// (" (copie 1) (copie 1)") — juste avancer au prochain numéro libre parmi
+// TOUTES les sélections du même clip déjà nommées "<base> (<suffix> N)".
+function _basketBaseSelectName(name) {
+    const m = /^(.*) \((?:copie|cut) \d+\)$/.exec(name || '');
+    return (m ? m[1] : (name || 'Sélection')).trim() || 'Sélection';
+}
+
+function _basketNextSuffixedName(selects, name, suffix) {
+    const base = _basketBaseSelectName(name);
+    const re = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(' + suffix + ' (\\d+)\\)$');
+    let max = 0;
+    (selects || []).forEach(s => {
+        const m = re.exec(s.name || '');
+        if(m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return base + ' (' + suffix + ' ' + (max + 1) + ')';
+}
+
 // Duplique une sélection du pré-montage — retour terrain : « j'aimerais qu'on
 // puisse copier coller une sélection plusieurs fois dans le prémontage »,
 // pour répéter un plan (ex. un plan de coupe, une réaction) à plusieurs
@@ -895,7 +927,7 @@ function _basketDuplicateItem(idx) {
     const newSel = {
         id: Math.random().toString(36).slice(2, 10),
         in: r.sel.in, out: r.sel.out,
-        name: (r.sel.name || 'Sélection') + ' (copie)',
+        name: _basketNextSuffixedName(n.selects, r.sel.name, 'copie'),
         tags: (r.sel.tags || []).slice(),
         desc: r.sel.desc || '',
     };
@@ -912,6 +944,62 @@ function _basketDuplicateItem(idx) {
     saveNotes(true);  // persiste newSel dans allNotes
     saveBasket();      // persiste newItem dans allBaskets
     showToast('⧉ Sélection dupliquée', 'ok');
+}
+
+// ─── Renommer une sélection du pré-montage ──────────────────────────────────
+// Petite modale dédiée (`#basketRenameOverlay`) plutôt qu'un `prompt()` natif
+// (piège CLAUDE.md #1 : prompt() casse le focus state sous Electron) ou une
+// édition inline dans `.basket-item-name` (le `innerHTML` du body entier est
+// reconstruit à chaque `renderBasketOverlay()` — un poll/WS `basket_updated`
+// pendant la frappe détruirait le champ en cours d'édition, cf. piège #32
+// sur les références DOM qui survivent à un re-rendu).
+// Référence par IDENTITÉ d'item (`_basketRenameItemRef`), pas par index — même
+// raison que `_basketCurrentItemRef` : l'index dans `_basketLastResolved` peut
+// se périmer si un re-rendu survient pendant que la modale est ouverte
+// (réorganisation, suppression depuis un autre appareil).
+let _basketRenameItemRef = null;
+
+function _basketRenameItem(idx) {
+    const r = _basketLastResolved[idx];
+    if(!r || !currentSession || _basketViewUser !== currentSession.user_id) return;
+    _basketRenameItemRef = r.item;
+    const input = document.getElementById('basketRenameInput');
+    if(input) input.value = r.sel.name || '';
+    const ov = document.getElementById('basketRenameOverlay');
+    if(ov) ov.style.display = 'flex';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if(input) { input.focus(); input.select(); }
+    }));
+}
+
+function _basketCancelRename() {
+    _basketRenameItemRef = null;
+    const ov = document.getElementById('basketRenameOverlay');
+    if(ov) ov.style.display = 'none';
+}
+
+function _basketConfirmRename() {
+    if(!_basketRenameItemRef) { _basketCancelRename(); return; }
+    const r = _basketLastResolved.find(x => x.item === _basketRenameItemRef);
+    const input = document.getElementById('basketRenameInput');
+    if(!r || !input) { _basketCancelRename(); return; }
+    const name = (input.value || '').trim();
+    if(!name) { showToast('Le nom ne peut pas être vide', 'warn'); return; }
+
+    if(name !== r.sel.name) {
+        pushUndo(r.clip.id);
+        r.sel.name = name;
+        if(activeClip && activeClip.id === r.clip.id) renderMarkers();  // resync le panneau ✂️ Sélections si affiché
+        saveNotes(true);
+        showToast('✏️ Sélection renommée', 'ok');
+    }
+    _basketCancelRename();
+    renderBasketOverlay();
+}
+
+function _basketRenameKeydown(e) {
+    if(e.key === 'Enter') { e.preventDefault(); _basketConfirmRename(); }
+    else if(e.key === 'Escape') { e.preventDefault(); _basketCancelRename(); }
 }
 
 let _basketClearConfirmUntil = 0;
@@ -1928,6 +2016,70 @@ function _basketCancelArmedTrim() {
     _basketPreviewSeqWidths(a.seg.idx, a.origIn, a.origOut);
     const vid = _basketActiveVid();
     if(vid) { try { vid.currentTime = a.edge === 'in' ? a.origIn : a.origOut; } catch(e) {} }
+}
+
+// ─── Couper (façon DaVinci, touche C) ───────────────────────────────────────
+// Scinde en deux la sélection actuellement chargée dans la visionneuse, pile
+// à la position de lecture — même principe qu'un outil Lame/Razor NLE. Ne
+// touche à AUCUNE donnée du clip source : ça reste une opération sur des
+// sélections dans le pré-montage. La moitié d'avant réutilise l'id existant
+// (mute sel.out en place), la moitié d'après devient une sélection nouvelle
+// et indépendante (même schéma que _basketDuplicateItem, pour la même raison :
+// retrimmer l'une des deux ensuite ne doit jamais affecter l'autre) insérée
+// juste après dans allBaskets[uid]. Auteur seulement (comme tout le reste de
+// l'édition du pré-montage) — bouton masqué et raccourci sans effet sinon.
+function _basketCutAtPlayhead() {
+    if(!currentSession || _basketViewUser !== currentSession.user_id) return;
+    const segs = _basketSeqSegments();
+    const seg = segs[_basketPlayIdx];
+    const vid = _basketActiveVid();
+    if(!seg || !vid) { showToast('Charge une sélection dans la visionneuse d’abord', 'warn'); return; }
+    if(_basketArmedTrim) _basketCommitArmedTrim();  // flush un trim en attente avant de couper
+
+    const sel = seg.r.sel;
+    const clip = seg.r.clip;
+    const fps = clip.fps || 25;
+    if(sel.out - sel.in < _BASKET_TRIM_MIN_DUR * 2) {
+        showToast('Sélection trop courte pour être coupée', 'warn');
+        return;
+    }
+    // Snap frame-exact (même grille que le trim), clampé pour garder au moins
+    // _BASKET_TRIM_MIN_DUR de chaque côté — jamais de moitié de durée nulle.
+    let cutT = Math.round((vid.currentTime || 0) * fps) / fps;
+    cutT = Math.max(sel.in + _BASKET_TRIM_MIN_DUR, Math.min(sel.out - _BASKET_TRIM_MIN_DUR, cutT));
+
+    const uid = currentSession.user_id;
+    const n = (allNotes[uid] || {})[clip.id];
+    const arr = allBaskets[uid];
+    if(!n || !n.selects || !arr) return;
+    const realIdx = arr.indexOf(seg.r.item);
+    if(realIdx < 0) return;
+
+    if(_basketPlaying) _basketTogglePlay();
+    pushUndo(clip.id);
+    const origOut = sel.out;
+    sel.out = cutT;  // 1ère moitié : mute l'original en place (même id, même item)
+
+    const newSel = {
+        id: Math.random().toString(36).slice(2, 10),
+        in: cutT, out: origOut,
+        name: _basketNextSuffixedName(n.selects, sel.name, 'cut'),
+        tags: (sel.tags || []).slice(),
+        desc: sel.desc || '',
+    };
+    n.selects.push(newSel);
+    n.selects.sort((a, b) => a.in - b.in);
+
+    _pushBasketUndo();
+    const newItem = {id: Math.random().toString(36).slice(2, 10), clip_id: clip.id, select_id: newSel.id};
+    arr.splice(realIdx + 1, 0, newItem);  // juste après la 1ère moitié dans la bobine
+
+    if(activeClip && activeClip.id === clip.id) renderMarkers();  // resync le panneau ✂️ Sélections si affiché
+    renderBasketOverlay();
+    _updateBasketBadge();
+    saveNotes(true);  // persiste newSel dans allNotes
+    saveBasket();      // persiste newItem dans allBaskets
+    showToast('✂️ Sélection coupée en deux', 'ok');
 }
 
 // Charge `clip` dans le lecteur ACTIF de la visionneuse si ce n'est pas déjà
