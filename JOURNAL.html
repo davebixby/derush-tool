@@ -376,6 +376,9 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 11 septembre 2026 (v0.3.90)</div>
   <a href="#fs5-ltc-decoder-frame-bug">Bug de calibration -1 frame trouvé via l'API de scripting DaVinci</a>
+
+  <div class="nav-section">Session 11 septembre 2026 (v0.3.91)</div>
+  <a href="#chrono-sort-export">Timeline "désorganisée" : tri chronologique manquant dans les exports</a>
 </nav>
 
 <main>
@@ -3883,10 +3886,26 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-note"><strong>Leçons</strong> : (1) une API de scripting officielle de l'appli tierce concernée peut être largement plus rapide et plus fiable qu'un raisonnement par déduction depuis l'extérieur — accéder directement aux données réelles (23 items, tous les Start TC) plutôt que de faire deviner/copier des valeurs une par une à l'utilisateur a permis de voir en quelques minutes un pattern invisible sur 2-3 exemples manuels. (2) Un écart qui semblait "aléatoire"/"imprévisible" sur un petit échantillon (2-3 clips) s'est révélé parfaitement déterministe sur un échantillon de 22 — ne jamais conclure à l'absence de pattern depuis trop peu de données. (3) ⚠️ Toutes les valeurs <code>ltc_tc_in_sec</code> décodées AVANT ce fix sont fausses d'1 frame — un re-décodage forcé (↻ Re-décoder tout) est nécessaire sur les projets existants.</div>
 </div>
 
+<div class="entry" id="chrono-sort-export">
+  <div class="entry-header">
+    <span class="entry-date">11 septembre 2026 · v0.3.91</span>
+    <span class="entry-title">Timeline "désorganisée" : les exports ne triaient jamais les clips</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain après la résolution de la saga TC : « ma timeline exportée depuis DerushTool a un ordre très particulier qui mélange un peu les jours ». Vérification sur les données du projet : les journées elles-mêmes sont bien dans l'ordre (J01→J11, strictement monotone dans <code>clips[]</code>) — ce n'est donc pas un mélange de jours à proprement parler.</p>
+
+  <p>Cause réelle : <code>export_fcpxml</code> (et les exports qui en dépendent) n'a jamais trié les clips — il émet la timeline dans l'ordre brut du scan initial, qui groupe par caméra à l'intérieur d'un jour (dossier FS5 découvert avant le dossier FX6, ou inversement selon l'ordre du système de fichiers), pas par heure réelle de tournage. Vérifié sur J02 : les 3 FS5 retenues (vers 17h) sortaient avant les FX6 du même jour, dont la première commence à 11h33 — un vrai bond de 5h30 en arrière dans le temps à chaque bascule caméra, sur une journée qui a pourtant tourné en multicam simultané la plupart du temps.</p>
+
+  <p>Fix : nouvelle fonction <code>_chrono_sort_clips(clips)</code> (<code>derush_exports.py</code>) — trie par (jour, heure réelle = <code>ltc_tc_in_sec</code> si décodé sinon <code>tc_in</code> brut), même priorité que <code>_clip_asset_tc_sec</code> et même principe que le tri "heure" déjà existant côté sidebar de l'app (<code>_clipTimeOfDay</code>, mélange les caméras au sein d'un jour). Appliquée à <code>export_fcpxml</code>, <code>export_xml_fcp7</code>, <code>export_subclips_fcpxml</code> et <code>export_markers_edl</code> (cette dernière doit rester identique à <code>export_fcpxml</code> pour que les marqueurs tombent juste). <code>export_rough_cut_fcpxml</code> avait déjà son propre tri, non touché.</p>
+
+  <div class="box box-note"><strong>Aussi cette session</strong> : retour terrain « comment enlever le son du TC sur les clips FS5 dans DaVinci ? » — noté dans <code>CLAUDE.md</code> et <code>GUIDE.html</code> (Media Pool → Clip Attributes → Audio → désactiver le canal L sur tous les FS5 en une fois, repli via la page Fairlight si l'option n'existe pas dans la version de Resolve).</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 11 septembre 2026 (v0.3.90 — bug de calibration -1 frame corrigé dans le décodeur LTC, trouvé via l'API de scripting DaVinci Resolve)
+  Derush Tool · Journal de développement · Dernière mise à jour 11 septembre 2026 (v0.3.91 — tri chronologique des exports FCPXML/Premiere/EDL, mélange les caméras au sein d'un jour multicam)
 </div>
 
 </main>

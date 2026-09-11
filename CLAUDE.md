@@ -81,10 +81,11 @@ Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_
 | `compute_thumbnail(file_path, clip_id, offset_sec)` | ffmpeg → JPEG 160px → cache `thumbnails/` |
 | `compute_strip(file_path, clip_id, duration_sec, n=12)` | N frames en threads parallèles → PIL → JPEG horizontal 320×180px/frame → `<clip_id>_strip12.jpg` |
 | `compute_waveform_peaks(file_path, num_buckets=800)` | ffmpeg → PCM s16le 4000Hz → RMS normalisé → liste floats |
-| `export_fcpxml(project, filter_config)` | export FCPXML 1.8 pour DaVinci (supporte filtres) |
-| `export_subclips_fcpxml(project, pre_roll, post_roll, filter_config)` | chaque marker → subclip court |
+| `_chrono_sort_clips(clips)` (`derush_exports.py`) | trie par (jour, heure réelle de tournage — LTC si décodé sinon TC brut), mélange les caméras au sein d'un jour multicam. Utilisée par `export_fcpxml`/`export_xml_fcp7`/`export_subclips_fcpxml`/`export_markers_edl` (sept. 2026) pour éviter l'ordre brut du scan (groupé par caméra, pas par heure) qui donnait une timeline en apparence désorganisée sur les jours multicam |
+| `export_fcpxml(project, filter_config)` | export FCPXML 1.8 pour DaVinci (supporte filtres), clips triés chronologiquement via `_chrono_sort_clips` |
+| `export_subclips_fcpxml(project, pre_roll, post_roll, filter_config)` | chaque marker → subclip court, même tri chronologique |
 | `export_edl(project)` | export EDL classique (CMX3600) |
-| `export_markers_edl(project, filter_config=None)` | export EDL marqueurs DaVinci. `filter_config` = MÊME contrat que `export_fcpxml` (`min_rating`/`cats`/`rejected_only`) : inclusion de clips, FPS de séquence (= `round(clips[0].fps)`) et découpage des zones X répliqués à l'identique depuis `export_fcpxml` pour que l'EDL tombe pile sur la timeline générée avec le même filtre. À passer identique au FCPXML importé |
+| `export_markers_edl(project, filter_config=None)` | export EDL marqueurs DaVinci. `filter_config` = MÊME contrat que `export_fcpxml` (`min_rating`/`cats`/`rejected_only`) : inclusion de clips, tri chronologique (`_chrono_sort_clips`), FPS de séquence (= `round(clips[0].fps)`) et découpage des zones X répliqués à l'identique depuis `export_fcpxml` pour que l'EDL tombe pile sur la timeline générée avec le même filtre. À passer identique au FCPXML importé |
 | `export_csv(project)` | export CSV |
 | `export_report_html(project)` | rapport HTML auto-contenu |
 | `import_edl(edl_text, user_id)` | import EDL → marqueurs |
@@ -441,6 +442,8 @@ Le Start TC interne des MXF FS5 est faux (horloge qui dérive / se remet à zér
 **Timeline déjà conformée** : ne PAS relancer une correction de TC en masse dessus (piège : *Media Offline* + reconform lent, risque de freeze/crash). Pour un clip FS5 isolé ajouté après coup, traiter individuellement.
 
 **Repli sans TC** : *Auto Sync Audio Based on Waveform* reste l'option pour les clips sans LTC exploitable ou en cas d'échec résiduel après relink — moins précis mais toujours disponible.
+
+**Couper le bruit du LTC (BZZZZ) côté DaVinci** : les proxys FS5 ont L=LTC, R=micro (voir § Audio FS5 mono R). Dans le lecteur Derush ce canal est coupé automatiquement, mais en montant directement dans DaVinci il faut le faire à la main : Media Pool → sélectionner tous les clips FS5 → clic droit → *Clip Attributes… → onglet Audio* → désactiver le canal 1 (L) et ne garder que le canal 2 (R). S'applique en une fois à toute la sélection, y compris aux instances déjà coupées dans la timeline (même référence Media Pool). Repli si l'option n'apparaît pas dans cette version de Resolve : page **Fairlight**, couper le canal au niveau du patch de la piste.
 
 **Doc utilisateur autonome** : `D:\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md` (procédure + tableau canaux LTC par journée) — insister sur l'exhaustivité du Media Pool avant tout import FCPXML.
 

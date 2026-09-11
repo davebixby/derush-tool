@@ -4,6 +4,11 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.91] — 2026-09-11
+
+### 🐛 Corrigé
+- **Timeline de selects désorganisée sur les journées multicam.** Les exports FCPXML/XML Premiere/Markers EDL/Sous-clips gardaient l'ordre brut du scan (`project['clips']`) : les journées étaient bien dans l'ordre, mais à l'intérieur d'une journée, tous les plans d'une caméra passaient avant ceux de l'autre (ordre de découverte des dossiers), pas par heure réelle de tournage — un plan FX6 de 11h pouvait se retrouver après un plan FS5 de 17h du même jour, donnant l'impression que la timeline mélangeait les jours. Nouveau tri chronologique (`_chrono_sort_clips`, `derush_exports.py`) : jour puis heure réelle (LTC si décodé, sinon TC brut) — même logique que le tri "heure" déjà disponible dans la sidebar de l'app.
+
 ## [0.3.90] — 2026-09-11
 
 ### 🐛 Corrigé

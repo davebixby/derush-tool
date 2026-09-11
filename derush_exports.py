@@ -13,6 +13,30 @@ from derush_core import (tc_to_seconds, seconds_to_tc, seconds_to_rational,
                          user_note_key)
 
 
+def _chrono_sort_clips(clips):
+    """Trie les clips par (jour, heure réelle de tournage) — mélange les caméras
+    au sein d'une même journée, comme le mode de tri "heure" de la sidebar
+    (`_clipTimeOfDay`/`_clipSortMode==='time'`, derush_app.html).
+
+    Sans ce tri, les timelines de selects (FCPXML/XML Premiere/Markers EDL)
+    gardent l'ordre brut du scan (`project['clips']`) : les jours sont dans le
+    bon ordre, mais À L'INTÉRIEUR d'un jour multicam, toutes les FS5 sont
+    listées avant toutes les FX6 (ordre de découverte des dossiers caméra),
+    pas par heure réelle — un plan FX6 de 11h peut se retrouver après un plan
+    FS5 de 17h du même jour, donnant l'impression que la timeline "mélange les
+    jours" (retour terrain sept. 2026, alors que les jours eux-mêmes sont
+    strictement ordonnés).
+
+    Heure réelle = `ltc_tc_in_sec` si décodé (FS5), sinon `tc_in` brut converti
+    via le fps du clip — même priorité que `_clip_asset_tc_sec`.
+    """
+    def _key(c):
+        ltc = c.get('ltc_tc_in_sec')
+        t = ltc if ltc is not None else (tc_to_seconds(c.get('tc_in', ''), round(c.get('fps', 25))) or 0)
+        return (c.get('day', ''), t)
+    return sorted(clips, key=_key)
+
+
 def _clip_asset_tc_sec(clip, fps):
     """TC de départ à utiliser dans les exports NLE (<asset start>, TC source EDL).
 
@@ -45,7 +69,7 @@ def _clip_asset_tc_sec(clip, fps):
 
 
 def export_fcpxml(project, filter_config=None):
-    clips = project.get('clips', [])
+    clips = _chrono_sort_clips(project.get('clips', []))
     notes = project.get('notes', {})
     users = project.get('users', [])
     fc_min_rating = int(filter_config['min_rating']) if filter_config and filter_config.get('min_rating') else None
@@ -270,7 +294,7 @@ def export_xml_fcp7(project, filter_config=None):
     Compatible Premiere Pro CC 2017+ (et toute version qui sait lire l'XML FCP7).
     Mêmes règles de filtrage et coupes X que export_fcpxml.
     """
-    clips = project.get('clips', [])
+    clips = _chrono_sort_clips(project.get('clips', []))
     notes = project.get('notes', {})
     users = project.get('users', [])
     fc_min_rating = int(filter_config['min_rating']) if filter_config and filter_config.get('min_rating') else None
@@ -495,7 +519,7 @@ def export_subclips_fcpxml(project, pre_roll=3.0, post_roll=7.0, filter_config=N
     Export FCPXML avec un sous-clip par marker : [marker - pre_roll, marker + post_roll].
     Chaque segment est clampé aux bornes du clip source.
     """
-    clips = project.get('clips', [])
+    clips = _chrono_sort_clips(project.get('clips', []))
     notes = project.get('notes', {})
     users = project.get('users', [])
     fc_cats = filter_config.get('cats') if filter_config else None
@@ -1153,9 +1177,12 @@ def export_markers_edl(project, filter_config=None):
     jeu de clips (donc toutes les positions timeline cumulées) ne correspond pas.
     L'inclusion des clips, le découpage des zones X et le FPS de séquence sont
     répliqués à l'identique depuis export_fcpxml pour que l'EDL tombe pile sur la
-    timeline générée avec le même filtre.
+    timeline générée avec le même filtre — y compris l'ordre chronologique
+    (jour + heure réelle de tournage, `_chrono_sort_clips`) depuis sept. 2026 :
+    toute future modif de l'ordre/inclusion/segments dans export_fcpxml doit
+    rester répercutée ici.
     """
-    clips = project.get('clips', [])
+    clips = _chrono_sort_clips(project.get('clips', []))
     notes = project.get('notes', {})
     users = project.get('users', [])
 

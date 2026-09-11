@@ -485,6 +485,8 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
 
 <div class="tip">Procédure détaillée : <code>D:\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md</code>.</div>
 
+<div class="tip"><strong>Enlever le bruit du LTC (BZZZZ) sur les FS5 directement dans DaVinci</strong> : dans le Media Pool, sélectionne tous les clips FS5 → clic droit → <em>Clip Attributes… → onglet Audio</em> → désactive le canal 1 (L = LTC), ne garde que le canal 2 (R = micro). S'applique d'un coup à toute la sélection, y compris aux plans déjà coupés dans la timeline. Si l'option n'apparaît pas dans ta version de Resolve, repli via la page <strong>Fairlight</strong> : coupe le canal au niveau du patch de la piste.</div>
+
 <h3>Quels clips entrent dans la timeline ?</h3>
 <p>Pour le <strong>FCPXML complet</strong>, un clip apparaît dans la timeline dès qu'<strong>au moins un membre de l'équipe</strong> l'a annoté — c'est-à-dire qu'il a, sur ce clip :</p>
 <ul>
@@ -493,6 +495,7 @@ Pense aussi à vérifier ton antivirus (Bitdefender, Norton, etc.) qui peut bloq
   <li>un <strong>rating ⭐, ⭐⭐ ou ⭐⭐⭐</strong>.</li>
 </ul>
 <p>À l'inverse, un clip noté <strong>❌ (à jeter)</strong> est <strong>retiré</strong> de la timeline — même si quelqu'un y a posé des marqueurs.</p>
+<p>Les clips retenus sont ordonnés <strong>chronologiquement</strong> : jour, puis heure réelle de tournage (TC LTC pour les FS5 décodées, TC du fichier sinon) — les caméras se mélangent naturellement au sein d'une même journée multicam, comme dans le tri "heure" de la sidebar. Avant sept. 2026, l'ordre suivait le scan (groupé par caméra) et pouvait donner l'impression que la timeline mélangeait les jours.</p>
 <div class="tip"><strong>Un clip que tu pensais avoir annoté n'apparaît pas ?</strong> Vérifie que tu es connecté avec le <strong>même utilisateur</strong> que lorsque tu l'as annoté. Les annotations sont rattachées à chaque identité, et l'export les regroupe par utilisateur : des notes faites sous une autre identité ne sortent pas dans la timeline.</div>
 
 <h2 id="export-premiere">Exporter vers Adobe Premiere Pro</h2>
