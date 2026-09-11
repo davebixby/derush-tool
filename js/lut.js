@@ -70,6 +70,34 @@ async function _lutDbGet(pid, lutName) {
     } catch(e) { console.error('LUT: lecture IndexedDB échouée', e); return null; }
 }
 
+// Cache local des LUT TÉLÉCHARGÉES depuis le hash d'un autre collaborateur (voir
+// section « LUT partagée » plus bas) — clé dédiée `hash::<h>`, jamais `pid::name`,
+// pour ne risquer aucune collision avec une LUT locale qui porterait le même nom
+// de fichier mais un contenu différent (deux personnes peuvent toutes les deux
+// avoir un "look1.cube").
+async function _lutDbPutHash(hash, text) {
+    try {
+        const db = await _lutDbOpen();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction('files', 'readwrite');
+            tx.objectStore('files').put({key: `hash::${hash}`, hash, text});
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch(e) {}
+}
+async function _lutDbGetHash(hash) {
+    try {
+        const db = await _lutDbOpen();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction('files', 'readonly');
+            const req = tx.objectStore('files').get(`hash::${hash}`);
+            req.onsuccess = () => resolve(req.result ? req.result.text : null);
+            req.onerror = () => reject(req.error);
+        });
+    } catch(e) { return null; }
+}
+
 // ─── Assignations (localStorage, par projet) ─────────────────────────────────
 function _lutLoadAssign(pid) {
     _lutAssign = {cameras: {}, clips: {}};
@@ -91,10 +119,127 @@ function _lutLoadAssign(pid) {
 function _lutPersistAssign() {
     if (!currentProjectId) return;
     try { localStorage.setItem('derush_lut_assign_' + currentProjectId, JSON.stringify(_lutAssign)); } catch(e) {}
+    _lutSchedulePublish();
 }
 function _lutPersistEnabled() {
     if (!currentProjectId) return;
     try { localStorage.setItem('derush_lut_enabled_' + currentProjectId, _lutEnabled ? '1' : '0'); } catch(e) {}
+}
+
+// ─── LUT partagée : publication pour que les collaborateurs voient VOTRE
+// pré-montage avec VOTRE LUT (retour terrain : « voir le prémontage d'un autre
+// utilisateur avec les LUTs et réglages qu'elle a faits »). Scopé À CE SEUL
+// usage : partout ailleurs (lecteur principal, votre propre pré-montage,
+// comparateur, multicam) c'est TOUJOURS `_lutAssign` local qui gouverne, jamais
+// écrasé par ce qu'un autre a publié — voir `_lutResolveForRemote` plus bas,
+// appelée UNIQUEMENT par `_basketLutRefresh()` (js/selects.js) quand
+// `_basketViewUser` n'est pas l'utilisateur courant.
+//
+// `allLutAssign` (chargé dans enterWorkspace(), rafraîchi par poll/WS comme
+// allBaskets) contient l'assignation PUBLIÉE de chaque collaborateur — mêmes
+// formes que `_lutAssign` (cameras/clips → {lutName, settings}) plus un `hash`
+// (le contenu réel du .cube n'y est jamais embarqué, voir /lut/upload : stocké
+// à part sur le serveur, adressé par sha256, pour ne jamais alourdir le
+// push/pull JSON debounced 3s des notes/paniers).
+let allLutAssign = {};
+let _lutUploadedHash = {};   // lutName -> hash déjà connu du serveur (évite un ré-upload à chaque publish)
+let _lutPublishTimer = null;
+
+// Upload (si pas déjà fait) le contenu d'une LUT locale et retourne son hash
+// serveur — dédupliqué par contenu des DEUX côtés (cache client `_lutUploadedHash`
+// + le serveur lui-même n'écrit jamais un hash déjà présent sur disque).
+async function _lutEnsureUploaded(lutName) {
+    if (_lutUploadedHash[lutName]) return _lutUploadedHash[lutName];
+    if (!currentProjectId) return null;
+    const text = await _lutDbGet(currentProjectId, lutName);
+    if (!text) return null;
+    try {
+        const r = await apiFetch(`/api/project/${currentProjectId}/lut/upload`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({content: text}),
+        });
+        if (!r.ok) return null;
+        const d = await r.json();
+        _lutUploadedHash[lutName] = d.hash;
+        return d.hash;
+    } catch(e) { return null; }
+}
+
+// Debounced ~1.5s — `setLutSetting` republierait sinon à chaque tick d'un
+// slider glissé (oninput), potentiellement des dizaines de fois par seconde.
+function _lutSchedulePublish() {
+    if (!currentSession || !currentProjectId) return;
+    if (_lutPublishTimer) clearTimeout(_lutPublishTimer);
+    _lutPublishTimer = setTimeout(_lutPublishAssign, 1500);
+}
+
+// Republie un INSTANTANÉ COMPLET de `_lutAssign` (pas un diff) — donc une
+// entrée retirée localement (ex. `_lutRemoveForActiveClip`) disparaît aussi de
+// la version publiée au prochain appel, sans logique de suppression séparée.
+async function _lutPublishAssign() {
+    _lutPublishTimer = null;
+    if (!currentSession || !currentProjectId) return;
+    const buildEntry = async (e) => {
+        if (!e || !e.lutName) return null;
+        const hash = await _lutEnsureUploaded(e.lutName);
+        if (!hash) return null;  // upload pas encore abouti — sera repris au prochain réglage/publish
+        return {lutName: e.lutName, hash, settings: e.settings};
+    };
+    const cameras = {}, clipsOut = {};
+    for (const [cam, e] of Object.entries(_lutAssign.cameras || {})) {
+        const out = await buildEntry(e);
+        if (out) cameras[cam] = out;
+    }
+    for (const [cid, e] of Object.entries(_lutAssign.clips || {})) {
+        const out = await buildEntry(e);
+        if (out) clipsOut[cid] = out;
+    }
+    const uid = currentSession.user_id;
+    if (!uid) return;
+    allLutAssign[uid] = {cameras, clips: clipsOut};  // reflète localement tout de suite (pas d'aller-retour réseau à attendre)
+    try {
+        await apiFetch(`/api/project/${currentProjectId}/lut_assign`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({assign: {cameras, clips: clipsOut}}),
+        });
+    } catch(e) {}
+}
+
+// Équivalent de `_lutResolveFor` mais pour l'assignation PUBLIÉE d'un AUTRE
+// utilisateur (`uid`) — jamais utilisée pour l'utilisateur courant.
+function _lutResolveForRemote(uid, clip) {
+    if (!clip || !uid) return null;
+    const ua = allLutAssign[uid];
+    if (!ua) return null;
+    const clipEntry = (ua.clips || {})[clip.id];
+    if (clipEntry && clipEntry.lutName) return clipEntry;
+    const camEntry = (ua.cameras || {})[clip.camera || ''];
+    if (camEntry && camEntry.lutName) return camEntry;
+    return null;
+}
+
+// Équivalent de `_lutEnsureLoaded` mais indexé par HASH (contenu, pas nom de
+// fichier) — un autre collaborateur peut très bien avoir chargé un fichier du
+// même nom que le vôtre avec un contenu différent, le hash évite toute
+// collision. Cache mémoire partagé avec `_lutLibrary` (clé préfixée `hash:`
+// pour rester séparée de l'espace `lutName` local), cache disque dans la même
+// IndexedDB via `_lutDbGetHash`/`_lutDbPutHash`.
+async function _lutEnsureLoadedByHash(hash) {
+    const memKey = 'hash:' + hash;
+    if (_lutLibrary[memKey]) return _lutLibrary[memKey];
+    let text = await _lutDbGetHash(hash);
+    if (!text) {
+        if (!currentProjectId) return null;
+        try {
+            const r = await fetch(`/api/project/${currentProjectId}/lut/${hash}`);
+            if (!r.ok) return null;
+            text = await r.text();
+        } catch(e) { return null; }
+        _lutDbPutHash(hash, text);  // fire-and-forget
+    }
+    const parsed = _parseCube(text);
+    _lutLibrary[memKey] = parsed;
+    return parsed;
 }
 
 // ─── Résolution : quelle LUT + réglages s'appliquent à ce plan ? ────────────

@@ -4,6 +4,73 @@ Toutes les évolutions notables de Derush Tool. Format inspiré de [Keep a Chang
 
 ---
 
+## [0.3.90] — 2026-09-11
+
+### 🐛 Corrigé
+- **Décalage systématique de +1 frame dans le décodeur LTC.** `_ltc_decode_pcm` (`derush_server.py`) renvoyait un timecode systématiquement une frame trop tard par rapport au décodeur natif de DaVinci — validé empiriquement sur 22 clips FS5 réels (6 journées) en connectant l'API de scripting DaVinci pendant que le projet était ouvert, plutôt que de deviner depuis l'extérieur. C'était la vraie cause principale des clips FS5 encore hors ligne à l'import FCPXML après la restauration du TC LTC en v0.3.89. Calibration `-1 frame` appliquée.
+- ⚠️ **Les projets ayant déjà décodé du LTC avant ce fix ont des valeurs `ltc_tc_in_sec` fausses d'1 frame.** Relancez **🎶 Décoder LTC → ↻ Re-décoder tout** (force) pour les recalculer.
+
+## [0.3.89] — 2026-09-11
+
+### ↩️ Restauré (facteur confondant identifié)
+- **Le TC LTC des FS5 revient dans les exports FCPXML/Premiere/EDL** — le "définitif" de la v0.3.88 était prématuré. En creusant les logs DaVinci (`davinci_resolve.log`) sur les échecs de la v0.3.87, un clip **GoPro** (jamais concerné par le TC LTC) a échoué exactement de la même façon que les clips FS5 — preuve que le Media Pool était **incomplet** (médias de certains jours pas encore importés dans DaVinci) au moment des tests, pas seulement une question de précision de décodage TC. Une fois le Media Pool complété, un clip précédemment hors ligne (`Clip0002.MXF`) s'est immédiatement reconnu correctement. Le vrai taux d'échec de l'approche LTC dans des conditions propres (Media Pool complet, export régénéré après coup) reste à évaluer — voir § FCPXML — TC source et piège #37 de `CLAUDE.md`.
+- Rappel : le besoin réel derrière cette fonctionnalité est de permettre *Auto Sync Audio → Based on Timecode* pour lier le son ingé aux rushs FS5 — *Based on Waveform* (l'alternative recommandée en v0.3.88) donne de mauvais résultats sur les scènes à bruit répétitif (moteur, pneus de roulage), d'où la nécessité de retenter l'approche TC plutôt que de l'abandonner sur la base de tests biaisés.
+
+## [0.3.88] — 2026-09-11
+
+### ↩️ Revert définitif
+- **Retour au timecode brut du fichier pour TOUS les exports, y compris FS5 — plus jamais de substitution LTC.** La v0.3.87 réintroduisait le TC LTC dans le FCPXML/Premiere/EDL, conditionné au fait d'avoir corrigé le Media Pool DaVinci au préalable. Testé en conditions réelles : une partie des clips FS5 se retrouve quand même hors ligne à l'import, sur un périmètre plus large et plus dispersé que prévu — la reconnaissance d'asset de DaVinci pour du MXF FS5 est trop imprévisible pour être pilotée depuis l'extérieur, même en respectant l'ordre du workflow documenté. L'export redevient **fiable à l'import en toutes circonstances** (comme en v0.3.86) au prix de perdre la sync son frame-accurate automatique pour les FS5 — voir § Workflow FS5 de `CLAUDE.md` pour l'alternative recommandée (*Auto Sync Audio Based on Waveform*, découplée du TC).
+
+## [0.3.87] — 2026-09-11
+
+### ↩️ Re-revert (avec précondition)
+- **Le TC LTC (vrai TC) des FS5 est de nouveau embarqué dans les exports FCPXML/Premiere/EDL** — mais cette fois **seulement si le Media Pool DaVinci a déjà été corrigé à la même valeur avant l'import** (`Update Timecode from Audio Track` / `fs5_fix_timecode_resolve.py`, voir § Workflow FS5 de `CLAUDE.md`). La v0.3.86 (TC brut partout) évitait le rejet à l'import mais créait un 2e problème : une fois le Media Pool corrigé côté DaVinci, un export au TC brut ne matchait plus les clips déjà corrigés → DaVinci les réimportait en double au lieu de les relier aux médias déjà synchronisés. **Respectez l'ordre documenté (correction TC → sync son → FCPXML en dernier)** : importer cet export sur un Media Pool pas encore corrigé reproduit l'échec de la v0.3.85 (« timecode extents »).
+
+## [0.3.86] — 2026-09-10
+
+### ↩️ Revert
+- **Retour au timecode interne du MXF pour les FS5 dans les exports.** La v0.3.85 embarquait le timecode LTC (le vrai) dans le FCPXML pour les FS5 — mais DaVinci compare ce timecode au timecode interne du fichier (qui reste faux tant qu'on n'a pas lancé `fs5_fix_timecode_resolve.py`), et rejetait alors tous les clips FS5 à l'import (« 59 clips non trouvés »). L'export FCPXML/Premiere/EDL réutilise le timecode que DaVinci sait retrouver → l'import passe sans erreur. La synchro du son des FS5 se fait ensuite côté DaVinci (script `fs5_fix_timecode_resolve.py` sur les clips du Media Pool, ou calage manuel).
+
+## [0.3.85] — 2026-09-10 · _(remplacée par 0.3.86)_
+
+### ✨ Ajouté
+- **Timecode réel (LTC) des FS5 dans les exports DaVinci/Premiere.** Les timelines FCPXML, XML Premiere et EDL embarquent le timecode décodé du LTC audio pour les FS5 au lieu du timecode interne du MXF. _Annulé en 0.3.86_ : cassait l'import DaVinci quand le Media Pool n'avait pas encore été corrigé par `fs5_fix_timecode_resolve.py`.
+
+## [0.3.84] — 2026-09-10
+
+### 🐛 Corrigé
+- **Export FCPXML/Premiere : les rushs pointaient encore l'ancien disque si celui-ci restait branché.** Le chemin local des rushs que vous configurez (📁) est désormais prioritaire sur le chemin figé au scan, toujours — même si l'ancien emplacement contient encore une copie. Mettez le chemin 📁 à jour et réexportez.
+
+## [0.3.83] — 2026-09-10
+
+### ✨ Ajouté
+- **Markers EDL pour une timeline de selects filtrée.** Le Markers EDL accepte les mêmes filtres que le FCPXML (⭐⭐⭐, ⭐⭐+, ⭐+, problèmes son/image, à couper) — un bouton EDL par filtre dans la modale d'export, à importer sur la timeline du même filtre.
+
+### 🐛 Corrigé
+- **Marqueurs décalés après un clip avec zones X (à couper).** Le Markers EDL avançait de la durée complète du clip alors que la timeline FCPXML le raccourcit — tous les marqueurs suivants glissaient. L'EDL suit maintenant le même découpage que le FCPXML.
+
+## [0.3.82] — 2026-09-10
+
+### 🐛 Corrigé
+- **DaVinci cherchait les rushs sur l'ancien disque après un changement de lettre de lecteur.** L'export réévalue le chemin réel de chaque clip juste avant de générer le FCPXML/XML Premiere — plus besoin de rescanner tout le projet pour un simple changement de disque.
+
+## [0.3.81] — 2026-09-10
+
+### 🐛 Corrigé
+- **Import DaVinci refusé sur les clips GoPro (« Mismatch between specified target timecodes »).** Le timecode GoPro (écrit uniquement au niveau piste, jamais format) n'était jamais lu au scan → l'export posait `start="0s"`. Corrigé pour toutes les caméras dans ce cas. **Rescannez le projet (🔄)** pour corriger les clips déjà scannés.
+
+## [0.3.80] — 2026-09-10
+
+### ✨ Ajouté
+- **Export DaVinci/Premiere « au moins une étoile ».** Nouveau bouton ⭐ et plus dans les timelines de selects.
+
+## [0.3.79] — 2026-09-10
+
+### ✨ Ajouté
+- **Voir la LUT d'un collaborateur dans son pré-montage.** Quand vous consultez le pré-montage d'un autre utilisateur, ses LUT et réglages de grade publiés s'affichent (partout ailleurs, c'est toujours votre grade local qui gouverne).
+
+> Les versions 0.3.49 à 0.3.78 ne sont pas détaillées ici — voir `JOURNAL.html` (carnet de bord) et l'historique Git.
+
 ## [0.3.48] — 2026-08-01
 
 ### 🐛 Corrigé

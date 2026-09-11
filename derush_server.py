@@ -214,6 +214,8 @@ THUMBNAILS_DIR = Path(CONFIG.get('thumbnails_dir', str(APP_DIR / 'thumbnails')))
 THUMBNAILS_DIR.mkdir(exist_ok=True, parents=True)
 BACKUPS_DIR = Path(CONFIG.get('backups_dir', str(PROJECTS_DIR / 'backups')))
 BACKUPS_DIR.mkdir(exist_ok=True, parents=True)
+LUTS_DIR = Path(CONFIG.get('luts_dir', str(PROJECTS_DIR / 'luts')))
+LUTS_DIR.mkdir(exist_ok=True, parents=True)
 # Rétention des sauvegardes projet (voir save_project) :
 #  - rolling : copies horodatées à la seconde à chaque save — couvre ~une session
 #  - daily   : une copie par jour calendaire, jamais purgée par le cycle rolling —
@@ -477,8 +479,19 @@ def _ffprobe_metadata_bounded(filepath, wall_timeout=20):
 
 def ffprobe_metadata(filepath):
     try:
+        # `stream_tags=timecode` est indispensable : beaucoup de caméras (GoPro
+        # entre autres — pas de `format.tags.timecode`, seulement un tag `timecode`
+        # par piste vidéo/audio/tmcd) n'écrivent leur TC qu'au niveau STREAM, jamais
+        # au niveau FORMAT. Sans cette entrée, `-show_entries` ne renvoie aucun
+        # `streams[i].tags` du tout → le fallback per-stream de scan_media_folder()
+        # (`s.get('tags', {}).get('timecode', '')`) tombait toujours sur `{}` et
+        # tc_in restait vide, silencieusement, pour toute caméra dans ce cas — pas
+        # seulement GoPro. Conséquence concrète : asset FCPXML avec `start="0s"` au
+        # lieu de la vraie TC source → DaVinci refuse d'importer ("Mismatch between
+        # specified target timecodes [...] and located file timecodes [...]"),
+        # incident réel sur GX010129.MP4 (sept. 2026).
         cmd = [FFPROBE, '-i', str(filepath), '-show_entries',
-               'format=duration,filename:format_tags:stream=width,height,codec_name,r_frame_rate,channels,sample_rate',
+               'format=duration,filename:format_tags:stream=width,height,codec_name,r_frame_rate,channels,sample_rate:stream_tags=timecode',
                '-v', 'quiet', '-print_format', 'json']
         r = _ffmpeg_run(cmd, timeout=30, text=True, sem=_ffprobe_meta_sem)
         return json.loads(r.stdout)
@@ -836,6 +849,56 @@ def _resolve_relpath_tolerant(root, rel):
             _relpath_resolve_cache[cache_key] = current
         return current
     return None
+
+def _resolve_clip_src_path(proj, clip, prefer_root=None):
+    """Résout le chemin ABSOLU réel d'un clip pour les exports FCPXML/XML Premiere —
+    `clip['path']` est un chemin absolu figé au moment du SCAN et ne bouge plus tout
+    seul : changer le chemin local des rushs (lettre de lecteur E: → F:, disque
+    remonté ailleurs) sans relancer un scan le laisse périmé, DaVinci ouvre alors la
+    timeline en cherchant les fichiers à leur ANCIEN emplacement (retour terrain
+    sept. 2026).
+
+    Priorité (piège #36) :
+      1. `prefer_root` : le `root_path` que l'utilisateur qui exporte a explicitement
+         configuré (📁 dans l'app), passé en query param `?root=` par le front. C'est
+         le choix le plus fiable — il DOIT primer sur `clip['path']` figé, même si
+         l'ancien emplacement (E:) est toujours branché et contient encore une copie
+         (sinon le fast-path "chemin littéral existe" gagnait et renvoyait E: alors
+         que l'utilisateur veut F: — retour terrain sept. 2026, 2e passe).
+      2. le chemin littéral `clip['path']` s'il existe encore (aucun changement de
+         disque → on garde la vérité du scan).
+      3. `_resolve_relpath_tolerant` contre le `root_path` de chaque autre user
+         (+ root_path projet) — filet pour un fichier réellement déplacé.
+      4. le chemin stocké tel quel (rien de mieux à proposer)."""
+    rel = clip.get('rel_path', '')
+    if prefer_root and rel:
+        resolved = _resolve_relpath_tolerant(prefer_root, rel)
+        if resolved is not None:
+            return str(resolved)
+    cp = Path(clip.get('path', ''))
+    if cp.exists():
+        return str(cp)
+    if rel:
+        for u in proj.get('users', []):
+            rp = u.get('root_path') or proj.get('root_path', '')
+            if not rp:
+                continue
+            resolved = _resolve_relpath_tolerant(rp, rel)
+            if resolved is not None:
+                return str(resolved)
+    return clip.get('path', '')  # rien de mieux à proposer — on garde l'ancien chemin tel quel
+
+def _proj_with_resolved_export_paths(proj, prefer_root=None):
+    """Copie légère de `proj` avec `clip['path']` réévalué via `_resolve_clip_src_path`
+    pour chaque clip — à utiliser juste avant d'appeler un export_* qui embarque des
+    chemins de fichiers (FCPXML/XML Premiere). Ne modifie rien d'autre ni le projet
+    sur disque (les exports sont en lecture seule).
+
+    `prefer_root` : root_path de l'utilisateur qui exporte (query param `?root=`),
+    prioritaire sur le chemin figé au scan (voir `_resolve_clip_src_path`)."""
+    patched = dict(proj)
+    patched['clips'] = [{**c, 'path': _resolve_clip_src_path(proj, c, prefer_root)} for c in proj.get('clips', [])]
+    return patched
 
 # ─── Project Management ───
 
@@ -1488,7 +1551,15 @@ def _ltc_decode_pcm(pcm, sample_rate=48000, fps=25, min_consecutive_frames=3):
         iv_idx = bit_to_iv[start] if start < len(bit_to_iv) else 0
         sample_pos = int(zc[iv_idx]) if iv_idx < len(zc) else 0
         offset_sec = sample_pos / float(sample_rate)
-        return round((tc0 - offset_sec) % (24 * 3600), 3)
+        # Calibration -1 frame (sept. 2026) : validée empiriquement contre le
+        # décodeur natif DaVinci (Update Timecode from Audio Track, référence
+        # fiable) sur 22 clips FS5 réels distincts, 6 journées différentes — le
+        # calcul ci-dessus (sans cette correction) est systématiquement en avance
+        # d'exactement 1 frame sur DaVinci, toujours dans le même sens, jamais 0
+        # ni 2 frames d'écart. Cause racine non isolée avec certitude dans la
+        # géométrie bit/sample ci-dessus ; calibration empirique en attendant
+        # mieux. Voir CLAUDE.md piège #37 (saga TC LTC des FS5, sept. 2026).
+        return round((tc0 - offset_sec - frame_period) % (24 * 3600), 3)
     return None
 
 
@@ -2679,6 +2750,46 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
             return
 
+        # LUT assignments PUBLIÉES par chaque user (référencent un hash de fichier
+        # .cube, pas le contenu — voir /lut/<hash> pour le contenu réel). Sert à
+        # afficher la LUT d'un collaborateur quand on consulte SON pré-montage,
+        # cf. CLAUDE.md § Pré-montage → LUT partagée.
+        if re.match(r'^/api/project/([^/]+)/lut_assign$', path):
+            pid = re.match(r'^/api/project/([^/]+)/lut_assign$', path).group(1)
+            proj = load_project(pid)
+            if proj:
+                self._json_response(proj.get('lut_assign', {}))
+            else:
+                self.send_error(404)
+            return
+
+        m = re.match(r'^/api/project/([^/]+)/lut/([0-9a-f]{16,64})$', path)
+        if m:
+            h = m.group(2)
+            f = LUTS_DIR / f'{h}.cube'
+            if not f.exists():
+                # Pas encore rapatrié localement — tente le cloud (cas où le hash
+                # référencé vient du pré-montage d'un collaborateur sur une autre
+                # machine) et met en cache pour les requêtes suivantes.
+                content = _lut_fetch_from_cloud(h)
+                if content is None:
+                    self.send_error(404)
+                    return
+                try:
+                    f.write_text(content, encoding='utf-8')
+                except Exception:
+                    pass
+            else:
+                content = f.read_text(encoding='utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('Cache-Control', 'public, max-age=31536000, immutable')  # contenu adressé par hash → jamais périmé
+            body_bytes = content.encode('utf-8')
+            self.send_header('Content-Length', str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+            return
+
         if re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7)$', path):
             m = re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7)$', path)
             pid, fmt = m.group(1), m.group(2)
@@ -2696,6 +2807,20 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 if min_r: filter_config['min_rating'] = min_r
                 if cats_p: filter_config['cats'] = cats_p.split(',')
                 if rejected_p: filter_config['rejected_only'] = True
+            # Les formats qui embarquent des chemins de fichiers (FCPXML/XML Premiere)
+            # doivent résoudre `clip['path']` au chemin RÉEL courant, pas au chemin figé
+            # au moment du scan — sinon un changement de lettre de lecteur (E: → F:) sans
+            # rescan laisse DaVinci chercher les fichiers à leur ancien emplacement
+            # (retour terrain sept. 2026). Formats sans chemin embarqué (edl/markers_edl/
+            # csv/report_html) : inutile, évite un aller-retour disque par clip pour rien.
+            if fmt in ('fcpxml', 'xml_fcp7', 'subclips_fcpxml', 'rough_cut', 'basket_fcpxml', 'basket_xml_fcp7'):
+                # `?root=` : root_path que l'utilisateur qui exporte a configuré (📁).
+                # Prioritaire sur clip['path'] figé au scan — cf. _resolve_clip_src_path.
+                # L'export est déclenché par window.location (navigation) donc SANS
+                # header Authorization : impossible de retrouver la session ici, le
+                # front doit passer explicitement le chemin voulu.
+                prefer_root = (qs.get('root', [''])[0] or '').strip() or None
+                proj = _proj_with_resolved_export_paths(proj, prefer_root)
             if fmt == 'fcpxml':
                 label = qs.get('label', [proj['name']])[0]
                 content = export_fcpxml(proj, filter_config)
@@ -2721,8 +2846,9 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 content = export_edl(proj)
                 self._text_response(content, f"{proj['name']}_markers.edl", 'text/plain')
             elif fmt == 'markers_edl':
-                content = export_markers_edl(proj)
-                self._text_response(content, f"{proj['name']}_timeline_markers.edl", 'text/plain')
+                label = qs.get('label', [proj['name']])[0]
+                content = export_markers_edl(proj, filter_config)
+                self._text_response(content, f"{label}_timeline_markers.edl", 'text/plain')
             elif fmt == 'csv':
                 content = export_csv(proj)
                 self._text_response(content, f"{proj['name']}_markers.csv", 'text/csv')
@@ -3275,7 +3401,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
         self.send_error(404)
 
     def _dispatch_post(self):
-        global CONFIG, IS_CONFIGURED, PROJECTS_DIR, WAVEFORMS_DIR, THUMBNAILS_DIR, BACKUPS_DIR, PORT, FFMPEG, FFPROBE, SYNC_URL, SYNC_KEY
+        global CONFIG, IS_CONFIGURED, PROJECTS_DIR, WAVEFORMS_DIR, THUMBNAILS_DIR, BACKUPS_DIR, LUTS_DIR, PORT, FFMPEG, FFPROBE, SYNC_URL, SYNC_KEY
         parsed = urlparse(self.path)
         path = parsed.path
         body = self._read_body()
@@ -3648,6 +3774,53 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                           exclude_token=self.headers.get('Authorization', '')[7:])
             _schedule_sync_push(pid)
             self._json_response({'ok': True})
+            return
+
+        # Publie l'assignation LUT (caméras/clips → {lutHash, lutName, settings})
+        # de l'utilisateur courant, pour qu'un collaborateur qui consulte SON
+        # pré-montage voie le même rendu. Même mécanique own-user-writes-own-key
+        # que /notes et /basket — jamais les entrées des autres.
+        if re.match(r'^/api/project/([^/]+)/lut_assign$', path):
+            pid = re.match(r'^/api/project/([^/]+)/lut_assign$', path).group(1)
+            s = require_auth(self)
+            if not s: return
+            proj = load_project(pid)
+            if not proj:
+                self.send_error(404)
+                return
+            _pu = find_project_user(proj, s.get('username') or s.get('name') or s.get('user_id') or '')
+            user_key = user_note_key(_pu) if _pu else (s.get('user_id') or s.get('username', ''))
+            assign = body.get('assign', {})
+            if not proj.get('lut_assign'):
+                proj['lut_assign'] = {}
+            proj['lut_assign'][user_key] = assign
+            save_project(pid, proj)
+            _ws_broadcast(pid, {'type': 'lut_assign_updated', 'user': user_key},
+                          exclude_token=self.headers.get('Authorization', '')[7:])
+            _schedule_sync_push(pid)
+            self._json_response({'ok': True})
+            return
+
+        # Upload d'un fichier .cube (contenu texte, adressé par hash sha256 —
+        # dédupliqué : un même fichier uploadé par 2 users n'est stocké qu'une
+        # fois). Volontairement HORS du JSON projet (poids potentiel de
+        # plusieurs Mo) pour ne jamais alourdir les push/pull fréquents des
+        # notes/paniers (debounced 3s) — voir CLAUDE.md § LUT partagée.
+        if re.match(r'^/api/project/([^/]+)/lut/upload$', path):
+            s = require_auth(self)
+            if not s: return
+            content = body.get('content', '')
+            if not isinstance(content, str) or not content.strip() or len(content) > 12 * 1024 * 1024:
+                self._json_response({'error': 'Contenu LUT invalide ou trop volumineux'}, code=400)
+                return
+            h = hashlib.sha256(content.encode('utf-8')).hexdigest()
+            f = LUTS_DIR / f'{h}.cube'
+            if not f.exists():
+                f.write_text(content, encoding='utf-8')
+                # Best-effort, en tâche de fond : rend le hash récupérable par les
+                # autres machines même en mode sync cloud (chacune son serveur).
+                threading.Thread(target=_lut_push_to_cloud, args=(h, content), daemon=True).start()
+            self._json_response({'ok': True, 'hash': h})
             return
 
         if re.match(r'^/api/project/([^/]+)/config$', path):
@@ -4057,6 +4230,7 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 'waveforms_dir': waveforms_dir,
                 'thumbnails_dir': thumbnails_dir,
                 'backups_dir': str(Path(projects_dir) / 'backups'),
+                'luts_dir': str(Path(projects_dir) / 'luts'),
                 'ffmpeg': ffmpeg,
                 'ffprobe': ffprobe,
                 'port': port,
@@ -4071,6 +4245,8 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             WAVEFORMS_DIR = Path(waveforms_dir)
             THUMBNAILS_DIR = Path(thumbnails_dir)
             BACKUPS_DIR = Path(projects_dir) / 'backups'
+            LUTS_DIR = Path(projects_dir) / 'luts'
+            LUTS_DIR.mkdir(exist_ok=True, parents=True)
             PORT = port
             FFMPEG = ffmpeg
             FFPROBE = ffprobe
@@ -4207,6 +4383,36 @@ def _sync_url_for(pid):
     # déployé ne supporterait pas (encore) l'en-tête.
     return f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&project={_urlquote(pid, safe='')}"
 
+def _lut_fetch_from_cloud(h):
+    """Récupère un fichier .cube par hash depuis derush_sync.php (mode sync cloud
+    multi-PC : chaque machine a son propre serveur, ce hash n'existe peut-être
+    que sur celle de l'auteur). Retourne None si non configuré/absent — l'appelant
+    retombe alors sur un 404 propre (le pré-montage affiche juste sans LUT)."""
+    if not SYNC_URL or not SYNC_KEY:
+        return None
+    try:
+        url = f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&action=lut_get&hash={_urlquote(h, safe='')}"
+        req = urllib.request.Request(url, headers=_sync_headers())
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.read().decode('utf-8')
+    except Exception:
+        return None
+
+def _lut_push_to_cloud(h, content):
+    """Publie un .cube vers le cloud après un upload local — best-effort, en
+    tâche de fond (voir /lut/upload) : le hash reste utilisable localement même
+    si ce push échoue, il sera retenté au prochain upload du même fichier."""
+    if not SYNC_URL or not SYNC_KEY:
+        return
+    try:
+        url = f"{SYNC_URL.rstrip('/')}?key={_urlquote(SYNC_KEY, safe='')}&action=lut_upload&hash={_urlquote(h, safe='')}"
+        req = urllib.request.Request(url, data=content.encode('utf-8'), method='POST',
+                                      headers=_sync_headers({'Content-Type': 'text/plain; charset=utf-8'}))
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            resp.read()
+    except Exception:
+        pass
+
 def _own_note_key(proj):
     """Clé de notes de l'utilisateur de CETTE machine (son profil local).
     Sert au merge sync : une machine ne publie que ses propres notes (audit §5)."""
@@ -4250,6 +4456,19 @@ def merge_projects(local, remote, own_uid=None):
         for uid, ubasket in local_baskets.items():
             merged_baskets[uid] = ubasket
     result['baskets'] = merged_baskets
+
+    # Assignations LUT publiées : même règle own-uid-wins que notes/paniers —
+    # ne contient que des hashes/réglages (petit JSON), jamais le contenu .cube
+    # lui-même (voir /lut/upload, stockage à part).
+    merged_lut_assign = copy.deepcopy(remote.get('lut_assign', {}))
+    local_lut_assign = local.get('lut_assign', {})
+    if own_uid is not None:
+        if own_uid in local_lut_assign:
+            merged_lut_assign[own_uid] = local_lut_assign[own_uid]
+    else:
+        for uid, la in local_lut_assign.items():
+            merged_lut_assign[uid] = la
+    result['lut_assign'] = merged_lut_assign
 
     # Discussions : ajoute les replies du remote absentes en local (clé = timestamp)
     remote_disc = remote.get('discussions', {})

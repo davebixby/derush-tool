@@ -21,6 +21,7 @@ Outil de dérushage vidéo multi-utilisateurs. Serveur Python + UI HTML monofich
 - `projects/backups/<pid>/` — backups versionnés : rolling horodatés (`<pid>_AAAAMMJJ_HHMMSS.json`, 40 derniers) + quotidiens (`<pid>_daily_AAAAMMJJ.json`, 90 jours, hors cycle rolling)
 - `waveforms/` — cache JSON des formes d'onde (`<clip_id>.json`)
 - `thumbnails/` — cache JPEG des miniatures + strips de scrubbing
+- `projects/luts/` — fichiers `.cube` PARTAGÉS entre collaborateurs, adressés par hash sha256 (`<hash>.cube`), dédupliqués — voir § LUT partagée
 - `GUIDE.html` — notice utilisateur complète
 - `HISTORY.md` — archive chronologique des sagas de debug/incidents/features (extrait de `CLAUDE.md` le 2026-08-01 pour garder ce dernier léger). Ne pas re-fusionner dedans ; y ajouter les nouvelles entrées datées à la place.
 
@@ -47,6 +48,7 @@ Créé par le wizard `/setup` ou manuellement :
   "waveforms_dir": "/path/to/waveforms",
   "thumbnails_dir": "/path/to/thumbnails",
   "backups_dir": "/path/to/projects/backups",
+  "luts_dir": "/path/to/projects/luts",
   "ffmpeg": "ffmpeg",
   "ffprobe": "ffprobe",
   "port": 8765,
@@ -58,7 +60,7 @@ Créé par le wizard `/setup` ou manuellement :
 ```
 `backup_keep_rolling` / `backup_keep_daily` optionnels (défauts 40 / 90).
 
-Variables globales : `APP_DIR`, `BUNDLE_DIR` (PyInstaller: `sys._MEIPASS`), `PROJECTS_DIR`, `WAVEFORMS_DIR`, `THUMBNAILS_DIR`, `BACKUPS_DIR`, `BACKUP_KEEP_ROLLING`, `BACKUP_KEEP_DAILY`, `FFMPEG`, `FFPROBE`, `PORT`, `IS_CONFIGURED`, `SYNC_URL`, `SYNC_KEY`.
+Variables globales : `APP_DIR`, `BUNDLE_DIR` (PyInstaller: `sys._MEIPASS`), `PROJECTS_DIR`, `WAVEFORMS_DIR`, `THUMBNAILS_DIR`, `BACKUPS_DIR`, `LUTS_DIR`, `BACKUP_KEEP_ROLLING`, `BACKUP_KEEP_DAILY`, `FFMPEG`, `FFPROBE`, `PORT`, `IS_CONFIGURED`, `SYNC_URL`, `SYNC_KEY`.
 
 Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_lock` (threading.Lock).
 
@@ -71,17 +73,18 @@ Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_
 | `seconds_to_rational(sec, fps)` | secondes → "frames/fpsS" pour FCPXML |
 | `get_lan_ip()` | IP LAN via socket (pour partage réseau) |
 | `_load_config()` / `save_config(data)` | lecture/écriture `derush_config.json` |
-| `ffprobe_metadata(filepath)` | metadata via ffprobe — retourne TOUS les format_tags |
+| `ffprobe_metadata(filepath)` | metadata via ffprobe — retourne TOUS les format_tags **+** le tag `timecode` de chaque stream (`-show_entries ...:stream_tags=timecode`, indispensable pour les caméras — GoPro entre autres — qui n'écrivent leur TC qu'au niveau stream, jamais format ; voir piège #35) |
 | `scan_media_folder(root_path)` | scan récursif + TC + caméra depuis métadonnées + tech metadata |
 | `parse_sony_xml(xml_path)` | retourne dict `{tc_in, duration_sec, model, iso, aperture, shutter_angle, focal_length}` |
 | `find_proxy(root, clip_path)` | cherche proxy dans Sub/Proxy |
+| `_resolve_clip_src_path(proj, clip, prefer_root=None)` / `_proj_with_resolved_export_paths(proj, prefer_root=None)` | résout `clip['path']` au chemin RÉEL courant (tolérant lettre de lecteur/zero-padding, via `_resolve_relpath_tolerant`) — utilisé juste avant les exports FCPXML/XML Premiere pour ne jamais embarquer un chemin figé au scan initial et périmé depuis (piège #36). **Priorité** : `prefer_root` (query param `?root=` = root_path de l'utilisateur qui exporte, passé par le front car l'export part sans header Auth) > chemin littéral `clip['path']` s'il existe encore > `root_path` des autres users (tolérant) > chemin stocké. `prefer_root` DOIT primer même si l'ancien disque est encore branché avec une copie |
 | `compute_thumbnail(file_path, clip_id, offset_sec)` | ffmpeg → JPEG 160px → cache `thumbnails/` |
 | `compute_strip(file_path, clip_id, duration_sec, n=12)` | N frames en threads parallèles → PIL → JPEG horizontal 320×180px/frame → `<clip_id>_strip12.jpg` |
 | `compute_waveform_peaks(file_path, num_buckets=800)` | ffmpeg → PCM s16le 4000Hz → RMS normalisé → liste floats |
 | `export_fcpxml(project, filter_config)` | export FCPXML 1.8 pour DaVinci (supporte filtres) |
 | `export_subclips_fcpxml(project, pre_roll, post_roll, filter_config)` | chaque marker → subclip court |
 | `export_edl(project)` | export EDL classique (CMX3600) |
-| `export_markers_edl(project)` | export EDL marqueurs DaVinci |
+| `export_markers_edl(project, filter_config=None)` | export EDL marqueurs DaVinci. `filter_config` = MÊME contrat que `export_fcpxml` (`min_rating`/`cats`/`rejected_only`) : inclusion de clips, FPS de séquence (= `round(clips[0].fps)`) et découpage des zones X répliqués à l'identique depuis `export_fcpxml` pour que l'EDL tombe pile sur la timeline générée avec le même filtre. À passer identique au FCPXML importé |
 | `export_csv(project)` | export CSV |
 | `export_report_html(project)` | rapport HTML auto-contenu |
 | `import_edl(edl_text, user_id)` | import EDL → marqueurs |
@@ -90,6 +93,7 @@ Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_
 | `merge_projects(local, remote)` | fusionne remote dans local — notes par user_id (sans conflit), discussions par timestamp |
 | `sync_project(pid)` | pull remote → merge → push → save local → retourne `{ok, message}` |
 | `sync_all_projects()` | appelle sync_project pour chaque `.derush.json` dans PROJECTS_DIR |
+| `_lut_fetch_from_cloud(hash)` / `_lut_push_to_cloud(hash, content)` | LUT partagée : va chercher/pousse un `.cube` sur `derush_sync.php` (`action=lut_get`/`lut_upload`) quand le hash référencé par un collaborateur n'est pas encore en local — voir § LUT partagée |
 | `_sync_background_thread()` | thread daemon : détecte reconnexion (poll 90s), sync auto sur reconnexion + toutes les 10 min |
 | `run(open_browser=False)` | lance ThreadedHTTPServer + _sync_background_thread (appelé par `__main__` et `derush_launcher`) |
 | `DerushHandler` | handler HTTP (do_GET, do_POST) |
@@ -100,6 +104,11 @@ Sync runtime : `_sync_status` (dict: configured/online/last_sync/error), `_sync_
 3. **Nom de dossier** (après `IMAGE/`) — fallback si aucune métadonnée
 
 Fix byte-reversal FX6 : `'FX6' in camera.upper()` (couvre ILME-FX6, FX6V, etc.)
+
+## Détection TC (timecode) — priorité
+1. **Sidecar XML Sony** — comme pour la caméra
+2. **`format.tags.timecode`** (ffprobe) — présent pour certaines caméras (Sony FX6 MXF notamment)
+3. **`streams[i].tags.timecode`** (ffprobe, premier stream qui en a un — vidéo en général) — **seule source pour GoPro** et d'autres caméras qui n'écrivent le TC qu'au niveau stream (voir piège #35 : nécessite `stream_tags=timecode` dans `-show_entries`, sans quoi cette source renvoie toujours vide silencieusement)
 
 ## Points techniques critiques
 
@@ -124,6 +133,10 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
 `<asset start=tc_in_rational>` DOIT être la vraie TC source du fichier (pas `0s`).
 DaVinci compare contre la TC embarquée MXF → mismatch = erreur "timecode extents".
 Les marqueurs FCPXML sont en espace source-TC : `frame_num = tc_in_frames + offset_frames`.
+
+Tous les exports (FCPXML, XML Premiere, EDL classique) passent par `_clip_asset_tc_sec(clip, fps)` (`derush_exports.py`) : priorise `clip['ltc_tc_in_sec']` (décodé depuis la piste audio LTC) quand disponible, sinon repli sur `tc_to_seconds(clip['tc_in'])` (tag brut ffprobe/MXF). Concerne en pratique seulement les FS5 (GoPro/FX6 n'ont jamais de `ltc_tc_in_sec`).
+
+⚠️ **Précondition non négociable** : le Start TC du Media Pool DaVinci DOIT avoir été corrigé à la même valeur LTC (`Update Timecode from Audio Track` / `fs5_fix_timecode_resolve.py`) **ET le Media Pool doit contenir TOUS les médias référencés** (toutes journées, toutes caméras) **avant** l'import de cet export — voir § Workflow FS5. Deux tentatives précédentes (v0.3.85, v0.3.87) semblaient échouer sur la précision du TC, mais l'investigation du 11/09/2026 (logs DaVinci, `davinci_resolve.log`) a montré qu'un Media Pool **incomplet** était au moins en partie responsable des échecs observés en v0.3.87 (un clip GoPro jamais touché par le LTC échouait identiquement) — le vrai taux d'échec dû à la précision du décodage TC seul, dans des conditions propres, n'est pas encore établi (piège #37).
 
 ### FCPXML — notes globales / rating (pas de marker au début du clip)
 Les notes globales et étoiles ne génèrent **plus** de `<marker>` au début du clip (confusant dans DaVinci).  
@@ -152,6 +165,8 @@ FCM: NON-DROP FRAME
 ```
 - Reel toujours "001"
 - Source TC = Record TC = position dans la timeline séquence (pas TC source clip)
+- **Alignement avec le FCPXML** : `export_markers_edl` porte `filter_config` (mêmes params que `export_fcpxml`) et réplique à l'identique (a) l'inclusion des clips (branches `fc_rejected_only`/`fc_min_rating`/`fc_cats`/défaut), (b) le FPS de séquence (`round(clips[0].fps)`, pas 25 en dur), (c) le découpage des zones X en segments conservés — un marqueur dans une zone coupée est retiré, les autres sont replacés via `_src_to_seq()` (temps source → temps séquence à travers les segments), `record_offset += kept_dur`. Avant v0.3.83 l'EDL avançait de `dur` complet → tout décalé après le 1er clip avec des X, même en workflow « timeline complète ». **Toute modif de la logique d'inclusion/segments dans `export_fcpxml` doit être répercutée ici.**
+- UI : modale d'export, sous « Timelines de selects », une ligne « Markers EDL correspondant » avec un bouton `exportDataWithParams('markers_edl', {...même params que le FCPXML au-dessus...})` par filtre. Le bouton « 📥 Markers EDL » du workflow complet reste sans params (= inclusion par défaut).
 
 ### Couleurs marqueurs EDL
 | Cat | Couleur app | ResolveColor |
@@ -215,9 +230,26 @@ La hauteur fixe seule ne suffisait **pas** (retour terrain persistant : « la fe
 - PHP côté serveur, stocke JSON dans `derush_data/<pid>.derush.json`, backups dans `derush_data/backups/<pid>/`
 - Auth par clé secrète `?key=SECRET` en query string
 - GET → download, POST → upload. Backup à chaque POST : rolling horodaté (`$BACKUP_KEEP_ROLLING`=40) + 1 `_daily_AAAAMMJJ` par jour (`$BACKUP_KEEP_DAILY`=90, hors cycle rolling) — **mêmes seuils/logique que `save_project` côté Python ; toute modif doit rester synchro entre les deux, et le PHP doit être ré-uploadé sur l'hébergement pour prendre effet**
-- Merge strategy : `notes` = union par `user_id` (local gagne), `discussions` = union par `ts` (timestamps ISO), `users` = union par `id`
+- Merge strategy : `notes`/`baskets`/`lut_assign` = own-uid-wins (chaque machine ne republie que sa propre clé, garde le remote pour les autres — voir `merge_projects()`), `discussions` = union par `ts` (timestamps ISO), `users` = union par `id`
 - Pas de conflit possible : chaque user_id n'écrit que ses propres notes
 - **⚠️ Le sync propage aussi les régressions** : `merge_projects()` repart du remote puis réimpose les notes de `own_uid` depuis le LOCAL. Un local rétrogradé (restauration système, rollback) écrase donc la version cloud de cet user au redémarrage. Les backups (local 40 rolling + 90 daily, serveur idem) sont le vrai filet — voir piège #30.
+
+### LUT partagée (sept. 2026)
+
+Retour terrain : « est-ce possible, lorsque je vois le prémontage d'un autre utilisateur, de voir son prémontage avec les LUTs et les réglages de LUT qu'elle a faits ? ». Avant cette feature, `_lutAssign`/`_lutLibrary` (js/lut.js) étaient **strictement locaux** (localStorage + IndexedDB du navigateur) — le pré-montage d'un collaborateur s'affichait donc toujours sans grade, quels que soient ses réglages. Portée volontairement **restreinte** (confirmé explicitement par l'utilisateur) : seule la consultation du pré-montage D'UN AUTRE user affiche sa LUT publiée ; partout ailleurs (lecteur principal, VOTRE pré-montage, comparateur, multicam) c'est **toujours** `_lutAssign` local qui gouverne.
+
+**Deux canaux séparés**, pour ne jamais alourdir le sync cloud fréquent (push/pull debounced 3s des notes/paniers) :
+1. **Métadonnées** (petit JSON : `lutName` + `hash` + `settings`, jamais le contenu) : `proj['lut_assign'][uid] = {cameras:{}, clips:{}}`, même forme que `_lutAssign` client + un `hash`. Publié/lu exactement comme `baskets` — mêmes endpoints REST (`GET`/`POST /api/project/<pid>/lut_assign`), même merge own-uid-wins dans `merge_projects()`, même WS (`lut_assign_updated`) et poll 15s. Voyage donc "gratuitement" dans le JSON projet déjà synchronisé.
+2. **Contenu binaire** (le `.cube`, potentiellement plusieurs Mo) : HORS du JSON projet, adressé par hash sha256, dédupliqué. Stockage local `LUTS_DIR` (`projects/luts/<hash>.cube`) + endpoints `GET /api/project/<pid>/lut/<hash>` (texte brut, 404 si absent — tente alors `_lut_fetch_from_cloud(hash)`, cache le résultat localement) et `POST /api/project/<pid>/lut/upload` (`{content}` → écrit si hash absent, republie en tâche de fond vers le cloud via `_lut_push_to_cloud`). Ces deux fonctions parlent à `derush_sync.php?action=lut_get`/`lut_upload` (stockage cloud séparé `derush_data/luts/<hash>.cube`, dédupliqué pareil côté PHP) — **indispensable en mode sync cloud multi-PC** : chaque machine a son propre serveur local, le hash d'un collaborateur n'existe pas forcément localement.
+
+**Client (`js/lut.js`)** :
+- `allLutAssign` (chargé dans `enterWorkspace()`, rafraîchi par poll 15s + WS comme `allBaskets`) : `{uid: {cameras, clips}}` publié par toute l'équipe.
+- `_lutPersistAssign()` (déjà appelée par `confirmLutScope`/`setLutSetting`/`resetLutSettings`/`_lutRemoveForActiveClip`) déclenche en plus `_lutSchedulePublish()` — debounced **1.5s** (un slider glissé déclenche `oninput` en rafale, republier à chaque frappe serait absurde).
+- `_lutPublishAssign()` republie un **instantané complet** de `_lutAssign` (pas un diff) : une entrée retirée localement disparaît donc aussi de la version publiée au tick suivant, sans logique de suppression séparée. Pour chaque entrée, `_lutEnsureUploaded(lutName)` upload le contenu (lu depuis l'IndexedDB locale, déjà posé par `onLUTFileSelected`) si pas déjà fait (`_lutUploadedHash`, cache client) et récupère son `hash` — une entrée dont l'upload échoue est simplement omise de CE tick de publication (retentée au prochain réglage/publish).
+- `_lutResolveForRemote(uid, clip)` : équivalent de `_lutResolveFor` mais lit `allLutAssign[uid]` au lieu de `_lutAssign` local — jamais appelée pour l'utilisateur courant.
+- `_lutEnsureLoadedByHash(hash)` : équivalent de `_lutEnsureLoaded` mais indexé par **hash de contenu**, pas par nom de fichier — deux collaborateurs peuvent chacun avoir une LUT différente sous le même nom (`look1.cube`), indexer par nom collisionnerait. Cache mémoire `_lutLibrary['hash:'+hash]` (préfixe dédié, jamais en collision avec l'espace `lutName` local) + cache disque IndexedDB dédié (`_lutDbGetHash`/`_lutDbPutHash`, clé `hash::<h>`, même store `derush_luts`/`files`).
+
+**Basculement dans le pré-montage** (`_basketLutRefresh()`, `js/selects.js`) : un seul `if(viewingOther)` (= `_basketViewUser !== currentSession.user_id`) choisit entre les deux chemins de résolution ci-dessus — le chemin "propre panier" (le cas courant) est **strictement inchangé** ligne pour ligne par rapport à avant cette feature. Clé de cache GL (`_basketLutCurrentLutName`) préfixée `hash:` en mode remote pour ne jamais réutiliser à tort la texture d'une LUT locale. `c.title` (tooltip sur `#basketLutCanvas`) indique `"LUT de <uid> — <lutName>"` en mode remote, vide sinon — seule indication visuelle que ce grade n'est pas le vôtre.
 
 ### Discussions (replies sur markers)
 Stockées séparément des notes dans `proj['discussions']` pour éviter les conflits avec les sauvegardes locales.
@@ -382,8 +414,67 @@ POST /api/sync/pull                                (pull-only d'un projet, body 
 ```
 
 ## Workflow DaVinci Resolve
+0. Timeline DaVinci en **25 fps** (les positions de l'EDL sont à `round(clips[0].fps)`, = 25 sur tous les projets réels à ce jour) et démarrant à `00:00:00:00`.
 1. **📥 FCPXML** → DaVinci : File > Import > Timeline
 2. **📥 Markers EDL** → clic droit sur la timeline → Timelines → Import → Timeline Markers from EDL
+- Pour une **timeline de selects filtrée**, prendre le FCPXML ET le Markers EDL du **même** filtre (boutons appariés dans la modale). Un EDL et une timeline de filtres différents = tous les marqueurs décalés.
+
+### Workflow FS5 — sync du son ingé dans DaVinci
+
+Le Start TC interne des MXF FS5 est faux (horloge qui dérive / se remet à zéro en cours de journée). Le vrai TC est en **LTC sur une piste audio**, décodé par Derush (`ltc_tc_in_sec`, 🎶 Décoder LTC). L'objectif final est *Auto Sync Audio → Based on Timecode* pour lier le son ingé, frame-accurate — *Based on Waveform* est un repli, pas un substitut : mauvais résultats sur les scènes à bruit répétitif (moteur/pneus de roulage), retour terrain confirmé.
+
+⚠️ **Sur un projet où du LTC a été décodé avant sept. 2026 (v0.3.90)** : relancer 🎶 Décoder LTC avec **↻ Re-décoder tout** (force) avant de suivre cette méthode — le décodeur avait un décalage systématique de +1 frame, corrigé depuis (voir § Décodeur LTC, piège #37). Des valeurs `ltc_tc_in_sec` non re-décodées reproduiront le taux d'échec d'avant le fix.
+
+**Méthode (l'ordre et l'exhaustivité comptent) :**
+1. Importer **TOUS les médias, de TOUTES les caméras, de TOUS les jours** dans le Media Pool — pas un sous-ensemble de test. ⚠️ Un Media Pool incomplet a été une cause d'échecs à l'import précédemment identifiés à tort comme un problème de précision de TC (voir piège #37) : si un jour/une caméra manque, n'importe quel clip de ce lot échoue à l'import FCPXML, sans rapport avec le LTC.
+2. Clic droit sur les FS5 → *Timecode → Update Timecode from Audio Track* (Resolve **Studio**). `Frame Rate = 25`, canal LTC : **Channel 2** pour J02–J05, **Channel 1** pour J07–J11, par lot de journée. *(Repli Resolve gratuit / décodage récalcitrant : `fs5_fix_timecode_resolve.py`.)*
+3. Importer tous les sons ingé (WAV/BWF).
+4. Sélection tout (vidéo + WAV) → *Auto Sync Audio → Based on Timecode*.
+5. **Puis seulement** importer le FCPXML de selects (régénéré côté Derush **après** l'étape 2 et après un re-décodage LTC si besoin) → *Import Timeline*, **décocher "Automatically import source clips into media pool bins"** pour forcer le matching contre le Media Pool existant plutôt qu'un réimport silencieux en double.
+
+**Si des clips restent *Media Offline* après ça** (Media Pool complet + TC corrigé + LTC re-décodé confirmés) : relink manuel. Dans le Media Pool, sélectionner (clic simple) le bon clip → clic droit sur le plan offline dans la timeline → **Replace Selected Clip**. Si l'option n'apparaît pas, charger le clip en double-clic dans le **Source Viewer** puis utiliser le bouton d'édition **Replace** de la timeline sur le plan sélectionné.
+
+**Diagnostic** : deux outils, à utiliser ensemble plutôt que de deviner depuis l'extérieur —
+- `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Logs\davinci_resolve.log` — chercher `failed to link` : une ligne par clip qui échoue à l'import (`The clip "X.MXF" failed to link because the timecode extents do not match any clip in the Media Pool`). Ne précise pas le jour (les noms de fichiers FS5 se répètent sur plusieurs journées) ni si la cause est "absent du Media Pool" ou "présent mais TC désaccordé".
+- **API de scripting DaVinci** (§ ci-dessous) pour lever précisément ces deux ambiguïtés : lister les items timeline réellement offline (`GetMediaPoolItem() is None`), les recouper avec le FCPXML importé (désambiguïse le jour) et avec le Start TC réel du Media Pool (détecte un vrai désaccord de précision vs une absence pure et simple).
+
+**Timeline déjà conformée** : ne PAS relancer une correction de TC en masse dessus (piège : *Media Offline* + reconform lent, risque de freeze/crash). Pour un clip FS5 isolé ajouté après coup, traiter individuellement.
+
+**Repli sans TC** : *Auto Sync Audio Based on Waveform* reste l'option pour les clips sans LTC exploitable ou en cas d'échec résiduel après relink — moins précis mais toujours disponible.
+
+**Doc utilisateur autonome** : `D:\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md` (procédure + tableau canaux LTC par journée) — insister sur l'exhaustivité du Media Pool avant tout import FCPXML.
+
+### API de scripting DaVinci Resolve (diagnostic, sept. 2026)
+
+Resolve expose une API Python officielle pour interroger/manipuler un projet **actuellement ouvert** dans l'appli — précieux pour diagnostiquer des écarts entre ce que Derush exporte et ce que DaVinci a réellement en base, sans dépendre de l'utilisateur pour copier des valeurs à la main.
+
+**Connexion** (Windows, PowerShell) :
+```powershell
+$env:RESOLVE_SCRIPT_API = "C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting"
+$env:RESOLVE_SCRIPT_LIB  = "C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll"
+$env:PYTHONPATH = "$env:RESOLVE_SCRIPT_API\Modules\;$env:PYTHONPATH"
+python -c "
+import DaVinciResolveScript as dvr
+resolve = dvr.scriptapp('Resolve')
+proj = resolve.GetProjectManager().GetCurrentProject()
+print(proj.GetName())
+"
+```
+Nécessite Resolve **lancé** avec un projet ouvert (`GetCurrentProject()` échoue sinon). Vérifier d'abord `Test-Path` sur les deux chemins ci-dessus (versions/installs différentes possibles) et `Get-Process -Name Resolve`.
+
+**Objets utiles** :
+- `proj.GetMediaPool().GetRootFolder()` → `Folder`, avec `.GetClipList()` (clips de ce bin) et `.GetSubFolderList()` (récursion manuelle nécessaire, pas de walk récursif fourni).
+- `MediaPoolItem.GetClipProperty()` (sans argument) → dict complet (`Start TC`, `End TC`, `File Path`, `Online Status`, `FPS`, `Duration`, `Synced Audio`, etc.) — bien plus riche et fiable que de demander à l'utilisateur de lire l'UI.
+- `proj.GetCurrentTimeline()` → `Timeline`, avec `.GetTrackCount('video')` et `.GetItemListInTrack('video', n)` → liste de `TimelineItem`.
+- `TimelineItem.GetMediaPoolItem()` retourne `None` pour un item **offline/non lié** — c'est LE test fiable pour détecter un plan qui a échoué à se relier à l'import (`GetClipProperty` n'existe pas sur un `TimelineItem` offline puisqu'il n'a justement aucun Media Pool item associé). `GetName()`, `GetStart()`/`GetEnd()` (position frame dans la timeline), `GetDuration()` restent lisibles même offline.
+- Un `TimelineItem` offline n'expose PAS son TC source déclaré (`GetSourceStartFrame()` renvoie `None`) → pour le retrouver, croiser `(GetName(), GetDuration(), GetStart())` avec le FCPXML réellement importé (parsé en Python, `<asset-clip offset/duration/start>` + `<asset ref/src>`) — ce triplet désambiguïse de façon fiable même quand plusieurs jours partagent le même nom de fichier (cas FS5 : `ClipNNNN.MXF` réutilisé chaque journée).
+
+**Limite** : pas d'outil de contrôle souris/clavier dans cette session (pas d'automation de l'UI Resolve, pas de clic sur les menus) — uniquement lecture/écriture de données via l'API scripting. Suffisant pour tout le diagnostic TC de la saga FS5 (piège #37).
+
+### Modale d'export (📤, `derush_app.html` `#exportModal`)
+Section « Timelines de selects » (FCPXML et XML Premiere) : boutons rapides `exportDataWithParams(fmt, {min_rating:N, label})` — `N=3` (⭐⭐⭐ uniquement), `N=2` (⭐⭐ et plus), `N=1` (⭐ et plus, retour terrain sept. 2026 : « un filtre pour exporter que les clips qui ont au moins une étoile »). Le filtre `min_rating` était déjà générique côté serveur (`derush_exports.py`, `fc_min_rating` — inclut un clip dès qu'**un seul membre de l'équipe**, tous confondus, lui a mis au moins cette note) : ajouter le bouton `min_rating:1` suffit, aucun changement serveur nécessaire. Même ladder 3/2/1 déjà utilisée par le sélecteur "Rating min." du rough cut (`#rcRating`).
+
+Sous les boutons FCPXML de « Timelines de selects », une ligne « Markers EDL correspondant » : un `exportDataWithParams('markers_edl', {...})` par filtre, MÊMES params (`min_rating`/`cats`/`rejected`/`label`) que le bouton FCPXML au-dessus. L'endpoint passe `filter_config` à `export_markers_edl` (v0.3.83) et nomme le fichier avec `label`. Prendre timeline + EDL du même filtre — voir § EDL Marqueurs DaVinci pour le détail de l'alignement.
 
 ## Architecture multi-utilisateurs
 
@@ -450,7 +541,7 @@ Résout la divergence entre anciens users (`id`) et nouveaux (`username`).
 
 ## Chemin local des rushs (root_path par user)
 - Stocké dans `proj['users'][i]['root_path']` pour chaque user
-- Endpoint `POST /api/project/<pid>/set_root_path` : met à jour user + session live
+- Endpoint `POST /api/project/<pid>/set_root_path` : met à jour user + session live — **ne touche jamais `clip['path']`** (figé au scan), seulement le `root_path` utilisé pour résoudre les fichiers dynamiquement (streaming/vignettes déjà tolérants, exports depuis sept. 2026 — voir piège #36). Le front passe ce `root_path` en query param `?root=` sur les exports FCPXML/Premiere (`_exportRootParam(fmt)` dans `derush_app.html`, + `_basketExport` dans `js/selects.js`) : sans ça, si l'ancien disque (E:) est toujours branché, l'export garde ses chemins car `clip['path']` littéral existe encore — l'utilisateur a beau avoir pointé F:, DaVinci ouvre E: (piège #36, 2e passe)
 - Au premier accès au workspace : si `root_path` vide → modal de saisie du chemin
 - Bouton dans la sidebar pour modifier le chemin (⚙️ ou dédié)
 
@@ -493,6 +584,9 @@ GET  /api/browse                                   (tkinter folder picker)
 GET  /api/project/<id>/clips
 GET  /api/project/<id>/notes
 GET  /api/project/<id>/discussions
+GET  /api/project/<id>/basket                       (paniers de toute l'équipe)
+GET  /api/project/<id>/lut_assign                    (LUT publiées de toute l'équipe — hash + réglages, pas le contenu)
+GET  /api/project/<id>/lut/<hash>                    (contenu .cube par hash — fallback cloud si absent localement)
 GET  /api/project/<id>/config
 GET  /api/project/<id>/health
 GET  /api/project/<id>/export/fcpxml|edl|markers_edl|csv|subclips_fcpxml|report_html
@@ -518,6 +612,9 @@ POST /api/project/<id>/authorize_user              (admin: ajouter user + géné
 POST /api/project/<id>/set_root_path               (user: définir chemin local des rushs)
 POST /api/project/<id>/scan
 POST /api/project/<id>/notes
+POST /api/project/<id>/basket                        (sauvegarder son panier)
+POST /api/project/<id>/lut_assign                     (publier son assignation LUT — hash + réglages)
+POST /api/project/<id>/lut/upload                     (uploader un .cube, body {content} → {hash}, dédupliqué)
 POST /api/project/<id>/reply
 POST /api/project/<id>/config
 POST /api/project/<id>/import
@@ -549,7 +646,7 @@ Nettoyage dans `doLogout()` : `_jklStopRev(); _jklSpeed = 0;`
 - Auth : token en query param (`?token=xxx`) — impossible de setter des headers custom en browser
 - Globals : `_ws_clients: dict[pid → [(sock, token)]]`, `_ws_clients_lock`
 - `_ws_broadcast(pid, msg, exclude_token)` : envoie un JSON à tous les clients du projet sauf l'expéditeur
-- Frames envoyées après : save notes (`notes_updated`) et après reply (`discussion_updated`)
+- Frames envoyées après : save notes (`notes_updated`), reply (`discussion_updated`), save panier (`basket_updated`), publication LUT (`lut_assign_updated`)
 - Opcode 8 (close) ou 9 (ping/pong) gérés proprement
 
 **Côté client (derush_app.html)** :
@@ -704,7 +801,7 @@ let _lutSettings = {intensity: 1.0, exposure: 0.0, saturation: 1.0, contrast: 0.
 
 **LUT dans le pré-montage** (sept. 2026, retour terrain : « quand j'applique une LUT sur un clip, ça affecte aussi les sélections de ce clip dans le pré-montage ») — pipeline WebGL **indépendant** du lecteur principal, dans `js/selects.js` (dépend de l'état du panier) plutôt que `js/lut.js` : `_basketLutGL`/`_basketLutRaf`/`_basketLutCurrentLutName`, canvas `#basketLutCanvas` (dans `#basketViewerVideoWrap`, `z-index:0` — sous l'overlay de cadre dynamique `z-index:1`, au-dessus des `<video>` en `z-index:auto`/ordre DOM). Un seul canvas pour les **deux** lecteurs du crossfade (`#basketVid`/`#basketVidB`) : `_basketRenderLUT()` relit `_basketActiveVid()` à chaque frame plutôt que d'avoir sa propre notion de "lequel afficher" — le swap crossfade est donc suivi automatiquement.
 - `_lutInitGL`/`_lutUploadLUT`/`_lutApplySettings` (déjà génériques ou rendues génériques pour ce besoin — `_lutUploadLUT(glCtx, lutData)`/`_lutApplySettings(glCtx, settings)` acceptent maintenant un contexte GL + des données en paramètres, défaut sur les globals `_lutGL`/`_lut`/`_lutSettings` du lecteur principal si omis, donc **aucun** appelant existant à modifier) sont réutilisées telles quelles — pas de duplication du shader/pipeline d'upload.
-- `_basketLutRefresh()` (async) résout la LUT du clip **affiché dans le pré-montage** (`_basketLastResolved[_basketPlayIdx].clip`, indépendant de `activeClip` le lecteur principal) via le même `_lutResolveFor(clip)`/`_lutEnsureLoaded(lutName)` déjà génériques. Se garde elle-même : si `#basketOverlay` n'a pas la classe `.active`, coupe la boucle RAF et masque le canvas sans rien faire d'autre — permet de l'appeler sans condition depuis n'importe où (elle est appelée après CHAQUE sortie de `_lutRefreshForActiveClip()` — toggle maître, changement de scope, retrait de LUT — ainsi que par `setLutSetting`/`resetLutSettings` directement, et par `_basketGoto`/`_basketSwapActiveVideo`/`openBasket()`) sans que l'appelant ait besoin de savoir si le pré-montage est ouvert.
+- `_basketLutRefresh()` (async) résout la LUT du clip **affiché dans le pré-montage** (`_basketLastResolved[_basketPlayIdx].clip`, indépendant de `activeClip` le lecteur principal). Sur SON PROPRE panier (`_basketViewUser === currentSession.user_id`, le cas courant) : même `_lutResolveFor(clip)`/`_lutEnsureLoaded(lutName)` génériques qu'avant. Sur le panier D'UN AUTRE collaborateur : bascule sur `_lutResolveForRemote(uid, clip)`/`_lutEnsureLoadedByHash(hash)` pour afficher SA LUT publiée — voir § LUT partagée pour le détail complet de ce second chemin. Se garde elle-même : si `#basketOverlay` n'a pas la classe `.active`, coupe la boucle RAF et masque le canvas sans rien faire d'autre — permet de l'appeler sans condition depuis n'importe où (elle est appelée après CHAQUE sortie de `_lutRefreshForActiveClip()` — toggle maître, changement de scope, retrait de LUT — ainsi que par `setLutSetting`/`resetLutSettings` directement, et par `_basketGoto`/`_basketSwapActiveVideo`/`openBasket()`) sans que l'appelant ait besoin de savoir si le pré-montage est ouvert.
 - Respecte le même toggle maître `_lutEnabled` que le lecteur principal — pas de bouton 🎨 séparé pour le pré-montage, l'activer une fois l'active partout.
 
 ### Disposition des contrôles du lecteur (refonte juin 2026, save déplacé juillet 2026)
@@ -844,9 +941,11 @@ Plus de cache fingerprint, plus de seuils audio xcorr/GCC.
 3. Pour chaque intervalle : long (~bit_period) = '0', deux courts consécutifs (~bit_period/2) = '1'
 4. **Validation de cohérence** : exiger `min_consecutive_frames=3` frames LTC consécutives où chaque `tc[k+1] = tc[k] + 1/fps` (mod 24h). Évite les faux sync words sur bruit ambiant.
 5. **Correction d'offset** : le 1er sync valide peut être à 1-3s dans le PCM (LTC met du temps à locker). On calcule la position en samples du sync via `bit_to_iv` + `zc[]`, puis `TC_début_clip = TC_au_sync - offset_seconds`.
+6. **Calibration -1 frame (sept. 2026)** : le calcul de l'étape 5 seul est systématiquement en avance d'exactement 1 frame par rapport au décodeur natif DaVinci (*Update Timecode from Audio Track*) — validé empiriquement sur 22 clips FS5 réels, 6 journées, toujours le même écart dans le même sens (jamais 0 ni 2 frames). Cause racine (probablement un détail de la correspondance bit/sample dans les étapes 2-5) non isolée avec certitude ; `-frame_period` appliqué en calibration empirique en attendant mieux. Voir piège #37 pour le détail de l'investigation.
 
 **Pièges du décodeur** :
-- Avant le fix : retournait le 1er sync trouvé sans valider la cohérence → faux positifs sur bruit (chaise qui grince donnait un TC bidon). Bug observé sur Clip0037 J04 qui donnait 16:52:10 (faux) au lieu de 16:59:09 (réel), causant un mauvais appariement multicam.
+- Avant le fix (v0.3.x, ancien) : retournait le 1er sync trouvé sans valider la cohérence → faux positifs sur bruit (chaise qui grince donnait un TC bidon). Bug observé sur Clip0037 J04 qui donnait 16:52:10 (faux) au lieu de 16:59:09 (réel), causant un mauvais appariement multicam.
+- **Décalage systématique de +1 frame (corrigé sept. 2026)** : voir étape 6 ci-dessus. ⚠️ Les valeurs `ltc_tc_in_sec` déjà décodées et cachées dans un projet AVANT ce fix restent fausses d'1 frame — **relancer 🎶 Décoder LTC avec `↻ Re-décoder tout` (force)** pour les recalculer sur les projets existants (ex. DRIFT_CLUB, 127 clips concernés).
 - LTC sur la **piste 2** des MXF FS5 J02-J05 (pas piste 1 comme on aurait pu croire). Sur les FS5 J07-J11 par contre c'est piste 1. Détection auto par Crest factor < 2 dans `transcode_proxies.sh`.
 - FX6 n'ont **pas de LTC dans l'audio** — elles reçoivent le TC via SDI/jam-sync et l'écrivent dans `format.timecode` (qui est fiable pour les FX6).
 - Clips sans LTC : J02 Clip0001, J04 Clip0016/0029, J06 entier (multiprise jamais branchée). Renvoient `None`, fallback `format.timecode` (qui est souvent faux pour la FS5) → ces clips ne formeront pas de paires multicam, à caler à la main dans DaVinci.
@@ -1079,6 +1178,9 @@ derush_tool/
 | `watch_ffmpeg.ps1` | monitore les processus ffmpeg en cours, affiche RAM + ligne de commande, alerte au-dessus d'un seuil (debug perf) |
 | `test_ltc_decoder.py` | test standalone du décodeur LTC sur 6 cas connus (validation) |
 | `_patch_gopro_proxy.py` | one-shot : patche les proxy_url GoPro dans le JSON projet pour pointer sur les LRV (évite un rescan complet) |
+| `_patch_fx6_proxy.py` | one-shot DRIFT_CLUB : les proxys caméra FX6 (`Sub/`) ont été re-transcodés sans le suffixe Sony `S03` → tous les FX6 affichaient « vidéo introuvable ». Réécrit `proxy_url` `Sub/<stem>S03.MP4` → `Sub/<stem>.MP4` pour les 225 clips FX6, uniquement si le fichier cible existe. Ne touche qu'à `proxy_url` — pas aux IDs, aux `notes`, ni à `ltc_tc_in_sec` (contrairement à un rescan qui régénère `clips[]` et efface le LTC décodé). Sept. 2026 |
+| `fs5_fix_timecode_resolve.py` | one-shot DRIFT_CLUB : script à coller dans la Console DaVinci Resolve — réécrit le Start TC des 127 rushes FS5 (clés `<dossier jour>/<fichier>`) avec le vrai timecode décodé du LTC audio par Derush (`ltc_tc_in_sec`), le TC interne FS5 étant faux. Démarre en `DRY_RUN=True`. **Se lance sur les clips du Media Pool DaVinci** (pas via Derush — le FCPXML garde le TC MXF depuis v0.3.86), avant l'*Auto Sync Audio → Based on Timecode*. **Piège vécu** : sur un projet où la timeline picture est DÉJÀ montée/conformée sur l'ancien TC, changer le Start TC fait passer les clips *Media Offline* + reconform lent → Resolve peut freezer/crasher. Dans ce cas, synchro **waveform** ou set du Start TC clip par clip. `fs5_revert_timecode_resolve.py` répare le cas offline |
+| `fs5_revert_timecode_resolve.py` | retour arrière du précédent : remet le Start TC des FS5 à la valeur du fichier MXF (= `clip['tc_in']` Derush) pour ré-online la timeline picture. Puis synchro son par waveform |
 | `validate_multichunk.py`, `refonte.py`, `recover_orphans.py` | scripts d'archive d'expérimentations audio multicam (session précédente, ne plus utiliser, ne pas supprimer) |
 
 
@@ -1117,6 +1219,15 @@ derush_tool/
 31. **Un seek sur un flux vidéo long-GOP EN COURS DE LECTURE n'est jamais "déjà instantané"**, même sur le même fichier déjà en cache — il doit retrouver la keyframe la plus proche et redécoder depuis là, ce qui peut geler l'image une fraction de seconde. Ne jamais coder cette hypothèse en dur pour justifier de sauter un préchargement (piège rencontré dans le double-lecteur crossfade du pré-montage, `_basketPreloadNextSegment`/`js/selects.js` : « même clip que l'actif → pas besoin de swap, le seek suffit » était faux). Corollaire pour tout swap entre deux éléments `<video>` : `readyState>=2` (HAVE_CURRENT_DATA) garantit juste l'image du point de seek, pas la capacité à enchaîner sans re-bufferiser — exiger `readyState>=3` + une vraie marge dans `buffered()` avant de considérer un élément "prêt" (v0.3.65, retour terrain « la transition entre deux sélections freeze »).
 32. **Un re-rendu déclenché EN PLEIN MILIEU d'un geste (mousedown/drag) peut détruire la référence DOM que ce geste tient encore en main.** `_basketRenderSeqTimeline()` (pré-montage) détruit et recrée toutes les poignées de trim à chaque appel ; committer un trim armé au clavier depuis le `mousedown` d'une AUTRE poignée déclenche ce re-rendu, rendant la poignée qu'on vient de presser détachée du document (`getBoundingClientRect()` y renvoie des zéros → tout élément positionné dessus, ex. un HUD flottant, atterrit en haut à gauche de l'écran). Le fix générique n'est pas de "réparer" la référence après coup mais de **s'arrêter net** après un flush qui a effectivement déclenché un rendu : traiter le clic comme une simple validation, pas comme le début d'un nouveau geste — un second clic engage la nouvelle poignée sur un DOM frais (v0.3.66, `js/selects.js`).
 33. **Corriger un seek qui gèle en préchargeant systématiquement — y compris quand c'est LE MÊME fichier déjà en cours de décodage ailleurs — peut être pire que le mal.** Piège #31 avait raison sur le diagnostic (un seek à vif n'est pas instantané) mais le remède choisi (`_basketPreloadNextSegment` préchargeant même les segments du clip déjà actif) créait un cycle de rechargements complets à chaque transition sur une série de sélections du même rush — le cas le plus courant du pré-montage. Résultat mesuré sur la build Electron packagée : flash noir à **chaque** transition (le rechargement n'avait jamais le temps de finir) puis **crash du renderer** après une ou deux lectures complètes (épuisement des décodeurs vidéo ouverts/fermés en boucle). Le fix suffisant était déjà en place et n'avait pas besoin de préchargement : le chemin de repli pause→seek→attend `seeked`→reprend de `_basketGoto`, appliqué à l'élément DÉJÀ chargé, sans jamais recharger de fichier. Leçon : avant de préchager "pour être sûr", vérifier si la cible du préchargement est déjà disponible ailleurs sous une forme utilisable — dupliquer un décodeur d'un fichier déjà ouvert n'est presque jamais la bonne réponse à un problème de fluidité (v0.3.65 corrigé le jour même, `js/selects.js`, retour terrain sur build packagée).
+34. **Un contenu binaire potentiellement volumineux ne doit JAMAIS rejoindre le JSON projet synchronisé** (`notes`/`baskets`/etc.), même si c'est le chemin le plus simple à coder — `sync_project()` re-sérialise et repousse l'INTÉGRALITÉ du projet fusionné à chaque push (debounced 3s après chaque save), donc tout ce qui vit dans ce dict est retransmis en boucle, y compris quand ce contenu précis n'a pas changé. La LUT partagée (§ LUT partagée) illustre le bon réflexe : les métadonnées légères (hash + réglages) voyagent dans le JSON projet comme `baskets`, mais le contenu réel du `.cube` (plusieurs Mo possibles) est adressé par hash et stocké/synchronisé sur un canal totalement séparé (`LUTS_DIR` local + `derush_sync.php?action=lut_get/lut_upload` dédié), jamais embarqué dans `proj[...]`. Réflexe à appliquer à toute future feature qui voudrait partager un fichier/asset entre collaborateurs (sept. 2026).
+35. **`ffprobe -show_entries stream=champ1,champ2,...` NE renvoie PAS `streams[i].tags` du tout**, même si le code appelant s'attend à pouvoir y lire un tag (ex. `s.get('tags', {}).get('timecode')`) — il faut explicitement ajouter une clause séparée `stream_tags=<nom_du_tag>` (ou `stream_tags` seul pour tout récupérer) à la chaîne `-show_entries`. Bug réel : `ffprobe_metadata()` ne demandait que `format_tags` + une liste de champs stream techniques (width/height/codec/…), jamais `stream_tags` — le fallback "TC au niveau stream" de `scan_media_folder()` (nécessaire pour GoPro, qui n'écrit JAMAIS son TC au niveau `format`, seulement sur chaque piste vidéo/audio/tmcd) tombait donc systématiquement sur un dict vide, silencieusement, et `tc_in` restait `""` pour toute caméra dans ce cas — pas seulement GoPro, n'importe quelle caméra sans `format.tags.timecode`. Conséquence concrète en aval : `export_fcpxml` pose `<asset start="0s">` au lieu de la vraie TC source → DaVinci refuse l'import avec "Mismatch between specified target timecodes [00:00:00:00 ...] and located file timecodes [17:13:59:15 ...]" (TC réellement embarquée dans le fichier, lue correctement PAR DAVINCI LUI-MÊME — la preuve que la donnée existe bel et bien dans le fichier, juste jamais lue côté Derush). Fix + détail dans § Détection TC ci-dessus (sept. 2026, retour terrain avec le message d'erreur DaVinci complet). **Après ce fix, les clips déjà scannés AVANT le patch gardent leur `tc_in` vide en cache — un rescan (🔄) est nécessaire pour les corriger rétroactivement.**
+36. **`clip['path']` (chemin absolu) est figé au moment du SCAN — changer le `root_path` (lettre de lecteur, disque remonté ailleurs) ne le met PAS à jour tout seul.** Le streaming/les vignettes/waveforms étaient déjà résilients à ce cas (résolution dynamique via `_resolve_relpath_tolerant` contre le `root_path` courant, à chaque requête) — mais les exports FCPXML/XML Premiere (`export_fcpxml` et les 5 autres qui embarquent des chemins) lisaient `clip['path']` tel quel, sans repasser par cette résolution. Retour terrain réel : « j'ai mis à jour le dossier drift_club [...] remplaçant le chemin vers le disque E par le disque F [...] pourtant quand j'exporte le FCPXML [...] il prend les rush sur le disque E au lieu du disque F » — changer le chemin local des rushs (`set_root_path`) sans re-scanner laissait les exports pointer vers l'ancien disque, alors que la lecture dans l'app elle-même fonctionnait déjà correctement (d'où la confusion : "j'ai bien mis à jour le chemin, pourquoi l'export ignore ça ?"). Fix : `_proj_with_resolved_export_paths()` (sept. 2026) réévalue `clip['path']` juste avant l'export, exactement comme le fait déjà la génération de vignettes — même mécanisme, appliqué là où il manquait. Une leçon plus générale : **un mécanisme de résolution tolérante ajouté à UN SEUL endpoint ne protège que cet endpoint** — vérifier systématiquement si d'autres lecteurs du même champ figé (ici `clip['path']`) ont besoin de la même protection plutôt que de supposer qu'un fix "central" couvre tout le code qui touche à cette donnée. **2e passe (sept. 2026, v0.3.84)** : le 1er fix ne suffisait pas quand **l'ancien disque est toujours branché**. `_resolve_clip_src_path` faisait `if Path(clip['path']).exists(): return` en premier — donc tant que E: contient encore une copie, l'export garde E: quel que soit le `root_path` que l'utilisateur a pointé. Corrigé en inversant la priorité : le `root_path` explicite de l'utilisateur qui exporte (passé en query param `?root=` par le front — l'export part en `window.location` donc SANS header `Authorization`, la session est introuvable côté serveur) est essayé AVANT le chemin littéral figé. Leçon : un `root_path` configuré par l'utilisateur est une **déclaration d'intention** ("les rushs sont ICI maintenant") qui doit primer sur un chemin de scan qui se trouve encore valide par accident.
+37. **Avant de conclure qu'un mécanisme externe (ici : la reconnaissance d'asset de DaVinci) est intrinsèquement imprévisible, épuiser les facteurs confondants qu'on contrôle soi-même — et utiliser TOUS les outils d'investigation disponibles, pas seulement le raisonnement depuis l'extérieur.** Saga TC LTC des FS5 dans l'export (`_clip_asset_tc_sec`, `derush_exports.py` + décodeur `_ltc_decode_pcm`, `derush_server.py`), en 3 temps :
+    1. **v0.3.85 → 0.3.86** : LTC embarqué sans Media Pool corrigé en parallèle → rejet massif → revert (TC brut partout).
+    2. **v0.3.87 → 0.3.88** : LTC ré-embarqué avec Media Pool corrigé → une partie des FS5 quand même hors ligne, périmètre en apparence dispersé/imprévisible → conclusion hâtive « le mécanisme interne de DaVinci est trop opaque, abandon définitif ». **Prématuré** : en creusant `davinci_resolve.log` (`%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Logs\`, accessible directement sur disque sans permission spéciale — Claude tourne déjà en local), un clip **GoPro** jamais concerné par le LTC échouait à l'identique → Media Pool **incomplet** (médias de certains jours jamais importés), pas une question de précision. Restauré en v0.3.89.
+    3. **v0.3.90 — résolution** : Media Pool complété + testé proprement, 23 clips FS5 encore hors ligne sur 228. Plutôt que deviner depuis l'extérieur, connexion directe à l'**API de scripting DaVinci** (`DaVinciResolveScript`, module Python bundlé avec Resolve — `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB`/`PYTHONPATH`, voir § API Resolve) pendant que le projet était ouvert : liste exhaustive des items timeline sans `GetMediaPoolItem()` lié (= offline), croisée avec le FCPXML importé (pour lever l'ambiguïté des noms de fichiers répétés sur plusieurs jours) et avec le Start TC réel de chaque clip dans le Media Pool. Résultat : **22 des 23 clips montraient un écart IDENTIQUE d'exactement +1 frame**, toujours dans le même sens — un bug systématique et déterministe dans `_ltc_decode_pcm`, pas un problème de matching DaVinci. Corrigé par calibration (`-frame_period` sur la valeur retournée). Le seul vrai outlier (+118 frames) était un échec du décodage LTC de Resolve lui-même sur CE clip précis (retombé sur le TC brut), cas distinct et sans rapport.
+
+    **Leçons** : (a) un log applicatif tiers accessible sur disque peut trancher en minutes ce que des heures de déduction (calculs de frames, comparaisons manuelles clip par clip, hypothèses sur des motifs jour/caméra/canal) ne résolvaient pas — chercher les logs de l'appli concernée est un réflexe à avoir tôt, pas en dernier recours. (b) Une API de scripting officielle de l'appli tierce (ici Resolve) permet d'obtenir des données exactes et exhaustives (tous les clips, tous les TC réels) là où on ne pouvait avant que demander à l'utilisateur de copier 2-3 valeurs à la main — un changement d'échelle qui a permis de voir un pattern invisible sur un petit échantillon. (c) Un écart mesuré comme "aléatoire"/"imprévisible" sur 2-3 exemples peut se révéler parfaitement déterministe une fois mesuré sur un échantillon assez large — ne jamais généraliser une conclusion de non-fiabilité depuis 2 points de données. Voir aussi piège #35 pour le cas orthogonal où `tc_in` est carrément vide (`start="0s"`).
 
 ## Historique détaillé
 

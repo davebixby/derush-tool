@@ -9,6 +9,12 @@
  *   POST ?key=SECRET&project=<pid>  + body          → sauvegarde le JSON du projet
  *   GET  ?key=SECRET&action=list                    → liste les projets cloud
  *
+ * LUT partagées (key required) — fichiers .cube adressés par hash sha256,
+ * HORS du JSON projet (peuvent peser plusieurs Mo, ne doivent jamais alourdir
+ * les push/pull fréquents des notes/paniers) :
+ *   GET  ?key=SECRET&action=lut_get&hash=<h>        → contenu .cube (texte brut)
+ *   POST ?key=SECRET&action=lut_upload&hash=<h> + body (texte brut) → stocke (dédupliqué par hash)
+ *
  * SHARE — review externe (token-authed, no key):
  *   GET  ?view=share&token=<token>                  → page HTML viewer (public)
  *   GET  ?action=get_share&token=<token>            → package JSON
@@ -167,6 +173,33 @@ if ($action === 'poll_comments') {
         }
     }
     echo json_encode(['comments' => $comments]);
+    exit;
+}
+
+// ─── LUT partagées (fichiers .cube, adressés par hash — dédupliqués) ────────
+// Stockage à part de derush_data/<pid>.derush.json : un .cube peut peser
+// plusieurs Mo, jamais transporté dans le push/pull JSON debounced 3s.
+$LUT_DIR = $DATA_DIR . 'luts/';
+if (!is_dir($LUT_DIR)) mkdir($LUT_DIR, 0755, true);
+
+if ($action === 'lut_get') {
+    $hash = preg_replace('/[^a-f0-9]/', '', $_GET['hash'] ?? '');
+    if (!$hash) { http_response_code(400); echo json_encode(['error' => 'hash requis']); exit; }
+    $f = $LUT_DIR . $hash . '.cube';
+    if (!file_exists($f)) { http_response_code(404); echo json_encode(['error' => 'LUT introuvable']); exit; }
+    header('Content-Type: text/plain; charset=utf-8');
+    readfile($f);
+    exit;
+}
+
+if ($action === 'lut_upload' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $hash = preg_replace('/[^a-f0-9]/', '', $_GET['hash'] ?? '');
+    if (!$hash) { http_response_code(400); echo json_encode(['error' => 'hash requis']); exit; }
+    $body = file_get_contents('php://input');
+    if (!$body) { http_response_code(400); echo json_encode(['error' => 'contenu vide']); exit; }
+    $f = $LUT_DIR . $hash . '.cube';
+    if (!file_exists($f)) file_put_contents($f, $body, LOCK_EX);  // dédupliqué par hash, jamais réécrit
+    echo json_encode(['ok' => true, 'hash' => $hash]);
     exit;
 }
 

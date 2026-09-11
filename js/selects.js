@@ -1078,6 +1078,16 @@ let _basketLutCurrentLutName = null;
 // chaque fois que le clip affiché change (swap, goto) — pas besoin de le
 // rappeler à chaque frame, la boucle de rendu suit déjà _basketActiveVid()
 // toute seule pour le crossfade.
+//
+// Deux chemins de résolution — retour terrain : « voir le prémontage d'un
+// autre utilisateur avec les LUTs et réglages qu'elle a faits [...] en dehors
+// de l'outil prémontage et du prémontage d'un autre utilisateur, je veux que
+// ce soit mes réglages qui soient pris en compte ». Donc UNIQUEMENT quand on
+// regarde le panier d'un AUTRE user (`_basketViewUser`) : résolution via
+// `_lutResolveForRemote`/`_lutEnsureLoadedByHash` sur SON assignation publiée
+// (`allLutAssign`, js/lut.js). Sur son propre panier (le cas courant), chemin
+// strictement inchangé : `_lutResolveFor`/`_lutEnsureLoaded` sur `_lutAssign`
+// local — jamais influencé par ce qu'un collaborateur a publié.
 async function _basketLutRefresh() {
     const c = document.getElementById('basketLutCanvas');
     const overlay = document.getElementById('basketOverlay');
@@ -1097,25 +1107,37 @@ async function _basketLutRefresh() {
         if(_basketLutRaf) { cancelAnimationFrame(_basketLutRaf); _basketLutRaf = null; }
         return;
     }
-    const resolved = _lutResolveFor(cur.clip);
+    const viewingOther = currentSession && _basketViewUser !== currentSession.user_id;
+    const resolved = viewingOther
+        ? (typeof _lutResolveForRemote === 'function' ? _lutResolveForRemote(_basketViewUser, cur.clip) : null)
+        : _lutResolveFor(cur.clip);
     if(!resolved) {
         c.style.display = 'none';
+        c.title = '';
         if(_basketLutRaf) { cancelAnimationFrame(_basketLutRaf); _basketLutRaf = null; }
         return;
     }
-    const parsed = await _lutEnsureLoaded(resolved.lutName);
-    // Le clip affiché a pu changer pendant l'attente IndexedDB (même précaution
-    // que _lutRefreshForActiveClip côté lecteur principal).
+    const parsed = viewingOther
+        ? await _lutEnsureLoadedByHash(resolved.hash)
+        : await _lutEnsureLoaded(resolved.lutName);
+    // Le clip affiché (ou l'utilisateur consulté) a pu changer pendant l'attente
+    // réseau/IndexedDB (même précaution que _lutRefreshForActiveClip côté lecteur
+    // principal).
     if(_basketLastResolved[_basketPlayIdx] !== cur) return;
-    if(!parsed) { c.style.display = 'none'; return; }
+    if(!parsed) { c.style.display = 'none'; c.title = ''; return; }
     if(!_basketLutGL) _basketLutGL = _lutInitGL(c);
     if(!_basketLutGL) return;
-    if(_basketLutCurrentLutName !== resolved.lutName) {
+    // Clé de cache distincte en mode "remote" (indexée par hash, pas par nom —
+    // deux users peuvent avoir chacun une LUT différente sous le même nom de
+    // fichier) pour ne jamais réutiliser à tort la texture GL d'une LUT locale.
+    const lutKey = viewingOther ? ('hash:' + resolved.hash) : resolved.lutName;
+    if(_basketLutCurrentLutName !== lutKey) {
         _lutUploadLUT(_basketLutGL, parsed);
-        _basketLutCurrentLutName = resolved.lutName;
+        _basketLutCurrentLutName = lutKey;
     }
     _lutApplySettings(_basketLutGL, resolved.settings);
     c.style.display = 'block';
+    c.title = viewingOther ? `LUT de ${_basketViewUser} — ${resolved.lutName}` : '';
     if(!_basketLutRaf) _basketRenderLUT();
 }
 
@@ -2231,6 +2253,9 @@ function _basketExport(fmt) {
     if(menu) menu.style.display = 'none';
     if(!currentProjectId || !_basketViewUser) return;
     const label = encodeURIComponent((currentProject && currentProject.name) || 'projet');
-    const url = `/api/project/${currentProjectId}/export/basket_${fmt}?user=${encodeURIComponent(_basketViewUser)}&label=${label}`;
+    // root_path configuré (📁) → prime sur clip['path'] figé au scan (piège #36)
+    const rp = currentSession && currentSession.root_path;
+    const rootQs = rp ? `&root=${encodeURIComponent(rp)}` : '';
+    const url = `/api/project/${currentProjectId}/export/basket_${fmt}?user=${encodeURIComponent(_basketViewUser)}&label=${label}${rootQs}`;
     window.open(url, '_blank');
 }

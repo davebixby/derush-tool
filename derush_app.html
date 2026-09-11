@@ -864,9 +864,19 @@
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
                 <button onclick="exportDataWithParams('fcpxml',{min_rating:3,label:'selects_3stars'})">⭐⭐⭐ uniquement</button>
                 <button onclick="exportDataWithParams('fcpxml',{min_rating:2,label:'selects_2stars_plus'})">⭐⭐ et ⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('fcpxml',{min_rating:1,label:'selects_1star_plus'})">⭐ et plus</button>
                 <button onclick="exportDataWithParams('fcpxml',{cats:'S',label:'problemes_son'})">🎵 Problèmes son</button>
                 <button onclick="exportDataWithParams('fcpxml',{cats:'T',label:'problemes_image'})">👁️ Problèmes image</button>
                 <button onclick="exportDataWithParams('fcpxml',{rejected:1,label:'a_couper'})">❌ À couper</button>
+            </div>
+            <p style="font-size:0.78em;color:var(--dim);margin:4px 0 6px;">Markers EDL <strong>correspondant</strong> — à importer sur la timeline générée avec le <em>même</em> filtre (clic droit timeline › Timelines › Import › Timeline Markers from EDL) :</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
+                <button onclick="exportDataWithParams('markers_edl',{min_rating:3,label:'selects_3stars'})">📥 EDL ⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('markers_edl',{min_rating:2,label:'selects_2stars_plus'})">📥 EDL ⭐⭐+</button>
+                <button onclick="exportDataWithParams('markers_edl',{min_rating:1,label:'selects_1star_plus'})">📥 EDL ⭐+</button>
+                <button onclick="exportDataWithParams('markers_edl',{cats:'S',label:'problemes_son'})">📥 EDL 🎵 son</button>
+                <button onclick="exportDataWithParams('markers_edl',{cats:'T',label:'problemes_image'})">📥 EDL 👁️ image</button>
+                <button onclick="exportDataWithParams('markers_edl',{rejected:1,label:'a_couper'})">📥 EDL ❌ à couper</button>
             </div>
 
             <!-- Rough cut auto-monté -->
@@ -908,6 +918,7 @@
                 <button class="btn-primary" onclick="exportDataWithParams('xml_fcp7')">📥 XML Premiere complet</button>
                 <button onclick="exportDataWithParams('xml_fcp7',{min_rating:3,label:'selects_3stars'})">⭐⭐⭐</button>
                 <button onclick="exportDataWithParams('xml_fcp7',{min_rating:2,label:'selects_2stars_plus'})">⭐⭐ et ⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('xml_fcp7',{min_rating:1,label:'selects_1star_plus'})">⭐ et plus</button>
                 <button onclick="exportDataWithParams('xml_fcp7',{cats:'S',label:'problemes_son'})">🎵 Son</button>
                 <button onclick="exportDataWithParams('xml_fcp7',{cats:'T',label:'problemes_image'})">👁️ Image</button>
             </div>
@@ -1882,6 +1893,13 @@ async function enterWorkspace(pid) {
     const basketRes = await apiFetch(`/api/project/${pid}/basket`);
     allBaskets = basketRes.ok ? await basketRes.json() : {};
     if (typeof _updateBasketBadge === 'function') _updateBasketBadge();
+    // Assignations LUT PUBLIÉES par toute l'équipe (référencent un hash, pas le
+    // contenu — voir js/lut.js § LUT partagée). Sert uniquement à afficher la
+    // LUT d'un collaborateur quand on consulte SON pré-montage.
+    if (typeof allLutAssign !== 'undefined') {
+        const lutAssignRes = await apiFetch(`/api/project/${pid}/lut_assign`);
+        allLutAssign = lutAssignRes.ok ? await lutAssignRes.json() : {};
+    }
     // Load share state (lien partagé + commentaires externes)
     _shareState = null;
     try {
@@ -3166,6 +3184,18 @@ function startWebSocket() {
                         const ov = document.getElementById('basketOverlay');
                         if (ov && ov.classList.contains('active') && typeof renderBasketOverlay === 'function') renderBasketOverlay();
                     }
+                } else if(msg.type === 'lut_assign_updated') {
+                    const r = await apiFetch(`/api/project/${currentProjectId}/lut_assign`);
+                    if(r.ok) {
+                        allLutAssign = await r.json();
+                        // Ne concerne que l'affichage du pré-montage D'UN AUTRE user — pas
+                        // besoin de re-render toute la liste, juste re-résoudre la LUT du
+                        // segment affiché si on est justement en train de consulter le
+                        // panier qui vient de changer.
+                        if(msg.user !== (currentSession.user_id || currentSession.username)
+                           && typeof _basketViewUser !== 'undefined' && _basketViewUser === msg.user
+                           && typeof _basketLutRefresh === 'function') _basketLutRefresh();
+                    }
                 } else if(msg.type === 'session_state' || msg.type === 'session_action') {
                     if(typeof handleSessionWsMessage === 'function') handleSessionWsMessage(msg);
                 }
@@ -3324,6 +3354,23 @@ function startNotesPolling() {
                         allBaskets[key] = freshB[key];
                         changed = true;
                         if (typeof _updateBasketBadge === 'function') _updateBasketBadge();
+                    }
+                }
+            }
+            if(typeof allLutAssign !== 'undefined') {
+                const laRes = await apiFetch(`/api/project/${currentProjectId}/lut_assign`);
+                if(laRes.ok) {
+                    const freshLA = await laRes.json();
+                    for(const key of Object.keys(freshLA)) {
+                        if(key === uid) continue; // préserve la publication locale (déjà à jour côté client)
+                        if(JSON.stringify(allLutAssign[key]) !== JSON.stringify(freshLA[key])) {
+                            allLutAssign[key] = freshLA[key];
+                            // Petit JSON (hash + réglages, pas le contenu .cube) — pas besoin
+                            // de gate `changed` derrière : re-résout juste le canvas LUT du
+                            // pré-montage si on regarde justement le panier qui a changé.
+                            if(typeof _basketViewUser !== 'undefined' && _basketViewUser === key
+                               && typeof _basketLutRefresh === 'function') _basketLutRefresh();
+                        }
                     }
                 }
             }
@@ -4040,16 +4087,33 @@ function showDrawing(drawing) {
 }
 
 // --- EXPORT ---
+// Formats FCPXML/Premiere : embarquent les chemins de fichiers. L'export part en
+// window.location (navigation) donc SANS header Authorization → le serveur ne peut
+// pas retrouver la session. On passe donc explicitement le root_path que
+// l'utilisateur a configuré (📁) pour qu'il prime sur clip['path'] figé au scan
+// (sinon DaVinci va chercher les rushs sur l'ancien disque si celui-ci est encore
+// branché — piège #36, 2e passe). Inutile pour edl/markers_edl/csv (pas de chemin).
+function _exportRootParam(fmt) {
+    const pathFmts = ['fcpxml','xml_fcp7','subclips_fcpxml','rough_cut'];
+    const rp = currentSession && currentSession.root_path;
+    if(!rp || !pathFmts.includes(fmt)) return '';
+    return `root=${encodeURIComponent(rp)}`;
+}
+
 function exportData(fmt) {
     if(!currentProjectId) return;
     saveNotes();
-    window.location.href = `/api/project/${currentProjectId}/export/${fmt}`;
+    const rootQs = _exportRootParam(fmt);
+    window.location.href = `/api/project/${currentProjectId}/export/${fmt}${rootQs ? '?'+rootQs : ''}`;
 }
 
 function exportDataWithParams(fmt, params={}) {
     if(!currentProjectId) return;
     saveNotes();
-    const qs = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+    const parts = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    const rootQs = _exportRootParam(fmt);
+    if(rootQs) parts.push(rootQs);
+    const qs = parts.join('&');
     window.location.href = `/api/project/${currentProjectId}/export/${fmt}${qs ? '?'+qs : ''}`;
 }
 
@@ -4059,8 +4123,10 @@ function exportSubclips(extra={}) {
     const pre = document.getElementById('subPre').value || 3;
     const post = document.getElementById('subPost').value || 7;
     const params = {pre, post, ...extra};
-    const qs = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-    window.location.href = `/api/project/${currentProjectId}/export/subclips_fcpxml?${qs}`;
+    const parts = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    const rootQs = _exportRootParam('subclips_fcpxml');
+    if(rootQs) parts.push(rootQs);
+    window.location.href = `/api/project/${currentProjectId}/export/subclips_fcpxml?${parts.join('&')}`;
 }
 
 // --- MULTI-USER VIEW ---
@@ -4230,8 +4296,10 @@ function exportRoughCut() {
     const userId = document.getElementById('rcUser').value || '';
     const params = {min_rating: minR};
     if (userId) params.user_id = userId;
-    const qs = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-    window.location.href = `/api/project/${currentProjectId}/export/rough_cut?${qs}`;
+    const parts = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    const rootQs = _exportRootParam('rough_cut');
+    if(rootQs) parts.push(rootQs);
+    window.location.href = `/api/project/${currentProjectId}/export/rough_cut?${parts.join('&')}`;
 }
 
 // ─── multicam-modal.js : module externalisé → js/multicam-modal.js ───────────

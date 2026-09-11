@@ -13,6 +13,37 @@ from derush_core import (tc_to_seconds, seconds_to_tc, seconds_to_rational,
                          user_note_key)
 
 
+def _clip_asset_tc_sec(clip, fps):
+    """TC de départ à utiliser dans les exports NLE (<asset start>, TC source EDL).
+
+    Priorise clip['ltc_tc_in_sec'] (décodé depuis la piste audio LTC) quand
+    disponible, sinon repli sur le tag TC brut ffprobe/MXF (clip['tc_in']).
+
+    Historique (piège CLAUDE.md #37) — deux tentatives précédentes, deux échecs,
+    mais tous les deux confondus par un facteur qu'on n'a identifié qu'après coup :
+      - v0.3.85 : Media Pool pas corrigé en amont → rejet massif ("timecode
+        extents").
+      - v0.3.87 : Media Pool corrigé en amont MAIS **Media Pool incomplet**
+        (médias de certains jours/caméras jamais importés dans DaVinci) → log
+        DaVinci ("timecode extents do not match any clip in the Media Pool")
+        confondait deux causes bien distinctes : un clip absent du Media Pool
+        ET un vrai désaccord de TC sur un clip présent. Un clip GoPro jamais
+        touché par le LTC (`GX010155.MP4`) a échoué exactement pareil que les
+        FS5 — preuve que le Media Pool incomplet était (au moins en partie) la
+        vraie cause, pas la précision du LTC. Revert en v0.3.88, puis restauré
+        ici en v0.3.89 pour retester dans des conditions propres (Media Pool
+        complet, export régénéré après coup) avant de trancher définitivement.
+    Précondition inchangée : le Media Pool DaVinci doit être corrigé à la même
+    valeur AVANT l'import (voir § Workflow FS5). Si des échecs persistent une
+    fois le Media Pool complet vérifié, ce sera enfin un signal fiable sur le
+    vrai taux d'échec de cette approche — pas avant.
+    """
+    ltc = clip.get('ltc_tc_in_sec')
+    if ltc is not None:
+        return ltc
+    return tc_to_seconds(clip.get('tc_in', ''), fps) or 0
+
+
 def export_fcpxml(project, filter_config=None):
     clips = project.get('clips', [])
     notes = project.get('notes', {})
@@ -97,10 +128,9 @@ def export_fcpxml(project, filter_config=None):
         clip_res = clip.get('resolution') or '1920x1080'
         fmt_id = formats.get((clip_res, clip_fps), list(formats.values())[0])['id']
 
-        # Use the actual source TC as start so DaVinci can validate it against
-        # the embedded TC in the MXF file (they must match or DaVinci shows
-        # "timecode extents" errors). tc_in is stored correctly after FX6 byte-reversal.
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        # Source TC as <asset start> — voir _clip_asset_tc_sec (LTC si dispo, sinon
+        # tag TC brut MXF ; tc_in est stocké correct après le byte-reversal FX6).
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         tc_in_frames = int(round(tc_in_sec * clip_fps))
         tc_in_rational = f'{tc_in_frames}/{clip_fps}s' if tc_in_frames > 0 else '0s'
 
@@ -326,7 +356,7 @@ def export_xml_fcp7(project, filter_config=None):
         clip_fps = round(clip.get('fps', 25))
         dur_sec = clip.get('duration_sec', 0) or 1
         dur_frames = int(round(dur_sec * clip_fps))
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         tc_in_frames = int(round(tc_in_sec * clip_fps))
 
         src_path = clip.get('path', '')
@@ -506,7 +536,7 @@ def export_subclips_fcpxml(project, pre_roll=3.0, post_roll=7.0, filter_config=N
 
     for clip in clips:
         clip_fps = round(clip.get('fps', 25))
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         tc_in_frames = int(round(tc_in_sec * clip_fps))
         clip_dur = clip.get('duration_sec', 0) or 0
 
@@ -655,7 +685,7 @@ def export_rough_cut_fcpxml(project, min_rating=2, user_filter=None):
         clip_res = clip.get('resolution') or '1920x1080'
         fmt_id = formats.get((clip_res, clip_fps), list(formats.values())[0])['id']
 
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         tc_in_frames = int(round(tc_in_sec * clip_fps))
         tc_in_rational = f'{tc_in_frames}/{clip_fps}s' if tc_in_frames > 0 else '0s'
 
@@ -759,7 +789,7 @@ def export_basket_fcpxml(project, user_key):
     for clip, sel in entries:
         clip_fps = round(clip.get('fps', 25))
         dur = clip.get('duration_sec', 0) or 1
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         tc_in_frames = int(round(tc_in_sec * clip_fps))
 
         if clip['id'] not in asset_ids:
@@ -858,7 +888,7 @@ def export_basket_xml_fcp7(project, user_key):
         clip_fps = round(clip.get('fps', 25))
         dur_sec = clip.get('duration_sec', 0) or 1
         dur_frames = int(round(dur_sec * clip_fps))
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         tc_in_frames = int(round(tc_in_sec * clip_fps))
 
         src_path = clip.get('path', '')
@@ -1070,7 +1100,7 @@ def export_edl(project):
 
     for clip in clips:
         clip_fps = round(clip.get('fps', 25))
-        tc_in_sec = tc_to_seconds(clip.get('tc_in', ''), clip_fps) or 0
+        tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
         # CMX3600 : reel limité à 8 chars. DaVinci utilise * FROM CLIP NAME pour le vrai nom.
         reel = clip.get('stem', 'AX')[:8].ljust(8)
         cat_labels = {'3': '⭐⭐⭐', '2': '⭐⭐', '1': '⭐', 'T': '🎨', 'S': '🎵', 'D': '📌'}
@@ -1110,18 +1140,33 @@ def export_edl(project):
 
     return '\n'.join(lines)
 
-def export_markers_edl(project):
+def export_markers_edl(project, filter_config=None):
     """
     EDL au format DaVinci Resolve 'Import Timeline Markers from EDL'.
     Workflow : importer d'abord le FCPXML comme timeline dans DaVinci,
     puis clic droit sur la timeline -> Timelines -> Import -> Timeline Markers from EDL.
     Les TCs de la piste timeline correspondent aux positions dans la sequence FCPXML.
+
+    filter_config (optionnel) : MÊME contrat que export_fcpxml
+      {'min_rating': N} | {'cats': [...]} | {'rejected_only': True}.
+    DOIT être identique au filter_config utilisé pour le FCPXML importé, sinon le
+    jeu de clips (donc toutes les positions timeline cumulées) ne correspond pas.
+    L'inclusion des clips, le découpage des zones X et le FPS de séquence sont
+    répliqués à l'identique depuis export_fcpxml pour que l'EDL tombe pile sur la
+    timeline générée avec le même filtre.
     """
     clips = project.get('clips', [])
     notes = project.get('notes', {})
     users = project.get('users', [])
 
-    SEQ_FPS = 25  # FPS de la séquence (doit correspondre au FCPXML)
+    fc_min_rating = int(filter_config['min_rating']) if filter_config and filter_config.get('min_rating') else None
+    fc_cats = filter_config.get('cats') if filter_config else None
+    fc_rejected_only = bool(filter_config.get('rejected_only')) if filter_config else False
+
+    # FPS de séquence = celui du 1er clip du projet, exactement comme export_fcpxml
+    # (dont la <sequence> hérite du format du premier clip). DaVinci convertit les
+    # HH:MM:SS:FF de l'EDL en frames via le FPS de la timeline → ils doivent coller.
+    SEQ_FPS = round(clips[0].get('fps', 25)) if clips else 25
 
     cat_colors = {
         '3': 'ResolveColorYellow',
@@ -1138,7 +1183,7 @@ def export_markers_edl(project):
 
     lines = [f"TITLE: {project['name']}_markers", "FCM: NON-DROP FRAME", ""]
     event_num = 0
-    record_offset = 0  # position dans la timeline en secondes (même logique que FCPXML)
+    record_offset = 0.0  # position dans la timeline en secondes (même logique que FCPXML)
 
     for clip in clips:
         include_clip = False
@@ -1147,17 +1192,68 @@ def export_markers_edl(project):
             uid = user_note_key(u)
             cnotes = (notes.get(uid) or {}).get(clip['id'])
             if not cnotes: continue
-            if cnotes.get('rating') == 'X':
+            rating = str(cnotes.get('rating', ''))
+            if rating == 'X':
                 is_rejected = True
-            if cnotes.get('markers') or cnotes.get('notes', '').strip() or str(cnotes.get('rating', '')) in ['1', '2', '3']:
-                include_clip = True
+            if fc_rejected_only:
+                if rating == 'X': include_clip = True
+            elif fc_min_rating is not None:
+                if rating in ['1', '2', '3'] and int(rating) >= fc_min_rating:
+                    include_clip = True
+            elif fc_cats is not None:
+                if any(m.get('cat') in fc_cats for m in cnotes.get('markers', []) if m.get('cat') != 'X'):
+                    include_clip = True
+            else:
+                if cnotes.get('markers') or cnotes.get('notes', '').strip() or rating in ['1', '2', '3']:
+                    include_clip = True
 
-        if is_rejected or not include_clip:
-            continue
+        if fc_rejected_only:
+            if not include_clip: continue
+        else:
+            if is_rejected or not include_clip: continue
 
         dur = clip.get('duration_sec', 0) or 0
 
-        # Collecter tous les marqueurs de tous les utilisateurs
+        # Zones X → segments conservés, IDENTIQUE à export_fcpxml. Sans ça, un clip
+        # raccourci par des marqueurs X décalait tous les marqueurs des clips suivants.
+        x_times = sorted(set(
+            m['time'] for u in users
+            for m in ((notes.get(user_note_key(u)) or {}).get(clip['id']) or {}).get('markers', [])
+            if m.get('cat') == 'X'
+        ))
+        if not x_times:
+            segments = [(0.0, dur)]
+        else:
+            segments = []
+            prev = 0.0
+            for i, t in enumerate(x_times):
+                if i % 2 == 0:
+                    if t > prev:
+                        segments.append((prev, t))
+                else:
+                    prev = t
+            if len(x_times) % 2 == 0 and x_times[-1] < dur:
+                segments.append((x_times[-1], dur))
+
+        kept_dur = sum(e - s for s, e in segments if e > s)
+        if kept_dur <= 0:
+            continue
+
+        # Traduit un temps SOURCE (dans le clip d'origine) en temps SÉQUENCE, à
+        # travers les segments conservés. Retourne None si le temps tombe dans une
+        # zone coupée (marqueur à ignorer, comme dans export_fcpxml).
+        def _src_to_seq(src_t):
+            acc = record_offset
+            for s, e in segments:
+                if e <= s:
+                    continue
+                if src_t < s:
+                    return None
+                if src_t < e:
+                    return acc + (src_t - s)
+                acc += (e - s)
+            return None
+
         all_markers = []
         for u in users:
             uid = user_note_key(u)
@@ -1173,23 +1269,26 @@ def export_markers_edl(project):
                 label = f"{u.get('name') or u.get('username', '?')} {cat_labels_en.get(r_cat, 'note')}"
                 if global_note:
                     label += f" - {global_note}"
-                all_markers.append({'time': 0, 'label': label, 'color': color})
+                # note/rating globaux → début du 1er segment conservé
+                all_markers.append({'seq': record_offset, 'label': label, 'color': color})
 
             for m in cnotes.get('markers', []):
                 if m.get('cat') == 'X': continue
+                seq_t = _src_to_seq(m.get('time', 0))
+                if seq_t is None:
+                    continue
                 cat = str(m.get('cat', ''))
                 color = cat_colors.get(cat, 'ResolveColorBlue')
                 label = f"{u.get('name') or u.get('username', '?')} {cat_labels_en.get(cat, 'marker')}"
                 desc = m.get('desc', '').strip()
                 if desc and desc.lower() != 'marker':
                     label += f" - {desc}"
-                all_markers.append({'time': m.get('time', 0), 'label': label, 'color': color})
+                all_markers.append({'seq': seq_t, 'label': label, 'color': color})
 
-        all_markers.sort(key=lambda x: x['time'])
+        all_markers.sort(key=lambda x: x['seq'])
         seen_frames = set()
         for m in all_markers:
-            seq_time = record_offset + m['time']
-            frame_num = int(round(seq_time * SEQ_FPS))
+            frame_num = int(round(m['seq'] * SEQ_FPS))
             while frame_num in seen_frames:
                 frame_num += 1
             seen_frames.add(frame_num)
@@ -1202,7 +1301,7 @@ def export_markers_edl(project):
             lines.append(f" |C:{m['color']} |M:{m['label']} |D:1")
             lines.append("")
 
-        record_offset += dur
+        record_offset += kept_dur
 
     return '\n'.join(lines)
 
