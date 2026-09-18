@@ -18,6 +18,41 @@ let _basketDragIdx = null;
 // juste avant _wireBasketSeqHandle.
 let _basketArmedTrim = null;
 
+// Sélection multiple d'items du pré-montage pour un export PARTIEL (retour
+// terrain : « pouvoir sélectionner plusieurs clips au sein du prémontage et
+// n'exporter qu'une timeline de cette sélection »). Set d'`item.id` (id propre
+// à la ligne du panier, cf. push dans allBaskets[uid] — distinct du select_id
+// qui identifie la sélection in/out sur le clip). Volontairement non persisté
+// (état d'édition transitoire, pas une donnée de projet) et réinitialisé au
+// changement d'utilisateur affiché (_basketSwitchUser) puisque les ids ne
+// concernent que le panier actuellement visible.
+let _basketExportSelIds = new Set();
+// Ancre pour la sélection par plage au Shift+clic (façon Explorateur Windows/Gmail) :
+// `item.id` (id STABLE, PAS un index) de la dernière case cochée par un clic
+// SIMPLE. Un Shift+clic coche toute la plage entre cette ancre et l'item
+// cliqué, sans changer l'ancre elle-même (permet d'étendre/rétrécir la plage
+// en Shift+cliquant plusieurs fois de suite). Réinitialisée en même temps que
+// _basketExportSelIds.
+//
+// ⚠️ Piège corrigé (retour terrain : « des plans qui ne sont même pas dans le
+// prémontage sont intégrés dans la sélection ») : stocker un INDEX positionnel
+// (`_basketExportAnchorIdx`, version précédente) devient invalide dès qu'un
+// glisser-déposer réordonne le panier ENTRE le clic d'ancrage et le Maj+clic
+// suivant — l'index pointe alors sur un item totalement différent, et la plage
+// calculée entre les deux mauvaises positions embarque des plans sans rapport
+// avec l'intention de l'utilisateur. Stocker l'id (stable, indépendant de
+// l'ordre) et retrouver sa position COURANTE à chaque usage via
+// _basketAnchorCurrentIdx() rend la plage immune à tout réordonnancement
+// survenu entre les deux clics.
+let _basketExportAnchorItemId = null;
+
+// Position actuelle de l'ancre dans le rendu courant, ou -1 si pas d'ancre /
+// ancre pointant sur un item qui n'est plus dans le panier (retiré depuis).
+function _basketAnchorCurrentIdx() {
+    if(_basketExportAnchorItemId === null) return -1;
+    return _basketLastResolved.findIndex(r => r.item.id === _basketExportAnchorItemId);
+}
+
 // ─── Marquage in/out ────────────────────────────────────────────────────────
 
 function markSelectIn() {
@@ -567,6 +602,16 @@ function closeBasket() {
     if(ov) ov.classList.remove('active');
     const menu = document.getElementById('basketExportMenu');
     if(menu) menu.style.display = 'none';
+    // Retour terrain : « il y a des clips que je n'ai pas sélectionnés dans
+    // l'export » — la case à cocher de l'export partiel n'était réinitialisée
+    // qu'au changement d'utilisateur consulté, jamais à la fermeture du panier.
+    // De vieilles coches oubliées d'une session précédente survivaient donc
+    // silencieusement (visibles si on scrolle, mais facile à manquer) et
+    // pouvaient se retrouver incluses dans un export "sélection cochée" bien
+    // plus tard, sans rapport avec la tâche en cours. Chaque ouverture du
+    // pré-montage repart maintenant d'une ardoise vierge.
+    _basketExportSelIds.clear();
+    _basketExportAnchorItemId = null;
 }
 
 // Capture phase, comme _cmpKeydown (js/compare.js) : intercepte avant le handler
@@ -660,6 +705,8 @@ function _basketSwitchUser(uid) {
     _basketStop();
     _basketCurrentItemRef = null;
     _basketViewUser = uid;
+    _basketExportSelIds.clear();
+    _basketExportAnchorItemId = null;
     renderBasketOverlay();
 }
 
@@ -694,6 +741,14 @@ function renderBasketOverlay() {
     }).filter(r => r.clip && r.sel);
     _basketLastResolved = resolved;
 
+    // Purge les ids d'une éventuelle sélection d'export dont l'item a disparu
+    // depuis (retrait, ou re-render sur un panier différent) — sans ça un id
+    // fantôme resterait compté dans le badge du bouton Exporter la sélection.
+    const _liveItemIds = new Set(resolved.map(r => r.item.id));
+    for(const id of [..._basketExportSelIds]) if(!_liveItemIds.has(id)) _basketExportSelIds.delete(id);
+    if(_basketExportAnchorItemId !== null && !_liveItemIds.has(_basketExportAnchorItemId)) _basketExportAnchorItemId = null;
+    _basketUpdateExportSelUI();
+
     // Un item peut changer d'INDEX (réorganisation, suppression) sans changer
     // d'IDENTITÉ — on retrouve la position courante par référence d'objet plutôt
     // que de garder l'ancien index, sinon un glisser-déposer pendant la lecture
@@ -723,10 +778,15 @@ function renderBasketOverlay() {
         row.className = 'basket-item';
         row.draggable = isMine;
         row.dataset.idx = String(idx);
+        row.dataset.itemId = r.item.id;
         const dur = Math.max(0, r.sel.out - r.sel.in);
         const fps = r.clip.fps || 25;
         const thumbUrl = `/api/project/${currentProjectId}/thumbnail/${r.clip.id}?t=${Math.floor(r.sel.in)}`;
-        row.innerHTML = `<div class="basket-item-thumb-wrap" style="background-image:url('${thumbUrl}');">
+        row.classList.toggle('export-checked', _basketExportSelIds.has(r.item.id));
+        row.innerHTML = `<label class="basket-item-check" draggable="false" title="Cocher pour un export partiel (seulement les éléments cochés) — Maj+clic pour cocher toute une plage d'un coup" onclick="event.stopPropagation();" onmousedown="event.stopPropagation();">
+                <input type="checkbox" ${_basketExportSelIds.has(r.item.id) ? 'checked' : ''} onclick="_basketCheckboxClick(event, '${r.item.id}', ${idx})">
+            </label>
+            <div class="basket-item-thumb-wrap" style="background-image:url('${thumbUrl}');">
                 <div class="bi-scrub-bar"></div>
                 <div class="bi-scrub-tc"></div>
                 <div class="bi-play-badge">▶</div>
@@ -780,6 +840,11 @@ function _wireBasketRowHover(row, r, idx) {
 
     row.addEventListener('click', (e) => {
         if(e.target.closest('.basket-item-actions')) return;
+        if(e.target.closest('.basket-item-check')) return;  // déjà géré par _basketCheckboxClick sur la case elle-même
+        // Maj+clic n'IMPORTE OÙ sur la ligne (pas seulement sur la petite case) déclenche
+        // la sélection par plage — retour terrain : le geste naturel est de Maj+cliquer la
+        // ligne/vignette, pas de viser précisément la case à cocher.
+        if(e.shiftKey) { _basketRowShiftClick(idx); return; }
         _basketPlayFrom(idx);
     });
 
@@ -2248,14 +2313,131 @@ function _basketExportMenuOutsideClick() {
     if(menu) menu.style.display = 'none';
 }
 
-function _basketExport(fmt) {
+// Coche/décoche un item pour un export PARTIEL (case à cocher sur chaque ligne
+// du pré-montage). Ne touche jamais allBaskets — état d'édition transitoire,
+// jamais sauvegardé/synchronisé.
+function _basketToggleExportSel(itemId, checked) {
+    if(checked) _basketExportSelIds.add(itemId);
+    else _basketExportSelIds.delete(itemId);
+    const row = document.querySelector(`.basket-item[data-item-id="${itemId}"]`);
+    if(row) row.classList.toggle('export-checked', checked);
+    _basketUpdateExportSelUI();
+}
+
+// Handler `onclick` (pas `onchange` — un `change` de checkbox est un Event
+// générique sans `shiftKey`, un `click` est un MouseEvent qui le porte) sur
+// chaque case du pré-montage. Clic simple : coche/décoche normalement et pose
+// l'ancre de plage sur cet item. Maj+clic : coche toute la plage entre l'ancre
+// et l'item cliqué (façon Explorateur Windows/Gmail), sans changer l'ancre —
+// un Maj+clic répété depuis la même ancre étend/rétrécit la plage.
+function _basketCheckboxClick(e, itemId, idx) {
+    const anchorIdx = _basketAnchorCurrentIdx();
+    if(e.shiftKey && anchorIdx >= 0) {
+        e.preventDefault();  // annule le toggle natif déjà appliqué par le navigateur : la plage décide seule du résultat
+        _basketApplyRangeSelect(anchorIdx, idx);
+        return;
+    }
+    _basketExportAnchorItemId = itemId;
+    _basketToggleExportSel(itemId, e.target.checked);
+}
+
+// Même geste que _basketCheckboxClick mais déclenché depuis un Maj+clic sur le
+// CORPS de la ligne (vignette, nom...) plutôt que sur la case elle-même — la
+// cible naturelle d'un Maj+clic est la ligne entière, pas un petit carré de
+// quelques pixels. Avec une ancre déjà posée : coche la plage. Sans ancre
+// (tout premier clic du panier tenu avec Maj) : coche juste cet item et le
+// prend comme ancre, même résultat qu'un clic simple sur sa case.
+function _basketRowShiftClick(idx) {
+    const anchorIdx = _basketAnchorCurrentIdx();
+    if(anchorIdx >= 0) {
+        _basketApplyRangeSelect(anchorIdx, idx);
+        return;
+    }
+    const it = _basketLastResolved[idx] && _basketLastResolved[idx].item;
+    if(!it) return;
+    _basketExportAnchorItemId = it.id;
+    _basketExportSelIds.add(it.id);
+    const row = document.querySelector(`.basket-item[data-item-id="${it.id}"]`);
+    if(row) {
+        row.classList.add('export-checked');
+        const cb = row.querySelector('.basket-item-check input');
+        if(cb) cb.checked = true;
+    }
+    _basketUpdateExportSelUI();
+}
+
+// Coche toute la plage [fromIdx, toIdx] (bornes incluses, ordre indifférent)
+// dans l'ordre du rendu courant (_basketLastResolved) — ne décoche jamais rien
+// hors de la plage, cohérent avec le comportement standard d'un Maj+clic.
+function _basketApplyRangeSelect(fromIdx, toIdx) {
+    const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+    for(let i = lo; i <= hi; i++) {
+        const it = _basketLastResolved[i] && _basketLastResolved[i].item;
+        if(it) _basketExportSelIds.add(it.id);
+    }
+    document.querySelectorAll('#basketBody .basket-item').forEach(row => {
+        const checked = _basketExportSelIds.has(row.dataset.itemId);
+        const cb = row.querySelector('.basket-item-check input');
+        if(cb) cb.checked = checked;
+        row.classList.toggle('export-checked', checked);
+    });
+    _basketUpdateExportSelUI();
+}
+
+function _basketExportSelClearAll() {
+    _basketExportSelIds.clear();
+    _basketExportAnchorItemId = null;
+    document.querySelectorAll('#basketBody .basket-item').forEach(row => {
+        row.classList.remove('export-checked');
+        const cb = row.querySelector('.basket-item-check input');
+        if(cb) cb.checked = false;
+    });
+    _basketUpdateExportSelUI();
+}
+
+// Reflète le nombre d'items cochés sur le bouton Export + active/désactive les
+// deux entrées "sélection" du menu déroulant.
+function _basketUpdateExportSelUI() {
+    const n = _basketExportSelIds.size;
+    const btn = document.getElementById('basketExportBtn');
+    if(btn) btn.textContent = n > 0 ? `📤 Exporter (${n} coché${n > 1 ? 's' : ''})` : '📤 Exporter';
+    const selBtns = document.querySelectorAll('.basket-export-sel-only');
+    selBtns.forEach(b => { b.disabled = n === 0; });
+    const clearBtn = document.getElementById('basketExportSelClearBtn');
+    if(clearBtn) clearBtn.style.display = n > 0 ? '' : 'none';
+}
+
+async function _basketExport(fmt, onlySelected) {
     const menu = document.getElementById('basketExportMenu');
     if(menu) menu.style.display = 'none';
     if(!currentProjectId || !_basketViewUser) return;
-    const label = encodeURIComponent((currentProject && currentProject.name) || 'projet');
+    let itemsQs = '';
+    if(onlySelected) {
+        if(!_basketExportSelIds.size) {
+            showToast('Coche au moins un élément du pré-montage (case à cocher sur chaque ligne) avant d’exporter la sélection', 'warn');
+            return;
+        }
+        itemsQs = `&items=${encodeURIComponent([..._basketExportSelIds].join(','))}`;
+    }
+    let labelRaw = (currentProject && currentProject.name) || 'projet';
+    if(fmt === 'fcpxml' || fmt === 'drt') {
+        // Retour terrain : proposer un nom plutôt qu'un nom automatique — cf.
+        // _promptExportName dans derush_app.html (générique, partagée avec tous
+        // les autres points d'export .fcpxml/.drt).
+        const chosen = await _promptExportName(labelRaw);
+        if(chosen === null) return;
+        labelRaw = _sanitizeFilenamePart(chosen);
+    }
+    const label = encodeURIComponent(labelRaw);
     // root_path configuré (📁) → prime sur clip['path'] figé au scan (piège #36)
     const rp = currentSession && currentSession.root_path;
     const rootQs = rp ? `&root=${encodeURIComponent(rp)}` : '';
-    const url = `/api/project/${currentProjectId}/export/basket_${fmt}?user=${encodeURIComponent(_basketViewUser)}&label=${label}${rootQs}`;
+    const url = `/api/project/${currentProjectId}/export/basket_${fmt}?user=${encodeURIComponent(_basketViewUser)}&label=${label}${rootQs}${itemsQs}`;
+    if(fmt === 'drt') {
+        // Choix du nom ET de l'emplacement via File System Access API — voir
+        // _downloadWithPicker (derush_app.html) pour le détail/fallback.
+        await _downloadWithPicker(url, `${labelRaw}_panier.drt`);
+        return;
+    }
     window.open(url, '_blank');
 }

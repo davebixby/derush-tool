@@ -317,6 +317,10 @@
         .basket-item.dragging { opacity: 0.4; }
         .basket-item.drag-over { border-color: #34d399; }
         .basket-item.playing { border-color: #34d399; box-shadow: 0 0 0 1px #34d399; }
+        .basket-item.export-checked { border-color: var(--accent, #818cf8); background: color-mix(in srgb, var(--accent, #818cf8) 10%, var(--surface)); }
+        .basket-item-check { flex-shrink: 0; display: flex; align-items: center; cursor: pointer; }
+        .basket-item-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent, #818cf8); }
+        .basket-export-sel-only:disabled { opacity: 0.4; cursor: not-allowed; }
         /* Vignette : background-image manipulé directement (pas d'<img>) pour que le
            défilement au survol (voir _wireBasketThumbHover) se voie SUR la vignette
            elle-même, sans créer de popup flottant à côté — demande explicite. */
@@ -845,9 +849,9 @@
             <div class="export-step">
                 <div class="export-step-num">1</div>
                 <div>
-                    <strong>Timeline FCPXML</strong> — tous les clips annotés<br>
-                    <span style="color:var(--dim);font-size:0.85em;">File › Import › Timeline…</span><br>
-                    <button class="btn-primary" style="margin-top:6px;" onclick="exportDataWithParams('fcpxml')">📥 FCPXML complet</button>
+                    <strong>Timeline DaVinci (DRT)</strong> — tous les clips annotés, avec toutes les pistes son ingé<br>
+                    <span style="color:var(--dim);font-size:0.85em;">Nécessite DaVinci Resolve lancé avec ce projet ouvert. File › Import › Timeline…</span><br>
+                    <button class="btn-primary" style="margin-top:6px;" onclick="exportData('drt')">📥 Timeline DaVinci complète</button>
                 </div>
             </div>
             <div class="export-step">
@@ -860,14 +864,15 @@
             </div>
 
             <!-- Timelines de selects -->
-            <p style="font-size:0.78em;color:var(--dim);margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Timelines de selects</p>
+            <p style="font-size:0.78em;color:var(--dim);margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Timelines de selects (DaVinci, DRT — toutes les pistes son ingé)</p>
+            <div style="font-size:0.8em;color:var(--dim);margin-bottom:8px;">Nécessite DaVinci Resolve lancé avec ce projet ouvert et son Media Pool déjà synchronisé (Auto Sync Audio Based on Timecode).</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
-                <button onclick="exportDataWithParams('fcpxml',{min_rating:3,label:'selects_3stars'})">⭐⭐⭐ uniquement</button>
-                <button onclick="exportDataWithParams('fcpxml',{min_rating:2,label:'selects_2stars_plus'})">⭐⭐ et ⭐⭐⭐</button>
-                <button onclick="exportDataWithParams('fcpxml',{min_rating:1,label:'selects_1star_plus'})">⭐ et plus</button>
-                <button onclick="exportDataWithParams('fcpxml',{cats:'S',label:'problemes_son'})">🎵 Problèmes son</button>
-                <button onclick="exportDataWithParams('fcpxml',{cats:'T',label:'problemes_image'})">👁️ Problèmes image</button>
-                <button onclick="exportDataWithParams('fcpxml',{rejected:1,label:'a_couper'})">❌ À couper</button>
+                <button onclick="exportDataWithParams('drt',{min_rating:3,label:'selects_3stars'})">⭐⭐⭐ uniquement</button>
+                <button onclick="exportDataWithParams('drt',{min_rating:2,label:'selects_2stars_plus'})">⭐⭐ et ⭐⭐⭐</button>
+                <button onclick="exportDataWithParams('drt',{min_rating:1,label:'selects_1star_plus'})">⭐ et plus</button>
+                <button onclick="exportDataWithParams('drt',{cats:'S',label:'problemes_son'})">🎵 Problèmes son</button>
+                <button onclick="exportDataWithParams('drt',{cats:'T',label:'problemes_image'})">👁️ Problèmes image</button>
+                <button onclick="exportDataWithParams('drt',{rejected:1,label:'a_couper'})">❌ À couper</button>
             </div>
             <p style="font-size:0.78em;color:var(--dim);margin:4px 0 6px;">Markers EDL <strong>correspondant</strong> — à importer sur la timeline générée avec le <em>même</em> filtre (clic droit timeline › Timelines › Import › Timeline Markers from EDL) :</p>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
@@ -4100,29 +4105,158 @@ function _exportRootParam(fmt) {
     return `root=${encodeURIComponent(rp)}`;
 }
 
-function exportData(fmt) {
-    if(!currentProjectId) return;
-    saveNotes();
-    const rootQs = _exportRootParam(fmt);
-    window.location.href = `/api/project/${currentProjectId}/export/${fmt}${rootQs ? '?'+rootQs : ''}`;
+// Retour terrain : « quand j'exporte le FCPXML, qu'il me propose de lui donner
+// un nom plutôt qu'un nom automatique ». _promptExportName(defaultName) affiche
+// une modale (jamais de prompt() natif — piège #1 : casse le focus state sous
+// Electron) pré-remplie avec le nom qui aurait été utilisé automatiquement
+// (nom du projet, ou le libellé du filtre pour les boutons "⭐⭐⭐ uniquement"
+// etc.) et retourne une Promise résolue avec le nom choisi, ou `null` si annulé
+// (auquel cas l'appelant doit abandonner l'export sans naviguer). Un seul
+// pending resolve à la fois (_exportNameResolve) : suffisant, l'utilisateur ne
+// peut pas ouvrir deux exports FCPXML simultanément vu que la modale est modale.
+let _exportNameResolve = null;
+
+function _promptExportName(defaultName) {
+    return new Promise((resolve) => {
+        _exportNameResolve = resolve;
+        const overlay = document.getElementById('exportNameOverlay');
+        const input = document.getElementById('exportNameInput');
+        input.value = defaultName || '';
+        overlay.style.display = 'flex';
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+    });
 }
 
-function exportDataWithParams(fmt, params={}) {
+function _exportNameSettle(value) {
+    document.getElementById('exportNameOverlay').style.display = 'none';
+    if(_exportNameResolve) { _exportNameResolve(value); _exportNameResolve = null; }
+}
+
+function _exportNameConfirm() {
+    const name = (document.getElementById('exportNameInput').value || '').trim();
+    _exportNameSettle(name || null);
+}
+
+function _exportNameCancel() { _exportNameSettle(null); }
+
+function _exportNameKeydown(e) {
+    if(e.key === 'Enter') _exportNameConfirm();
+    else if(e.key === 'Escape') _exportNameCancel();
+}
+
+// Retour terrain sept. 2026 : « que l'utilisateur puisse rentrer le nom du drt
+// qu'il exporte ainsi que le choix de son emplacement ». Un export FCPXML/EDL
+// classique part en simple navigation (window.location) et sauve toujours dans
+// le dossier de téléchargements par défaut du navigateur — impossible de
+// changer ça depuis une navigation. Pour DRT (le seul export nécessitant déjà
+// un aller-retour réseau bloquant vers DaVinci, donc pas gênant de le faire
+// via fetch), on utilise le File System Access API (`showSaveFilePicker`,
+// Chromium — donc disponible dans Electron et les navigateurs Chrome/Edge) qui
+// ouvre la vraie boîte "Enregistrer sous" de l'OS. Fallback sur le
+// téléchargement classique si l'API n'existe pas (Firefox/Safari) — mieux vaut
+// un export qui marche sans le confort du choix d'emplacement qu'un export qui
+// échoue silencieusement sur ces navigateurs.
+async function _downloadWithPicker(url, suggestedName) {
+    if (!window.showSaveFilePicker) {
+        // Diagnostic (sept. 2026, retour terrain « ça ne me demande pas où
+        // l'exporter ») : sans ce toast, ce repli est silencieux et
+        // indiscernable d'un bug — le File System Access API n'existe que
+        // dans un « contexte sécurisé » (https, ou http://localhost) sur
+        // Chromium ; absent sur Firefox/Safari, et absent aussi si la page
+        // est ouverte via une IP LAN en http:// plutôt que localhost.
+        showToast('Choix de l’emplacement non disponible dans ce navigateur/contexte — téléchargement dans le dossier par défaut.', 'warn', 5000);
+        window.location.href = url;
+        return;
+    }
+    showToast('Export en cours (DaVinci Resolve doit être lancé, projet ouvert)…', 'info');
+    let res;
+    try {
+        res = await apiFetch(url);
+    } catch(e) {
+        showToast('Échec de l’export : ' + e.message, 'err');
+        return;
+    }
+    if (!res.ok) {
+        const msg = (await res.text().catch(() => '')) || 'Échec de l’export DRT.';
+        showToast(msg, 'err', 6000);
+        return;
+    }
+    const blob = await res.blob();
+    let handle;
+    try {
+        handle = await window.showSaveFilePicker({
+            suggestedName,
+            types: [{description: 'DaVinci Resolve Timeline', accept: {'application/octet-stream': ['.drt']}}]
+        });
+    } catch(e) {
+        if (e && e.name === 'AbortError') return;  // boîte de dialogue annulée par l'utilisateur
+        showToast('Échec de l’enregistrement : ' + e.message, 'err');
+        return;
+    }
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    showToast('Export DRT enregistré ✓', 'ok');
+}
+
+// Nettoie un nom saisi librement pour en faire un nom de fichier valide sous
+// Windows (le serveur l'utilise tel quel comme préfixe de fichier téléchargé).
+function _sanitizeFilenamePart(s) {
+    return (s || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+}
+
+async function exportData(fmt) {
     if(!currentProjectId) return;
+    let label = null;
+    if(fmt === 'drt') {
+        const chosen = await _promptExportName((currentProject && currentProject.name) || 'projet');
+        if(chosen === null) return;
+        label = _sanitizeFilenamePart(chosen);
+    }
+    saveNotes();
+    const rootQs = _exportRootParam(fmt);
+    const parts = [];
+    if(rootQs) parts.push(rootQs);
+    if(label) parts.push(`label=${encodeURIComponent(label)}`);
+    const qs = parts.join('&');
+    const url = `/api/project/${currentProjectId}/export/${fmt}${qs ? '?'+qs : ''}`;
+    if(fmt === 'drt') {
+        await _downloadWithPicker(url, `${label}_selects.drt`);
+        return;
+    }
+    window.location.href = url;
+}
+
+async function exportDataWithParams(fmt, params={}) {
+    if(!currentProjectId) return;
+    if(fmt === 'fcpxml' || fmt === 'drt') {
+        const defaultName = params.label || (currentProject && currentProject.name) || 'projet';
+        const chosen = await _promptExportName(defaultName);
+        if(chosen === null) return;
+        params = {...params, label: _sanitizeFilenamePart(chosen)};
+    }
     saveNotes();
     const parts = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     const rootQs = _exportRootParam(fmt);
     if(rootQs) parts.push(rootQs);
     const qs = parts.join('&');
-    window.location.href = `/api/project/${currentProjectId}/export/${fmt}${qs ? '?'+qs : ''}`;
+    const url = `/api/project/${currentProjectId}/export/${fmt}${qs ? '?'+qs : ''}`;
+    if(fmt === 'drt') {
+        await _downloadWithPicker(url, `${params.label || 'timeline'}_selects.drt`);
+        return;
+    }
+    window.location.href = url;
 }
 
-function exportSubclips(extra={}) {
+async function exportSubclips(extra={}) {
     if(!currentProjectId) return;
+    const defaultName = (currentProject && currentProject.name) || 'projet';
+    const chosen = await _promptExportName(defaultName);
+    if(chosen === null) return;
     saveNotes();
     const pre = document.getElementById('subPre').value || 3;
     const post = document.getElementById('subPost').value || 7;
-    const params = {pre, post, ...extra};
+    const params = {pre, post, ...extra, label: _sanitizeFilenamePart(chosen)};
     const parts = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     const rootQs = _exportRootParam('subclips_fcpxml');
     if(rootQs) parts.push(rootQs);
@@ -4289,12 +4423,15 @@ function openExportModal() {
     document.getElementById('exportModal').style.display = 'flex';
 }
 
-function exportRoughCut() {
+async function exportRoughCut() {
     if (!currentProjectId) return;
+    const defaultName = (currentProject && currentProject.name) || 'projet';
+    const chosen = await _promptExportName(defaultName);
+    if(chosen === null) return;
     saveNotes();
     const minR = document.getElementById('rcRating').value || 2;
     const userId = document.getElementById('rcUser').value || '';
-    const params = {min_rating: minR};
+    const params = {min_rating: minR, label: _sanitizeFilenamePart(chosen)};
     if (userId) params.user_id = userId;
     const parts = Object.entries(params).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     const rootQs = _exportRootParam('rough_cut');
@@ -4826,11 +4963,15 @@ _loadVersionAndChangelog();
         <button id="basketPlayBtn" onclick="_basketTogglePlay()" title="Lire tout le pré-montage bout à bout">▶ Lire tout</button>
         <div style="position:relative;display:inline-block;">
             <button id="basketExportBtn" onclick="_basketToggleExportMenu(event)" title="Exporter le pré-montage">📤 Exporter</button>
-            <div id="basketExportMenu" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;min-width:190px;box-shadow:0 12px 32px rgba(0,0,0,.5);">
-                <button style="width:100%;text-align:left;" onclick="_basketExport('fcpxml')">📥 FCPXML (DaVinci)</button>
-                <button style="width:100%;text-align:left;margin-top:4px;" onclick="_basketExport('xml_fcp7')">📥 XML (Premiere)</button>
+            <div id="basketExportMenu" style="display:none;position:absolute;top:100%;right:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;min-width:230px;box-shadow:0 12px 32px rgba(0,0,0,.5);">
+                <button style="width:100%;text-align:left;" onclick="_basketExport('drt')" title="Nécessite DaVinci Resolve lancé avec ce projet ouvert">📥 Timeline DaVinci (DRT) — tout</button>
+                <button style="width:100%;text-align:left;margin-top:4px;" onclick="_basketExport('xml_fcp7')">📥 XML (Premiere) — tout</button>
+                <div style="border-top:1px solid var(--border);margin:6px 0;"></div>
+                <button class="basket-export-sel-only" disabled style="width:100%;text-align:left;" onclick="_basketExport('drt', true)" title="Coche des lignes dans la liste pour activer · nécessite DaVinci Resolve lancé avec ce projet ouvert">📥 Timeline DaVinci (DRT) — sélection cochée</button>
+                <button class="basket-export-sel-only" disabled style="width:100%;text-align:left;margin-top:4px;" onclick="_basketExport('xml_fcp7', true)" title="Coche des lignes dans la liste pour activer">📥 XML (Premiere) — sélection cochée</button>
             </div>
         </div>
+        <button id="basketExportSelClearBtn" onclick="_basketExportSelClearAll()" style="display:none;font-size:0.82em;" title="Décocher toutes les lignes du pré-montage">✕ Sélection</button>
         <button id="basketClearBtn" onclick="_basketClear()" style="color:#ef4444;border-color:rgba(239,68,68,.3);">🗑 Vider</button>
         <button onclick="closeBasket()" style="color:var(--red);border-color:rgba(239,68,68,.3);">✕ Fermer</button>
     </div>
@@ -4873,6 +5014,21 @@ _loadVersionAndChangelog();
         <div style="display:flex;gap:8px;margin-top:14px;">
             <button style="flex:1;" onclick="_basketConfirmRename()">Valider</button>
             <button style="flex:1;" onclick="_basketCancelRename()">Annuler</button>
+        </div>
+    </div>
+</div>
+
+<!-- Nom de fichier d'export FCPXML (retour terrain : proposer un nom plutôt qu'un
+     nom automatique). Générique — utilisée par tous les exports .fcpxml (modale
+     d'export classique, sous-clips, rough cut, pré-montage), pas seulement un
+     appelant précis, via _promptExportName() qui retourne une Promise. -->
+<div id="exportNameOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:220;align-items:center;justify-content:center;" onclick="if(event.target===this)_exportNameCancel()">
+    <div class="card" style="max-width:380px;width:92%;">
+        <h2 id="exportNameTitle" style="font-size:1em;margin-bottom:12px;">📤 Nom du fichier</h2>
+        <input type="text" id="exportNameInput" placeholder="Nom du fichier..." style="width:100%;box-sizing:border-box;" maxlength="150" onkeydown="_exportNameKeydown(event)">
+        <div style="display:flex;gap:8px;margin-top:14px;">
+            <button style="flex:1;" onclick="_exportNameConfirm()">Exporter</button>
+            <button style="flex:1;" onclick="_exportNameCancel()">Annuler</button>
         </div>
     </div>
 </div>

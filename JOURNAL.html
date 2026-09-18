@@ -379,6 +379,33 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 11 septembre 2026 (v0.3.91)</div>
   <a href="#chrono-sort-export">Timeline "désorganisée" : tri chronologique manquant dans les exports</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.92)</div>
+  <a href="#basket-export-selection">Export FCPXML/Premiere d'une sélection partielle du pré-montage</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.93)</div>
+  <a href="#basket-export-shift-range">Maj+clic pour cocher une plage de cases d'un coup</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.94)</div>
+  <a href="#basket-shift-row-click">Maj+clic ne marchait que sur la petite case, pas sur la ligne</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.95)</div>
+  <a href="#export-fcpxml-name-prompt">Demander un nom de fichier avant un export FCPXML</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.96)</div>
+  <a href="#basket-export-stale-checks">Clips non sélectionnés dans l'export : coches oubliées d'une session précédente</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.97)</div>
+  <a href="#basket-anchor-stale-index">Ancre du Maj+clic périmée après un réordonnancement du panier</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.98)</div>
+  <a href="#fs5-ltc-mute-fcpxml">Mute automatique du canal LTC des FS5 directement dans le FCPXML</a>
+
+  <div class="nav-section">Session 12 septembre 2026 (v0.3.99)</div>
+  <a href="#fs5-ltc-mute-fcpxml-revert">Mute LTC dans le FCPXML : testé en réel, ne fonctionne pas — retiré</a>
+
+  <div class="nav-section">Session 13 septembre 2026</div>
+  <a href="#silent-clip-adaptive-track-lead">Clips silencieux malgré données saines : piste ouverte côté patch audio Adaptive</a>
 </nav>
 
 <main>
@@ -3902,10 +3929,275 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-note"><strong>Aussi cette session</strong> : retour terrain « comment enlever le son du TC sur les clips FS5 dans DaVinci ? » — noté dans <code>CLAUDE.md</code> et <code>GUIDE.html</code> (Media Pool → Clip Attributes → Audio → désactiver le canal L sur tous les FS5 en une fois, repli via la page Fairlight si l'option n'existe pas dans la version de Resolve).</div>
 </div>
 
+<div class="entry" id="basket-export-selection">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.92</span>
+    <span class="entry-title">Export FCPXML/Premiere d'une sélection partielle du pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « pouvoir sélectionner plusieurs clips au sein du pré-montage et n'exporter qu'une timeline de cette sélection, pas forcément tous les plans ». Jusqu'ici, 📤 Exporter dans l'overlay 📽️ n'offrait que la bobine <strong>entière</strong> (<code>export_basket_fcpxml</code>/<code>export_basket_xml_fcp7</code>, <code>derush_exports.py</code>).</p>
+
+  <p>Ajout d'une case à cocher sur chaque ligne du pré-montage (<code>#basketBody</code>, <code>js/selects.js</code>) : état transitoire <code>_basketExportSelIds</code> (Set d'<code>item.id</code> — l'id propre à la ligne du panier, distinct du <code>select_id</code> de la sélection in/out), jamais persisté ni synchronisé, purgé si un item coché disparaît (retrait, panier différent) et réinitialisé au changement d'utilisateur consulté (<code>_basketSwitchUser</code>). Le bouton 📤 Exporter affiche le nombre coché et son menu gagne deux entrées « FCPXML/XML — sélection cochée », désactivées tant que rien n'est coché.</p>
+
+  <p>Côté serveur, <code>_basket_entries(project, user_key, item_ids=None)</code> accepte désormais un filtre optionnel d'<code>item.id</code> — quand fourni, ne garde que ces lignes, <strong>dans l'ordre du panier</strong> (pas l'ordre de cochage, qui n'a pas de sens temporel). <code>export_basket_fcpxml</code>/<code>export_basket_xml_fcp7</code> relaient ce paramètre ; le endpoint lit un nouveau <code>?items=id1,id2,...</code> (mêmes query params que l'export complet — <code>user</code>, <code>label</code>, <code>root</code> pour la résolution de chemin piège #36). Testé isolément (données factices) : ordre du panier bien préservé et item non coché bien exclu, sur les deux formats.</p>
+
+  <div class="box box-note">Case à cocher volontairement mise en <code>draggable="false"</code> avec <code>stopPropagation</code> sur <code>mousedown</code> ET <code>click</code> — la ligne entière est <code>draggable</code> pour le réordonnancement (glisser-déposer natif HTML5), même piège que les poignées de trim (CLAUDE.md #32) : un geste imprécis sur un élément interactif à l'intérieur d'un conteneur <code>draggable</code> peut sinon déclencher le drag natif du parent au lieu de l'action voulue.</div>
+</div>
+
+<div class="entry" id="basket-export-shift-range">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.93</span>
+    <span class="entry-title">Maj+clic pour cocher une plage de cases d'un coup dans le pré-montage</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain immédiat après la case à cocher de la session précédente : « je veux pouvoir sélectionner plusieurs clips en même temps avec la touche shift ». Façon Explorateur Windows/Gmail : Maj+clic sur une case coche toute la plage entre elle et la dernière case cochée par un clic simple.</p>
+
+  <p>La case passe d'un handler <code>onchange</code> à <code>onclick</code> (<code>_basketCheckboxClick(e, itemId, idx)</code>, <code>js/selects.js</code>) — un événement <code>change</code> de checkbox est un <code>Event</code> générique sans <code>shiftKey</code>, alors qu'un <code>click</code> est un <code>MouseEvent</code> qui le porte. Clic simple : toggle normal + pose l'ancre <code>_basketExportAnchorIdx</code> sur l'index cliqué (positionnel, dans <code>_basketLastResolved</code>). Maj+clic : <code>e.preventDefault()</code> annule le toggle natif déjà appliqué par le navigateur au moment du clic, puis <code>_basketApplyRangeSelect(anchorIdx, idx)</code> coche toute la plage <code>[min,max]</code> — sans jamais rien décocher hors plage. L'ancre ne bouge pas sur un Maj+clic, pour permettre d'étendre ou de rétrécir la plage en Maj+cliquant plusieurs fois de suite depuis le même point de départ.</p>
+
+  <div class="box box-note">L'ancre est réinitialisée avec <code>_basketExportSelIds</code> (changement d'utilisateur consulté, ✕ Sélection) et clampée à <code>null</code> dans <code>renderBasketOverlay()</code> si son index déborde désormais de la liste (item retiré depuis) — même classe de garde que la purge des ids cochés déjà en place pour la feature précédente.</div>
+</div>
+
+<div class="entry" id="basket-shift-row-click">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.94</span>
+    <span class="entry-title">Maj+clic ne marchait que sur la petite case, pas sur la ligne</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour terrain immédiat après la livraison précédente : « ça ne fonctionne pas le Maj+clic je ne peux pas sélectionner plusieurs plans ». L'extension Claude in Chrome n'étant pas connectée dans cette session, diagnostic fait via un harnais Playwright headless jetable (chromium déjà installé localement pour `tests/`, `playwright-core` déjà en dépendance) plutôt qu'en devinant depuis la lecture du code seule.</p>
+
+  <p>Résultat de la repro : <code>_basketCheckboxClick</code> fonctionne <strong>correctement</strong> en Chromium réel quand on clique précisément sur la case (~16×16px, confirmé par un test isolé simulant clic simple puis Maj+clic avec de vrais événements souris). Le vrai problème : le geste naturel d'un Maj+clic porte sur la <strong>ligne entière</strong> (vignette, nom du plan) — une cible bien plus grande — pas sur ce petit carré. Le listener <code>click</code> du corps de la ligne (<code>_wireBasketRowHover</code>) ignorait totalement <code>e.shiftKey</code> et appelait systématiquement <code>_basketPlayFrom(idx)</code>, quel que soit l'état de Maj. Un second test Playwright reproduisant ce scénario exact (Maj+clic direct sur la vignette, sans jamais toucher la case) confirmait la lecture se déclenchait au lieu de cocher quoi que ce soit.</p>
+
+  <p>Fix : le row-listener vérifie maintenant <code>e.target.closest('.basket-item-check')</code> (laisse la case gérer son propre clic sans interférence) puis <code>e.shiftKey</code> <strong>avant</strong> de lancer la lecture — si Maj est enfoncé, délègue à une nouvelle fonction <code>_basketRowShiftClick(idx)</code> plutôt que <code>_basketPlayFrom</code>. Cette fonction réplique <code>_basketApplyRangeSelect</code> avec en plus un cas explicite « pas encore d'ancre » (tout premier Maj+clic du panier, avant qu'aucun clic simple n'ait eu lieu) : coche l'item cliqué et le prend comme ancre, au lieu de ne rien faire silencieusement. Re-testé avec le même harnais Playwright dans ce scénario le plus défavorable (Maj+clic direct sur deux vignettes, jamais de clic simple préalable) : la plage se coche correctement.</p>
+
+  <div class="box box-note"><strong>Leçon</strong> : un test unitaire isolé qui valide la fonction de bas niveau (<code>_basketCheckboxClick</code>/<code>_basketApplyRangeSelect</code>) sur son chemin d'appel « propre » (clic exact sur la case) ne suffit pas à confirmer que la FEATURE dans son ensemble fonctionne — il faut aussi tester le point d'entrée que l'utilisateur emprunte réellement, souvent une cible plus large et moins précise que celle envisagée en écrivant le code. Playwright headless (déjà présent dans le repo pour les tests E2E, `cd tests && npm test`) reste utilisable en script jetable pointé sur un fichier HTML minimal, même sans l'extension Claude in Chrome connectée.</div>
+</div>
+
+<div class="entry" id="export-fcpxml-name-prompt">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.95</span>
+    <span class="entry-title">Demander un nom de fichier avant un export FCPXML</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Retour terrain : « j'aimerais quand j'exporte le FCPXML, qu'il me propose de lui donner un nom plutôt qu'un nom automatique ». Le nom de fichier venait déjà entièrement du client (`label` en query param, repris tel quel côté serveur dans `Content-Disposition`) — la feature est donc purement front, aucun changement serveur.</p>
+
+  <p><code>_promptExportName(defaultName)</code> (<code>derush_app.html</code>, nouvelle modale <code>#exportNameOverlay</code>) : pas de <code>prompt()</code> natif (piège #1, casse le focus state Electron), une vraie modale qui retourne une <strong>Promise</strong> résolue avec le nom saisi ou <code>null</code> si annulé. Pré-remplie avec le nom automatique qui aurait été utilisé (nom du projet, ou le libellé déjà spécifique d'un bouton filtré comme <code>selects_3stars</code>) plutôt que de partir d'un champ vide.</p>
+
+  <p>Scope volontairement limité aux exports <code>.fcpxml</code> — demande explicite « le FCPXML », pas XML Premiere/EDL/CSV. Sept points d'appel touchés, tous passés en <code>async</code> pour pouvoir <code>await</code> la modale avant de naviguer : les boutons FCPXML de la modale d'export classique (<code>exportDataWithParams</code>), les sous-clips markers (<code>exportSubclips</code>), le rough cut (<code>exportRoughCut</code>), et les deux boutons FCPXML du pré-montage (<code>_basketExport</code>, <code>js/selects.js</code> — <code>xml_fcp7</code> sur les mêmes boutons reste inchangé). Annuler la modale abandonne l'export entier (aucune navigation), jamais de repli silencieux sur le nom automatique.</p>
+</div>
+
+<div class="entry" id="basket-export-stale-checks">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.96</span>
+    <span class="entry-title">Clips non sélectionnés dans l'export : coches oubliées d'une session précédente</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour terrain : « j'ai exporté la sélection mais il y a pourtant des clips que je n'ai pas sélectionné dedans... Je voudrais aussi que ça respecte l'ordre dans lequel ils sont placés dans le prémontage ». Deux angles d'enquête en parallèle : le contenu (clips en trop) et l'ordre.</p>
+
+  <p><strong>Ordre</strong> : relecture complète de <code>_basket_entries</code> (<code>derush_exports.py</code>) — la fonction itère toujours sur <code>basket</code> (l'ordre réel du panier, tel que réordonné par glisser-déposer ou sur la timeline de séquence) et n'utilise le `Set` d'ids cochés reçu du client (`item_ids`) que pour un test d'appartenance <code>in</code>, jamais pour piloter l'ordre de sortie — même si le `Set` JS ou l'ordre de clic des cases était différent. Re-vérifié avec un test isolé (project factice, filtre sur deux items non adjacents) : l'ordre du panier sort intact, l'item exclu n'apparaît pas. Aucun bug ici.</p>
+
+  <p><strong>Contenu</strong> : la vraie cause. <code>_basketExportSelIds</code> (l'état des cases cochées) n'était réinitialisé qu'au changement d'utilisateur consulté (<code>_basketSwitchUser</code>) ou au clic sur <code>✕ Sélection</code> — <strong>jamais à la fermeture du panier</strong> (<code>closeBasket()</code>). Des cases cochées lors d'une session antérieure (pour un tout autre export, potentiellement des jours plus tôt) restaient donc actives silencieusement — visibles si on scrolle jusqu'à elles, mais faciles à oublier sur un panier de plusieurs dizaines de sélections — et se retrouvaient réincluses dans le export "sélection cochée" suivant, sans rapport avec la tâche du moment. Vu depuis l'extérieur : des clips qu'on n'a "pas sélectionnés" (cette fois-ci) apparaissent dans l'export, et leur présence à leur position d'origine dans le panier donne l'impression trompeuse que l'ordre est aussi cassé.</p>
+
+  <div class="box box-note">Fix : <code>closeBasket()</code> vide désormais <code>_basketExportSelIds</code> ET l'ancre de plage à chaque fermeture — chaque ouverture du pré-montage repart d'une ardoise vierge, plus de coches fantômes d'une session précédente. <strong>Leçon</strong> : un état d'édition transitoire (non persisté, non sauvegardé) doit quand même avoir un cycle de vie clairement délimité — ici la fenêtre naturelle est "une session d'ouverture du panier", pas "jusqu'au prochain changement d'utilisateur consulté" (un événement bien plus rare et donc un bien plus mauvais signal de fin d'intention).</div>
+</div>
+
+<div class="entry" id="basket-anchor-stale-index">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.97</span>
+    <span class="entry-title">Ancre du Maj+clic périmée après un réordonnancement du panier</span>
+    <span class="entry-tag tag-bug">Bug</span>
+  </div>
+
+  <p>Retour terrain, le fix précédent n'ayant pas suffi : « y a un problème, l'ordre est bon mais y a des plans qui ne sont même pas dans le prémontage qui sont intégrés dans la sélection du fcpxml. Peut-être que comme certains sont les mêmes pour différentes journées il va chercher dans le mauvais jour ? ». Hypothèse de l'utilisateur plausible et bien formulée (les FS5 ré-utilisent les mêmes noms <code>ClipNNNN.MXF</code> sur plusieurs jours) — vérifiée en priorité.</p>
+
+  <p><strong>Hypothèse écartée avec des données réelles</strong> : inspection directe de <code>drift_club.derush.json</code> — <code>0 doublon d'id</code> parmi les 428 clips. La formule de génération (<code>f"{day}_{camera}_{f.stem}"</code>) inclut bien le dossier jour, donc <code>J06_FS5_Clip0001</code> et <code>J05_FS5_Clip0001</code> restent des ids distincts malgré le nom de fichier identique. Le panier réel de l'utilisateur (50 items) a aussi été dumpé et résolu entrée par entrée : 2 items orphelins trouvés (select supprimé, item resté) mais silencieusement ignorés par <code>_basket_entries</code> (pas de "plans en trop" possible par ce biais — un orphelin est juste absent, jamais substitué par un autre).</p>
+
+  <p><strong>Vraie cause, trouvée en relisant _basketApplyRangeSelect avec un œil neuf</strong> : l'ancre du Maj+clic (<code>_basketExportAnchorIdx</code>, version de la session précédente) stockait un <strong>index positionnel</strong> dans <code>_basketLastResolved</code>, pas un identifiant. Le panier de cet utilisateur compte 50 items intensément retravaillés (glisser-déposer sur la liste ET sur la timeline de séquence, coupes, duplications) — un réordonnancement survenant entre le clic d'ancrage et un Maj+clic ultérieur change la position de TOUS les items suivants sans jamais invalider l'index mémorisé. Au Maj+clic suivant, l'ancre pointe alors vers un item complètement différent de celui visé au moment du premier clic, et <code>_basketApplyRangeSelect(ancienIndex, idxClique)</code> calcule une plage entre deux mauvaises positions — embarquant des plans sans rapport avec l'intention réelle de l'utilisateur, ce qui correspond exactement au symptôme rapporté.</p>
+
+  <div class="box box-fail">Reproduit avec un harnais Playwright dédié (5 items A-E, clic simple sur B → ancre positionnelle = index 1, puis B déplacé en fin de liste par un glisser-déposer simulé → ordre devient A,C,D,E,B → Maj+clic sur D) : avec l'ancien code, l'ancre restée à l'index 1 pointe désormais vers C au lieu de B, faussant tout calcul de plage.</div>
+
+  <p>Fix : <code>_basketExportAnchorIdx</code> devient <code>_basketExportAnchorItemId</code> — stocke l'<strong>id stable</strong> de l'item ancré, jamais un index. Nouvelle fonction <code>_basketAnchorCurrentIdx()</code> retrouve sa position COURANTE dans <code>_basketLastResolved</code> via <code>.findIndex()</code> à chaque Maj+clic, donc la plage calculée reste correcte quel que soit le nombre de réordonnancements survenus entretemps — ou traite l'absence de résultat (item retiré du panier depuis) comme "pas d'ancre". Même test Playwright rejoué après le fix : l'ancre B est retrouvée à son NOUVEL index (4) malgré le déplacement, plage <code>[2,4]</code> = D,E,B — le bon résultat, immunisé contre le reorder.</p>
+
+  <div class="box box-note"><strong>Leçon</strong> : un index dans une liste réordonnable n'est une référence stable que jusqu'au prochain réordonnancement — toute donnée qui doit "pointer vers un élément" à travers le temps (pas juste dans le même tick de rendu) doit utiliser un identifiant stable, jamais une position. Le premier jet de cette feature avait déjà ce principe ailleurs dans le même fichier (<code>_basketCurrentItemRef</code>, référence par identité plutôt que par index, documentée comme telle) — l'incohérence n'a pas été remarquée en écrivant l'ancre du Maj+clic la première fois.</div>
+</div>
+
+<div class="entry" id="fs5-ltc-mute-fcpxml">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.98</span>
+    <span class="entry-title">Mute automatique du canal LTC des FS5 directement dans le FCPXML</span>
+    <span class="entry-tag tag-feature">Feature</span>
+  </div>
+
+  <p>Fin d'une longue session de terrain sur le workflow DaVinci (voir <code>D:\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md</code> pour le détail complet : proxies mal liés en masse, son ingé associé au mauvais jour, limite exFAT). Une fois tout corrigé côté DaVinci, dernier irritant : « je dois faire à chaque fois que j'importe une timeline [couper le bruit LTC à la main] ? Davinci est censé être un logiciel pro ». Cause : les changements de Clip Attributes faits sur un item du Media Pool ne se répercutent pas rétroactivement sur les instances créées par un import FCPXML ultérieur — comportement DaVinci, pas un bug Derush, mais un vrai irritant répété à chaque réimport.</p>
+
+  <p>Fix à la source : Derush détecte désormais lui-même le canal LTC de chaque clip FS5 exporté et l'embarque **coupé** directement dans le FCPXML, via l'élément standard <code>&lt;audio-channel-source&gt;</code> (FCPXML 1.8+) sur l'<code>&lt;asset-clip&gt;</code> — DaVinci importe la timeline déjà correctement configurée, plus aucune manip manuelle nécessaire.</p>
+
+  <p><code>_detect_fs5_ltc_channel()</code> (<code>derush_exports.py</code>) réutilise la technique de facteur de crête déjà validée dans <code>transcode_proxies.sh</code>. <strong>Piège trouvé et corrigé avant livraison</strong>, pas juste supposé correct : un premier jet basé uniquement sur le facteur de crête le plus bas se trompait sur le clip de test réel (<code>Clip0008.MXF</code>, J11) — un canal en silence numérique pur (Peak/RMS = <code>-inf</code> dB, cas réel des canaux 3/4 inutilisés de la FS5) fait renvoyer par <code>astats</code> un <code>Crest factor: 1.000000</code> dégénéré, plus bas que le vrai LTC (~1.4-1.6) ! Sans garde-fou, la détection aurait élu à tort un canal muet comme "LTC" et laissé le vrai bruit actif — l'inverse exact du but recherché.</p>
+
+  <div class="box box-fail">Détection corrigée en exigeant un RMS réel (<code>&gt; -55dB</code>, jamais <code>-inf</code>) EN PLUS d'un facteur de crête bas. Re-testé sur 3 cas réels DRIFT_CLUB dont le canal LTC attendu était déjà connu indépendamment (documentation jour → canal, établie plus tôt dans la même session) : J11 (Channel 1 attendu) → détecté 0 ✓, J03 (Channel 2 attendu) → détecté 1 ✓, J06 (pas de LTC du tout ce jour-là) → détecté <code>None</code> ✓. Génération FCPXML complète aussi vérifiée sur un projet factice : le clip FS5 récupère ses 4 <code>&lt;audio-channel-source&gt;</code> (canal LTC à <code>active="0"</code>), un clip FX6 dans le même export n'est pas touché du tout.</div>
+
+  <p>Câblé aux 4 fonctions qui construisent des <code>&lt;asset-clip&gt;</code> : <code>export_fcpxml</code>, <code>export_subclips_fcpxml</code>, <code>export_rough_cut_fcpxml</code>, <code>export_basket_fcpxml</code> — pas les exports XML Premiere/FCP7 (schéma XMEML différent, pas d'équivalent implémenté). N'agit que si <code>clip['camera'] == 'FS5'</code> et que la détection réussit ; sinon rien n'est ajouté, comportement inchangé par rapport à avant cette feature dans ce cas.</p>
+
+  <div class="box box-note"><strong>Limite assumée</strong> : la détection et la génération XML sont vérifiées avec certitude (voir ci-dessus), mais l'interprétation réelle de <code>&lt;audio-channel-source&gt;</code> par DaVinci Resolve lui-même n'a pas pu être testée dans cette session (pas d'accès à un import DaVinci en direct) — à confirmer par un import réel avant de considérer le problème définitivement clos. Coût de performance assumé en échange : jusqu'à 4 appels ffmpeg par clip FS5 exporté (quelques secondes chacun), payés une fois à l'export plutôt que répétés indéfiniment dans DaVinci.</div>
+</div>
+
+<div class="entry" id="fs5-ltc-mute-fcpxml-revert">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026 · v0.3.99</span>
+    <span class="entry-title">Mute LTC dans le FCPXML : testé en réel, ne fonctionne pas — retiré</span>
+    <span class="entry-tag tag-fix">Fix</span>
+  </div>
+
+  <p>Retour terrain immédiat après la livraison de v0.3.98 : « non il est toujours présent le son TC ». La détection et la génération XML avaient été vérifiées avec certitude avant livraison, mais la vraie inconnue assumée dans l'entrée précédente — l'interprétation de <code>&lt;audio-channel-source&gt;</code> par DaVinci lui-même — s'est révélée être le point de rupture.</p>
+
+  <p>Recherche externe plutôt que ré-essai à l'aveugle d'une autre syntaxe : c'est un <strong>bug connu et documenté de longue date dans DaVinci Resolve</strong>, qui gère mal l'assignation de canal audio par source à l'import de XML/FCPXML (Premiere AAF/XML comme FCPXML) — ignore ou mésinterprète cette information indépendamment de sa validité dans le fichier source. Confirmé par plusieurs sources indépendantes (forums Lowepost, getrecut.com, MacRumors) rapportant exactement le même symptôme sur des workflows totalement différents. Aucun fix côté application exportatrice ne peut compenser un bug d'interprétation côté DaVinci — le contournement manuel (Clip Attributes après import) reste la seule option.</p>
+
+  <div class="box box-fail">Code entièrement retiré (<code>_detect_fs5_ltc_channel</code>, <code>_attach_fs5_ltc_mute</code>, et leurs 4 points d'appel dans <code>derush_exports.py</code>) plutôt que laissé en place : sans bénéfice réel, ce n'était plus qu'un coût gratuit sur chaque export (jusqu'à 4 appels ffmpeg par clip FS5). <code>claude.md</code> documente la tentative et la cause pour éviter qu'une session future ne la retente sans nouvelle preuve que DaVinci a corrigé ce bug.</div>
+
+  <div class="box box-note"><strong>Leçon</strong> : une fonctionnalité peut être rigoureusement vérifiée à CHAQUE étape sous son propre contrôle (détection audio testée sur des cas réels, XML bien formé confirmé) et échouer quand même, si le maillon final de la chaîne (ici, l'interprétation par un logiciel tiers) est hors de portée de toute vérification locale. Le retour terrain immédiat après livraison a évité de laisser cette limite non détectée — d'où l'intérêt d'avoir été transparent dès la livraison sur ce qui restait non vérifiable.</div>
+</div>
+
+<div class="entry" id="ltc-mute-api-investigation">
+  <div class="entry-header">
+    <span class="entry-date">12 septembre 2026</span>
+    <span class="entry-title">Recherche approfondie d'un contournement — deux pistes, deux impasses confirmées</span>
+    <span class="entry-tag tag-doc">Recherche</span>
+  </div>
+
+  <p>Suite directe du retrait du mute LTC dans le FCPXML : « fait une grosse recherche pour voir si on ne peut pas contourner cela ». Deux pistes creusées à fond plutôt que d'abandonner sur la première déconvenue.</p>
+
+  <p><strong>Recherche externe</strong> : confirmation que le problème est un bug DaVinci connu et documenté (pas une question de syntaxe FCPXML) — plusieurs sources indépendantes (forums Lowepost, getrecut.com) rapportant exactement le même symptôme sur des workflows XML <em>et</em> AAF totalement différents. Une piste annexe (compound clips / dual-system audio via des outils comme Sync-n-Link) montre le même genre de rupture à l'import DaVinci — changer de structure d'échange n'aurait probablement pas aidé non plus.</p>
+
+  <p><strong>API de scripting DaVinci, connectée en direct pendant que le projet était ouvert</strong> — deux méthodes de lecture trouvées avec un schéma de données très parlant : <code>TimelineItem.GetSourceAudioChannelMapping()</code> et <code>MediaPoolItem.GetAudioMapping()</code>, cette dernière exposant un <code>track_mapping</code> qui reproduit fidèlement le mute par canal fait à la main (<code>{"1":{"channel_idx":[1],"mute":true,...}}</code>). Deux tests d'écriture en no-op (<code>SetSourceAudioChannelMapping</code>, <code>SetAudioMapping</code>), chacun fait après accord explicite de l'utilisateur — l'incident <code>UnlinkClips</code> de la session précédente avait établi la règle de ne plus rien écrire sans confirmation au cas par cas.</p>
+
+  <div class="box box-fail">Les deux méthodes d'écriture n'existent pas réellement (<code>TypeError("'NoneType' object is not callable")</code> aux deux essais) — confirmé sans aucun effet de bord (données identiques avant/après relues). <strong>Piège noté pour la suite</strong> : sur les objets <code>PyRemoteObject</code> de cette API, <code>hasattr(item, "NomInventé")</code> renvoie systématiquement <code>True</code> quel que soit le nom testé — inutile pour vérifier qu'une méthode existe réellement ; seul un appel réel le confirme.</div>
+
+  <p>Conclusion honnête consignée dans <code>claude.md</code> : aucun levier trouvé côté export ni côté API de scripting. La correction manuelle par lot dans Clip Attributes reste la seule option qui fonctionne — pas de nouvelle tentative sans preuve concrète que DaVinci a changé quelque chose (nouvelle version de l'API, correctif du bug d'import).</p>
+</div>
+
+<div class="entry" id="silent-clip-adaptive-track-lead">
+  <div class="entry-header">
+    <span class="entry-date">13 septembre 2026</span>
+    <span class="entry-title">Clips silencieux malgré données saines : piste ouverte côté patch audio Adaptive</span>
+    <span class="entry-tag tag-doc">Recherche</span>
+  </div>
+
+  <p>Suite distincte de la saga LTC/proxy/sync (pièges #37-39) : sur `DRIFT_CLUB`, même après la procédure "un jour à la fois" validée le 12 septembre, quelques clips de la timeline "Panier" (ex. <code>DRIFT_MAI0217</code>, FX6 J11) restent silencieux au lecteur alors que la Source Viewer les joue normalement. Un test terrain a d'abord isolé le problème proprement : mettre MAI0217 en premier dans un FCPXML minimal entouré de 13 clips sains reproduit exactement le même symptôme (lui seul reste muet) — élimine taille de lot, ordre, et FCPXML comme causes.</p>
+
+  <p>Vérification exhaustive en lecture seule via l'API de scripting DaVinci (même méthode que les pièges #37/#38) : lien proxy correct (écarte le piège #38), aucun canal <code>mute:true</code> dans <code>GetAudioMapping()</code>/<code>track_mapping</code> côté MediaPoolItem et TimelineItem, <code>linked_audio</code> pointant vers le bon WAV ingé avec le bon offset, structure de mapping strictement identique à des clips FX6 sains de la même timeline (juste plus de canaux liés : 7 contre 1-4). Toutes les données inspectables sont saines — aucune cause "configuration" trouvable depuis l'extérieur.</p>
+
+  <div class="box box-note">Retour terrain apportant une piste neuve, non vérifiée par l'API (donnée absente du scripting Resolve) : la piste audio timeline concernée est en format <strong>Adaptive 36 canaux</strong>, et Clip Attributes → Audio montre que le son de ce clip occupe les canaux <strong>9 à 15</strong>. Par défaut, seuls les canaux 1-2 d'une piste Adaptive sont réellement patchés vers le bus de sortie Main dans Fairlight — un canal au-delà peut porter du son réel sans jamais être routé vers la sortie. Deux remèdes à tester : réassigner le canal cible du clip vers 1/2 directement dans Clip Attributes (rapide, par clip), ou patcher 9-15 vers Main via le menu <em>Fairlight → Patch…</em> (pourrait corriger tous les clips touchés d'un coup). Non testé au moment de la rédaction — l'utilisateur, fatigué en fin de session, a préféré noter la piste pour la tester plus tard, et envisage aussi d'essayer DaVinci Resolve v21 sur ce projet.</div>
+
+  <p>Documenté dans <code>claude.md</code> (piège #40) plutôt que dans <code>HISTORY.md</code>, car non résolu — à mettre à jour avec le résultat réel dès que testé, et à répercuter dans <code>D:\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md</code> si le remède se confirme.</p>
+</div>
+
+<div class="entry" id="export-drt">
+  <div class="entry-header">
+    <span class="entry-date">14 septembre 2026</span>
+    <span class="entry-title">Export DRT multipiste : le son ingé multipiste marche enfin, via une connexion directe à DaVinci</span>
+    <span class="entry-tag tag-feature">Fonctionnalité</span>
+  </div>
+
+  <p>Suite de la saga AAF (voir entrées précédentes) : le FCPXML ne porte qu'une seule piste son par clip, et l'AAF — construit à la main ou même exporté nativement par DaVinci lui-même — s'est révélé structurellement incapable de rattacher correctement le son ingé multipiste sur ce projet. Preuve obtenue par intervention directe (pas par relecture de code) : pour l'audio, DaVinci résout un AAF importé <strong>par timecode seul, jamais par nom de fichier</strong> — retirer un par un les fichiers concurrents d'un même timecode change le son entendu sans jamais changer le nom affiché. Une collision de timecode entre deux journées de tournage (le SMPTE ne code pas la date) suffit donc à faire jouer le mauvais fichier, sans qu'aucune construction d'AAF ne puisse s'en prémunir.</p>
+
+  <p>Piste API testée en repli (<code>MediaPool.AppendToTimeline</code>) : ne pose jamais qu'un seul canal audio par plan, quels que soient les paramètres passés — pas de solution non plus. La bascule décisive a été <code>MediaPool.CreateTimelineFromClips</code> : cette méthode construit une timeline avec TOUTES les pistes son ingé correctement rattachées, canal par canal, avec les vrais noms de piste. Exportée au format natif <code>.drt</code> de DaVinci puis réimportée, elle restitue le bon son sur tous les canaux — confirmé sur un export réel de 53 plans, y compris les clips qui posaient problème depuis le début de l'enquête.</p>
+
+  <div class="box box-note">Contrepartie assumée : contrairement à tous les autres exports (fichier généré hors-ligne), celui-ci nécessite que <strong>DaVinci Resolve tourne en direct</strong>, projet ouvert, au moment de l'export — Derush Tool s'y connecte via l'API de scripting le temps de construire la timeline et de l'exporter. Nouveau module dédié <code>derush_drt.py</code>, endpoint <code>GET /api/project/&lt;id&gt;/export/drt</code>. Le bouton dans l'interface n'est pas encore câblé (décision à prendre séparément).</div>
+
+  <p>Le silence du son caméra sur certains clips FX6 du jour 11 (voir entrée précédente) reste, lui, un problème séparé et confirmé indépendant de tout mécanisme d'export testé — y compris le glisser-déposer manuel, la méthode la plus fiable connue à ce jour.</p>
+
+  <p><strong>Câblage complet dans l'interface</strong> : le bouton FCPXML du workflow complet et les 6 boutons filtrés de « Timelines de selects » exportent désormais en DRT. Les deux boutons FCPXML du menu 📤 Exporter du pré-montage (tout / sélection cochée) sont devenus des boutons Timeline DaVinci (DRT) eux aussi (<code>export_basket_drt</code>, nouveau dans <code>derush_drt.py</code>, réutilise <code>_basket_entries</code>). XML Premiere, Subclips, Rough cut et Markers EDL restent inchangés — DRT étant spécifique à DaVinci, ces formats gardent leur utilité propre. Limite assumée et documentée : contrairement à l'ancien FCPXML, le DRT n'embarque pas encore les marqueurs colorés/notes dans le fichier — ils restent disponibles via le Markers EDL, à importer en plus.</p>
+</div>
+
+<div class="entry" id="export-drt-duplicate-clip-fix">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Export DRT du panier : les coupes multiples d'un même plan disparaissaient de la timeline</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain : un panier de 6 sélections n'en donnait que 4 dans la timeline DaVinci importée — les 2 manquantes étaient deux coupes différentes d'un même plan source déjà présent une fois. Confirmé en inspectant le <code>.drt</code> exporté (c'est un zip, <code>SeqContainer/*.xml</code> liste les clips réellement placés) : <code>MediaPool.CreateTimelineFromClips</code> ne place qu'une seule instance par <code>MediaPoolItem</code> par appel — les occurrences suivantes du même clip source sont ignorées sans erreur.</p>
+  <div class="box box-note">Fix (<code>derush_drt.py</code>, <code>_build_and_export_drt</code>) : à partir de la 2e occurrence d'un même <code>clip['id']</code> dans les picks, le clip est réimporté dans le Media Pool (<code>_duplicate_media_pool_item</code>) pour obtenir un <code>MediaPoolItem</code> distinct — le doublon est supprimé du Media Pool juste après l'export, comme la timeline temporaire.</div>
+</div>
+
+<div class="entry" id="export-drt-duplicate-revert-and-name-collision">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Export DRT : retour terrain — le contournement du doublon casse le son, et le nom de timeline entre en collision</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Deux problèmes remontés en testant le fix de la veille. (1) Réimporter le clip repris deux fois faisait bien apparaître une 2e coupe dans la timeline, mais avec la mauvaise piste audio : la synchro son ingé (Auto Sync Audio Based on Timecode) est un état propre au <code>MediaPoolItem</code> d'origine dans le Media Pool, pas au fichier sur disque — un clip fraîchement réimporté n'en hérite pas. (2) Réexporter après avoir déjà importé un <code>.drt</code> précédent échoue avec « la timeline &lt;nom&gt; existe déjà dans ce projet » — normal, le nom du fichier redevient le nom d'une timeline persistante dans le projet DaVinci dès qu'on l'importe, et <code>CreateTimelineFromClips</code> refuse un nom déjà pris.</p>
+  <div class="box box-note">Fix : le contournement par duplication est retiré — mieux vaut un échec clair (message explicite) qu'une timeline avec du son faux sur la coupe dupliquée. Le nom de la timeline reçoit désormais systématiquement un suffixe horodaté, plus de collision possible d'un export à l'autre. La gestion propre des coupes multiples d'un même plan dans un seul export DRT reste un problème ouvert.</div>
+</div>
+
+<div class="entry" id="export-drt-repeated-clip-xml-splice">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Export DRT : les coupes multiples d'un même plan gérées en clonant le XML plutôt qu'en rappelant DaVinci</span>
+    <span class="entry-tag tag-feature">Fonctionnalité</span>
+  </div>
+  <p>Retour terrain après le fix de la veille (échec explicite plutôt que son faux) : « je vais absolument pouvoir importer un plan qui a plusieurs coupes », donc pas question de se contenter d'un message d'erreur. Pour comprendre comment DaVinci encode réellement plusieurs coupes du même plan dans un <code>.drt</code>, création d'un test de référence directement dans DaVinci (4 coupes d'un même plan, export natif <code>.drt</code>) — le <code>.drt</code> est un simple zip contenant du XML, inspectable en Python. Résultat : chaque coupe est un bloc <code>&lt;Sm2TiVideoClip&gt;</code>/<code>&lt;Sm2TiAudioClip&gt;</code> avec son propre identifiant, mais toutes les coupes d'un même plan partagent le même <code>&lt;MediaRef&gt;</code> — le format supporte ça nativement, seuls <code>Start</code>/<code>Duration</code>/<code>In</code> varient réellement entre coupes.</p>
+  <div class="box box-note">Nouvelle implémentation (<code>derush_drt.py</code>) : la timeline de base est construite avec un seul appel <code>CreateTimelineFromClips</code> (une occurrence par plan distinct, son intact), exportée en <code>.drt</code>, puis reconstruite en Python pur pour les plans repris plusieurs fois — clonage des blocs XML déjà câblés par Resolve pour ce plan, avec un nouvel identifiant et les bons <code>Start</code>/<code>Duration</code>/<code>In</code>. Plus aucun appel API supplémentaire, plus de duplication de média. Validé hors-ligne par comparaison automatisée contre le <code>.drt</code> de référence à 4 coupes : durées et points d'entrée identiques à 100 %.</div>
+  <p><strong>Confirmé fonctionnel en conditions réelles</strong> par l'utilisateur le jour même : panier de 6 sélections (dont des coupes multiples du même plan) réimporté dans DaVinci avec les bonnes pistes son ingé sur toutes les coupes.</p>
+</div>
+
+<div class="entry" id="drt-export-name-and-location">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Export DRT : nom de fichier ET emplacement au choix de l'utilisateur</span>
+    <span class="entry-tag tag-feature">Fonctionnalité</span>
+  </div>
+  <p>Retour terrain : « peux-tu faire en sorte que l'utilisateur puisse rentrer le nom du drt qu'il exporte ainsi que le choix de son emplacement ». Le nom personnalisé (déjà en place pour le FCPXML depuis début septembre) est étendu aux exports DRT. Pour l'emplacement — jusqu'ici toujours le dossier de téléchargements par défaut du navigateur, aucun moyen de changer ça depuis une simple navigation — les exports DRT passent désormais par le File System Access API du navigateur (<code>showSaveFilePicker</code>), qui ouvre la vraie boîte "Enregistrer sous" de l'OS. Disponible sur Chromium (donc Electron et Chrome/Edge) ; les navigateurs qui ne le supportent pas (Firefox, Safari) retombent sur le téléchargement classique.</p>
+  <p>Deux bugs trouvés au premier test : la fenêtre de nom affichait encore « Nom du fichier FCPXML » en dur (titre rendu générique) ; le sélecteur d'emplacement ne s'affichait pas du tout — testé sous Firefox, qui ne supporte tout simplement pas <code>showSaveFilePicker</code> (API Chromium uniquement). Un toast diagnostique prévient désormais explicitement quand ce repli silencieux se produit. Rebuild Electron dédié pour retester en conditions Chromium réelles.</p>
+</div>
+
+<div class="entry" id="drt-fully-confirmed">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Export DRT : confirmé fonctionnel de bout en bout (build Electron 0.3.99)</span>
+    <span class="entry-tag tag-feature">Fonctionnalité</span>
+  </div>
+  <p>Après le rebuild Electron (Chromium), confirmation complète par l'utilisateur : les coupes multiples d'un même plan s'importent avec les bonnes pistes son ingé, le nom du fichier est demandé pour tous les exports DRT, et le sélecteur d'emplacement natif fonctionne. La saga complète (diagnostic du <code>.drt</code> de référence, implémentation du clonage XML, correctifs de collision de nom et de duplication de média) est documentée dans <code>CLAUDE.md</code> (piège #42, désormais marqué résolu).</p>
+</div>
+
+<div class="entry" id="drt-clip-linking">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Export DRT : vidéo et son ingé maintenant liés (bougent ensemble à l'édition)</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain : les plans importés étaient bien à la bonne place avec le bon son, mais vidéo et pistes son n'étaient pas <em>liés</em> — déplacer la vidéo dans DaVinci laissait le son en place, obligeant à sélectionner chaque plan + ses pistes son à la main et faire Ctrl+Alt+L (Link Clips) un par un, plan par plan, sur une timeline qui peut en compter des dizaines. Vérifié dans la documentation de l'API de scripting DaVinci (pas une supposition) : <code>CreateTimelineFromClips</code> ne fait jamais ce lien automatiquement.</p>
+  <div class="box box-note">Fix (<code>derush_drt.py</code>, <code>_link_clips_by_position</code>) : juste après la construction de la timeline et avant l'export, tous les <code>TimelineItem</code> (vidéo + chaque piste son) qui démarrent à la même frame sont regroupés et liés via <code>Timeline.SetClipsLinked</code> — une méthode documentée de l'API, jamais utilisée jusqu'ici dans ce module. Couvre les plans utilisés une seule fois dans l'export. Pour les plans repris plusieurs fois (coupes multiples, cf. entrée précédente), la liaison correcte des occurrences clonées reste à vérifier — pas encore de <code>.drt</code> de référence avec un lien actif pour ce cas précis.</div>
+  <p><strong>Suite le jour même</strong> : premier test « ça n'a pas fonctionné, aucun clip n'est lié ». Diagnostic isolé via un script dédié (<code>check_clip_link_resolve.py</code>, testable directement dans la Console DaVinci) : l'icône de lien apparaissait bien sur les clips, mais déplacer la vidéo ne déplaçait pas le son — DaVinci affichait juste un décalage temporel. Cause trouvée : le mode <strong>« Linked Selection »</strong> de la timeline (icône maillon de chaîne dans la barre d'outils, à côté du magnétisme) était désactivé — sans lui, un lien existe mais ne produit aucun déplacement solidaire. Une fois activé : confirmé fonctionnel par l'utilisateur.</p>
+</div>
+
+<div class="entry" id="drt-linking-format-limitation">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Liaison vidéo/son : ne survit pas à l'export DRT — script à lancer après import à la place</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain après un vrai test de bout en bout (export Derush → réimport DaVinci, timeline de 35 plans) : aucune icône de lien sur les clips réimportés, alors que la même opération testée en direct sur la timeline courante (entrée précédente) fonctionnait bien. Vérification : le lien posé par <code>Timeline.SetClipsLinked</code> juste avant l'export DRT existe bien tant que la timeline reste ouverte dans Resolve, mais ne survit pas à l'aller-retour export <code>.drt</code> + réimport — confirmé une seconde fois en relisant le <code>.drt</code> de référence que l'utilisateur avait lui-même lié manuellement (Ctrl+Alt+L) avant son propre export natif : aucune trace de liaison là non plus après export. Conclusion : c'est une limite du format <code>.drt</code>/de l'export DaVinci lui-même, pas quelque chose que Derush Tool peut corriger côté fichier généré.</p>
+  <div class="box box-note">L'appel <code>SetClipsLinked</code> avant l'export est retiré de <code>derush_drt.py</code> (inutile, n'a aucun effet sur le fichier final). À la place : <code>link_timeline_clips_resolve.py</code> (nouveau script, racine du projet) — à coller dans la Console DaVinci juste après avoir importé une timeline Derush : lie tous les plans à leurs pistes son ingé en une seule passe sur toute la timeline (là où l'opération a un effet réel), plutôt que de faire Ctrl+Alt+L plan par plan à la main sur une timeline qui peut en compter des dizaines. Penser ensuite à activer « Linked Selection ».</div>
+</div>
+
+<div class="entry" id="drt-linking-real-fix">
+  <div class="entry-header">
+    <span class="entry-date">15 septembre 2026</span>
+    <span class="entry-title">Liaison vidéo/son : la vraie cause trouvée et corrigée — plus besoin du script post-import</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>L'utilisateur a fourni un document d'analyse externe pointant vers un champ <code>FieldsBlob</code> compressé en ZSTD comme mécanisme réel de la liaison DaVinci. Une première version de ce document groupait les éléments par <code>MediaRef</code> seul et concluait à un contenu aléatoire/faux — <strong>diagnostic vérifié et infirmé</strong> en décompressant réellement les blobs : le bon critère de regroupement est <code>(MediaRef, Start)</code>, et sur cette base, aussi bien le fichier natif DaVinci que notre propre export généré par clonage XML se sont révélés parfaitement cohérents en interne… jusqu'à ce qu'une seconde version du document, avec le bon critère de regroupement, révèle le vrai bug : <strong>un item cloné hérite du <code>FieldsBlob</code> de son gabarit tel quel</strong>, qui référence encore le groupe D'ORIGINE du gabarit (une autre position sur la timeline), jamais sa propre position — confirmé en clair sur notre propre fichier de test (48 éléments, tous faux sous ce critère).</p>
+  <div class="box box-note">Fix (<code>derush_drt.py</code>, <code>_fix_clip_linking</code>) : regroupe tous les items par <code>(MediaRef, Start)</code>, décode le <code>FieldsBlob</code> de chacun, remplace la liste de <code>DbId</code> qu'il contient par les vrais <code>DbId</code> des autres membres du groupe, recompresse. Appliqué systématiquement à chaque export DRT (coupe unique ou multiple). <code>zstandard</code> ajouté aux dépendances. <strong>Confirmé fonctionnel par réimport réel dans DaVinci</strong> par l'utilisateur : icône de liaison présente sur chaque coupe, y compris les plans coupés plusieurs fois. Le script post-import (<code>link_timeline_clips_resolve.py</code>) n'est plus nécessaire pour les nouveaux exports.</div>
+</div>
+
 <hr class="section">
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
-  Derush Tool · Journal de développement · Dernière mise à jour 11 septembre 2026 (v0.3.91 — tri chronologique des exports FCPXML/Premiere/EDL, mélange les caméras au sein d'un jour multicam)
+  Derush Tool · Journal de développement · Dernière mise à jour 15 septembre 2026 (export DRT — coupes multiples, nom + emplacement de fichier, liaison vidéo/son : les trois confirmés fonctionnels de bout en bout, build Electron 0.3.99)
 </div>
 
 </main>

@@ -68,6 +68,542 @@ def _clip_asset_tc_sec(clip, fps):
     return tc_to_seconds(clip.get('tc_in', ''), fps) or 0
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Export AAF multipiste (image + son caméra + son ingé par micro, canaux
+# séparés) — remplace le FCPXML pour les timelines de selects depuis sept.
+# 2026 : le FCPXML ne peut représenter qu'UNE seule piste son par clip, alors
+# que le vrai besoin (retour terrain) est une piste par micro d'ingé son.
+#
+# Technique validée sur DRIFT_CLUB (voir D:\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md
+# §14-20 pour le récit complet des impasses et de la résolution) :
+#   - chaque piste (image, son caméra, chaque canal d'un WAV d'ingé son) est un
+#     MasterMob séparé, portant SA PROPRE piste Timecode explicite au vrai TC
+#     source (condition sine qua non pour que DaVinci rattache le clip aux
+#     médias déjà présents dans son Media Pool, sans le réimporter en double —
+#     voir §18-19) et un nom de mob STRICTEMENT identique au nom du fichier ;
+#   - le mob "réel" (celui qui porte le Locator vers le fichier) est référencé
+#     DIRECTEMENT par chaque MasterMob, jamais via un TapeMob intercalé (§14) ;
+#   - ContainerFormat DOIT être "AAFKLV" (`f.dictionary.lookup_containerdef`),
+#     jamais "AAF" (GUID différent, sans effet) ni le vrai GUID du codec/codec
+#     conteneur natif (fait planter DaVinci — §14) ;
+#   - le WAV réel est un `PCMDescriptor` (pas `WAVEDescriptor`), ses slots sont
+#     à l'edit rate DE LA TIMELINE (pas la fréquence d'échantillonnage audio),
+#     et la longueur du SourceClip de chaque slot est en frames à ce fps (pas
+#     en échantillons) — piège trouvé en comparant à un export DaVinci réel
+#     (§20). Les valeurs numériques du descriptor (bit depth, etc.) n'ont pas
+#     besoin d'être exactes, DaVinci relit le fichier réel via son Locator.
+#
+# ⚠️ CONTRAINTE D'USAGE NON NÉGOCIABLE (à répercuter dans le mode d'emploi
+# utilisateur) : l'import de ce fichier dans DaVinci doit TOUJOURS se faire
+# via le menu manuel `File > Import > Timeline` (case "Automatically import
+# source clips into media pool" décochée) — l'API de scripting de DaVinci
+# (`Timeline.ImportIntoTimeline`) ne déclenche jamais ce mécanisme de
+# rattachement, quelles que soient les options passées (§18).
+# ─────────────────────────────────────────────────────────────────────────
+
+def _aaf_locator(f, path):
+    """NetworkLocator vers un fichier réel sur disque (file:/// URI)."""
+    import pathlib
+    n = f.create.NetworkLocator()
+    n['URLString'].value = pathlib.Path(path).as_uri()
+    return n
+
+
+def _aaf_add_tc_slot(f, mob, fps, start_frames, length_frames, slot_id=10):
+    """Piste Timecode explicite sur un MasterMob, au vrai TC source — condition
+    sine qua non du rattachement sans doublon (voir en-tête de section)."""
+    tc_slot = mob.create_timeline_slot(edit_rate=fps, slot_id=slot_id)
+    tc_slot.segment = f.create.Timecode(fps=fps, length=length_frames)
+    tc_slot.segment.start = int(round(start_frames))
+    return tc_slot
+
+
+def _aaf_camera_sound_channel(camera, day):
+    """Numéro du canal caméra RÉELLEMENT porteur du micro (par opposition au
+    LTC, qui n'est pas du son exploitable) — mêmes règles que le nettoyage
+    du Media Pool (voir la correction "canaux mal rangés" du même jour) :
+      - FX6 : canal 1 (canal 1 ET 2 sont tous deux du vrai micro stéréo,
+        canal 1 suffit pour une piste "son caméra" mono) ;
+      - FS5 : dépend du jour — le LTC occupe le canal 2 sur J02-J05 (micro
+        réel = canal 1), et le canal 1 sur J07/J10/J11 (micro réel = canal 2)
+        — sans ça, `_aaf_build_video_real_mob` exposait toujours un canal
+        "sound" générique sans indication de piste physique, et DaVinci
+        pouvait résoudre ça sur le LTC plutôt que le micro selon le jour
+        (silence/bourdonnement constaté sur les FS5 du jour 11 — retour
+        terrain sept. 2026) ;
+      - autre (GoPro, inconnu) : canal 1 par défaut, pas de LTC documenté."""
+    if camera == 'FS5':
+        day_code = (day or '').split('_')[0]
+        if day_code in ('J07', 'J10', 'J11'):
+            return 2
+        return 1
+    return 1
+
+
+def _aaf_build_video_real_mob(f, filename, path, width, height, fps, total_frames, sound_channel=1):
+    """Mob "réel" vidéo : CDCIDescriptor générique (ContainerFormat=AAFKLV,
+    jamais le vrai codec — voir en-tête), slots Picture(1)/Sound(2) "morts"
+    (aucune référence plus bas, pas de TapeMob intercalé). `sound_channel`
+    (voir `_aaf_camera_sound_channel`) est posé comme `PhysicalTrackNumber`
+    du slot Sound pour indiquer à DaVinci quel canal RÉEL du fichier exposer
+    (sans ça, la résolution du canal réel se fait à l'aveugle côté DaVinci)."""
+    real = f.create.SourceMob()
+    real.name = filename
+    pic_slot = real.create_timeline_slot(edit_rate=fps, slot_id=1)
+    pic_clip = f.create.SourceClip(media_kind="picture")
+    pic_clip.length = total_frames
+    pic_slot.segment = pic_clip
+    snd_slot = real.create_timeline_slot(edit_rate=fps, slot_id=2)
+    snd_slot['PhysicalTrackNumber'].value = sound_channel
+    snd_clip = f.create.SourceClip(media_kind="sound")
+    snd_clip.length = total_frames
+    snd_slot.segment = snd_clip
+
+    desc = f.create.CDCIDescriptor()
+    desc['ComponentWidth'].value = 8
+    desc['HorizontalSubsampling'].value = 2
+    desc['FrameLayout'].value = 'FullFrame'
+    desc['VideoLineMap'].value = [0, 1]
+    desc['ImageAspectRatio'].value = f"{width}/{height}"
+    desc['StoredWidth'].value = width
+    desc['StoredHeight'].value = height
+    desc['SampleRate'].value = fps
+    desc['Length'].value = total_frames
+    desc['FrameSampleSize'].value = width * height * 2
+    desc['ContainerFormat'].value = f.dictionary.lookup_containerdef("AAFKLV")
+    desc['Locator'].append(_aaf_locator(f, path))
+    real.descriptor = desc
+    f.content.mobs.append(real)
+    return real
+
+
+def _aaf_build_video_masters(f, video_real, filename, fps, total_frames, tc_start_frames, sound_channel=1):
+    """MasterMob image + MasterMob son caméra, chacun avec sa propre piste TC
+    explicite (même vrai TC pour les deux, c'est le même fichier physique).
+    `sound_channel` reposé ici aussi (PhysicalTrackNumber du slot exposé par
+    le MasterMob lui-même, pas seulement sur le mob réel en dessous) — sans
+    certitude totale sur lequel des deux DaVinci consulte pour résoudre le
+    canal réel, autant poser la même valeur aux deux endroits."""
+    pic_master = f.create.MasterMob()
+    pic_master.name = filename
+    _aaf_add_tc_slot(f, pic_master, fps, tc_start_frames, total_frames)
+    p_slot = pic_master.create_timeline_slot(edit_rate=fps, slot_id=1)
+    p_slot.segment = video_real.create_source_clip(slot_id=1, length=total_frames, media_kind="picture")
+    f.content.mobs.append(pic_master)
+
+    cam_master = f.create.MasterMob()
+    cam_master.name = filename
+    _aaf_add_tc_slot(f, cam_master, fps, tc_start_frames, total_frames)
+    c_slot = cam_master.create_timeline_slot(edit_rate=fps, slot_id=1)
+    c_slot['PhysicalTrackNumber'].value = sound_channel
+    c_slot.segment = video_real.create_source_clip(slot_id=2, length=total_frames, media_kind="sound")
+    f.content.mobs.append(cam_master)
+
+    return pic_master, cam_master
+
+
+def _wav_header(path):
+    """Lit canaux / bits / fréquence réels d'un WAV. `None` si illisible. Gère
+    aussi les WAV > 4 Go / RF64 (le module `wave` stdlib les rejette) via une
+    lecture manuelle du chunk `fmt `. Utilisé pour que le PCMDescriptor de
+    l'AAF ne se contredise jamais lui-même (retour terrain sept. 2026, audit
+    externe — voir D:\\METHODOLOGIE_IMPORT_RUSHS_DAVINCI.md §21/22 : un
+    descriptor annonçant 1 canal quel que soit le nombre réel de canaux du
+    fichier BWF était une incohérence interne systématique de l'AAF)."""
+    import wave
+    try:
+        with wave.open(path, 'rb') as w:
+            return {'channels': w.getnchannels(), 'sampwidth': w.getsampwidth(),
+                    'framerate': w.getframerate()}
+    except Exception:
+        pass
+    try:
+        with open(path, 'rb') as fh:
+            head = fh.read(12)
+            if head[:4] not in (b'RIFF', b'RF64'):
+                return None
+            while True:
+                hdr = fh.read(8)
+                if len(hdr) < 8:
+                    return None
+                cid, size = hdr[:4], int.from_bytes(hdr[4:8], 'little')
+                if cid == b'fmt ':
+                    data = fh.read(size)
+                    ch = int.from_bytes(data[2:4], 'little')
+                    rate = int.from_bytes(data[4:8], 'little')
+                    bits = int.from_bytes(data[14:16], 'little')
+                    return {'channels': ch, 'sampwidth': bits // 8, 'framerate': rate}
+                fh.seek(size + (size & 1), 1)
+    except Exception:
+        return None
+
+
+def _aaf_build_bwf_real_mob(f, filename, path, channels, total_frames_seq_fps, total_samples):
+    """Mob "réel" son ingé : un slot par canal EXPOSÉ (`channels`, qui peut être
+    inférieur au nombre réel de canaux du fichier — on n'expose aujourd'hui que
+    le canal 1, voir le repli documenté plus haut) à l'edit rate DE LA
+    TIMELINE. Le `PCMDescriptor` reflète les vraies caractéristiques du
+    fichier lues sur disque (fréquence, profondeur), mais son `Channels`
+    correspond au nombre de SLOTS RÉELLEMENT DÉCLARÉS ici (`channels`), pas au
+    nombre de canaux réel du fichier physique — sans ça, le fichier se
+    contredirait lui-même (annoncer plus de canaux que ce qu'il expose
+    vraiment), ce qu'un audit externe a identifié comme une incohérence
+    interne systématique (voir §21/22 du fichier de méthodologie)."""
+    real = f.create.SourceMob()
+    real.name = filename
+    for ch in range(1, channels + 1):
+        s = real.create_timeline_slot(edit_rate=25, slot_id=ch)
+        s['PhysicalTrackNumber'].value = ch
+        c = f.create.SourceClip(media_kind="sound")
+        c.length = total_frames_seq_fps
+        s.segment = c
+
+    hdr = _wav_header(path) or {}
+    sample_rate = hdr.get('framerate') or 48000
+    bit_depth = (hdr.get('sampwidth') or 2) * 8
+    block_align = channels * (bit_depth // 8)
+
+    desc = f.create.PCMDescriptor()
+    desc['SampleRate'].value = sample_rate
+    desc['AudioSamplingRate'].value = sample_rate
+    desc['Channels'].value = channels
+    desc['QuantizationBits'].value = bit_depth
+    desc['BlockAlign'].value = block_align
+    desc['AverageBPS'].value = sample_rate * block_align
+    desc['Length'].value = total_samples
+    desc['ContainerFormat'].value = f.dictionary.lookup_containerdef("AAFKLV")
+    desc['Locator'].append(_aaf_locator(f, path))
+    real.descriptor = desc
+    f.content.mobs.append(real)
+    return real
+
+
+def _aaf_build_bwf_channel_master(f, bwf_real, filename, fps, channel, total_frames, tc_start_frames):
+    """MasterMob d'un canal ingé son. `PhysicalTrackNumber` posé sur le slot
+    exposé ICI (pas seulement sur le slot correspondant du mob réel en
+    dessous) — retour terrain sept. 2026 : deux MasterMob distincts partageant
+    le même nom+TC (donc identifiés comme LE MÊME clip WAV déjà lié ailleurs
+    dans le projet) pouvaient jouer deux fois le même canal au lieu de deux
+    canaux différents ; sans certitude totale que ce soit LA cause exacte,
+    exposer le numéro de canal réel à cet endroit aussi ne peut pas nuire et
+    donne à DaVinci une chance de plus de distinguer les deux références."""
+    master = f.create.MasterMob()
+    master.name = filename
+    _aaf_add_tc_slot(f, master, fps, tc_start_frames, total_frames)
+    m_slot = master.create_timeline_slot(edit_rate=fps, slot_id=1)
+    m_slot['PhysicalTrackNumber'].value = channel
+    m_slot.segment = bwf_real.create_source_clip(slot_id=channel, length=total_frames, media_kind="sound")
+    f.content.mobs.append(master)
+    return master
+
+
+def _aaf_bwf_segment_plan(seg_start_frames, seg_dur_frames, tc_in_frames, bwf, fps,
+                           bwf_tc_frames=None, bwf_total_frames=None):
+    """Découpe un segment vidéo [seg_start_frames, seg_start_frames+seg_dur_frames[
+    (temps RELATIF au clip, EN IMAGES) en une suite de tronçons pour la piste
+    ingé son, en tenant compte du fait que le BWF ne couvre presque jamais
+    EXACTEMENT la même fenêtre que le plan (son qui roule avant/après la
+    caméra, de quelques secondes à quelques dizaines de secondes — la norme,
+    pas l'exception) :
+
+        [silence avant] [son synchronisé] [silence après]
+
+    plutôt que de rejeter tout le segment dès que le recouvrement n'est pas
+    total (bug initial de la v1 : `bwf_seg_start_frames >= 0` rejetait un
+    plan démarrant ne serait-ce que 0,24s avant le début de l'ingé son —
+    retour terrain sept. 2026 sur DRIFT_CLUB, piste MIROIRT03/DRIFT_avril0004).
+
+    Prend tout en IMAGES DÉJÀ ARRONDIES (pas en secondes brutes) et calées sur
+    les MÊMES arrondis que le reste du graphe (`tc_in_frames`/`bwf_tc_frames`,
+    calculés par l'appelant exactement comme pour le placement des segments
+    image et le slot Timecode du MasterMob du WAV) — arrondir deux fois
+    indépendamment (une fois en secondes ici, une fois ailleurs pour ces mêmes
+    instants) pouvait produire un écart d'exactement 1 image entre le filler
+    réellement posé et le filler attendu par un contrôle de cohérence externe,
+    invisible à l'oreille sur un point de montage mais confirmé par
+    `validate_aaf.py` (OFFSET_SON sur Clip0008/REC-B-003.WAV, sept. 2026) —
+    toute l'arithmétique se fait donc désormais en entiers-images de bout en
+    bout, jamais en secondes flottantes.
+
+    Retourne une liste de tuples, dont la somme des durées vaut EXACTEMENT
+    `seg_dur_frames` pour ne jamais désynchroniser les pistes entre elles :
+      ('silence', n_frames)
+      ('audio', offset_frames_dans_le_bwf, n_frames)
+    """
+    seg_dur_frames = max(1, int(seg_dur_frames))
+    if not bwf or bwf_tc_frames is None or bwf_total_frames is None:
+        return [('silence', seg_dur_frames)]
+
+    real_start = int(tc_in_frames) + int(seg_start_frames)
+    real_end = real_start + seg_dur_frames
+    bwf_start = int(bwf_tc_frames)
+    bwf_end = bwf_start + int(bwf_total_frames)
+
+    overlap_start = max(real_start, bwf_start)
+    overlap_end = min(real_end, bwf_end)
+
+    pre_frames = max(0, overlap_start - real_start)
+    if overlap_end <= overlap_start:
+        # Aucun recouvrement réel malgré un candidat retenu (ne devrait pas
+        # arriver vu le filtre de _bwf_best_overlap_for_clip, filet de sécurité).
+        return [('silence', seg_dur_frames)]
+
+    mid_frames = max(0, overlap_end - overlap_start)
+    post_frames = seg_dur_frames - pre_frames - mid_frames  # reste exact, jamais recalculé indépendamment
+    if post_frames < 0:
+        # Débordement (rare) — on rogne le milieu.
+        mid_frames += post_frames
+        post_frames = 0
+    if mid_frames <= 0:
+        return [('silence', seg_dur_frames)]
+
+    bwf_offset_frames = overlap_start - bwf_start
+    plan = []
+    if pre_frames > 0:
+        plan.append(('silence', pre_frames))
+    plan.append(('audio', bwf_offset_frames, mid_frames))
+    if post_frames > 0:
+        plan.append(('silence', post_frames))
+    return plan
+
+
+def _aaf_kept_segments(clip, notes, users):
+    """Segments conservés après découpe par marqueurs X — même logique que
+    export_fcpxml (voir ce commentaire pour le détail des règles)."""
+    dur = clip.get('duration_sec', 0) or 0
+    x_times = sorted(set(
+        m['time'] for u in users
+        for m in ((notes.get(user_note_key(u)) or {}).get(clip['id']) or {}).get('markers', [])
+        if m.get('cat') == 'X'
+    ))
+    if not x_times:
+        return [(0.0, dur)]
+    segments = []
+    prev = 0.0
+    for i, t in enumerate(x_times):
+        if i % 2 == 0:
+            if t > prev:
+                segments.append((prev, t))
+        else:
+            prev = t
+    if len(x_times) % 2 == 0 and x_times[-1] < dur:
+        segments.append((x_times[-1], dur))
+    return segments
+
+
+def export_aaf(project, filter_config=None):
+    """Export AAF multipiste : image + son caméra + une piste par micro d'ingé
+    son (déduit du BWF déjà associé à chaque clip via `clip['_aaf_bwf']`, posé
+    par `_proj_with_resolved_bwf_links` côté serveur avant l'appel — voir cette
+    fonction dans derush_server.py pour la résolution du meilleur BWF candidat
+    par clip). Même contrat de filtre que `export_fcpxml`.
+
+    Retourne des BYTES (fichier binaire AAF/CFB), pas une chaîne — l'appelant
+    doit répondre avec un Content-Type binaire, pas texte."""
+    import os
+    import tempfile
+    import aaf2
+
+    clips = _chrono_sort_clips(project.get('clips', []))
+    notes = project.get('notes', {})
+    users = project.get('users', [])
+    fc_min_rating = int(filter_config['min_rating']) if filter_config and filter_config.get('min_rating') else None
+    fc_cats = filter_config.get('cats') if filter_config else None
+    fc_rejected_only = bool(filter_config.get('rejected_only')) if filter_config else False
+
+    included = []
+    for clip in clips:
+        include_clip = False
+        is_rejected = False
+        for u in users:
+            uid = user_note_key(u)
+            cnotes = (notes.get(uid) or {}).get(clip['id'])
+            if not cnotes: continue
+            rating = str(cnotes.get('rating', ''))
+            if rating == 'X':
+                is_rejected = True
+            if fc_rejected_only:
+                if rating == 'X': include_clip = True
+            elif fc_min_rating is not None:
+                if rating in ['1','2','3'] and int(rating) >= fc_min_rating:
+                    include_clip = True
+            elif fc_cats is not None:
+                if any(m.get('cat') in fc_cats for m in cnotes.get('markers', []) if m.get('cat') != 'X'):
+                    include_clip = True
+            else:
+                if cnotes.get('markers') or cnotes.get('notes', '').strip() or rating in ['1','2','3']:
+                    include_clip = True
+        if fc_rejected_only:
+            if include_clip: included.append(clip)
+        else:
+            if not is_rejected and include_clip: included.append(clip)
+
+    # FPS de séquence unique (comme export_markers_edl) : les projets réels
+    # sont mono-fps ; une composition AAF n'a qu'un seul edit rate par piste.
+    seq_fps = round(included[0].get('fps', 25)) if included else 25
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.aaf')
+    os.close(tmp_fd)
+    os.remove(tmp_path)  # aaf2 veut créer le fichier lui-même
+
+    try:
+        with aaf2.open(tmp_path, 'w') as f:
+            comp = f.create.CompositionMob()
+            comp.name = project.get('name', 'Projet')
+            f.content.mobs.append(comp)
+            comp_tc = comp.create_timeline_slot(edit_rate=seq_fps, slot_id=1)
+            comp_tc.segment = f.create.Timecode(fps=seq_fps, length=1)  # longueur réajustée en fin de fonction
+
+            pic_track = comp.create_picture_slot(edit_rate=seq_fps)
+            cam_track = comp.create_sound_slot(edit_rate=seq_fps)
+
+            # Vrai multipiste ingé son (une piste par canal/micro, pas juste une
+            # piste par fichier) — réactivé sept. 2026 après correction de deux
+            # bugs structurels (cache BWF collisionnant entre journées + double
+            # arrondi seconde→image, voir plus haut/§22 du fichier sur D:) qui
+            # étaient très probablement la vraie cause de l'instabilité observée
+            # lors des tentatives précédentes (canal dupliqué/muet, son d'un
+            # autre jour malgré le bon nom affiché — voir §21). Retour terrain
+            # explicite (sept. 2026) : le repli 1 canal/fichier n'est PAS un
+            # compromis acceptable pour l'utilisateur, qui veut toutes les
+            # pistes. Réserve honnête : n'élimine pas forcément le mystère
+            # persistant sur Clip0008/J11 (§41, TC collision côté Media Pool,
+            # cause probablement indépendante du nombre de canaux exposés).
+            bwf_channel_count_cache = {}  # chemin réel du BWF -> nb de canaux réels
+            max_ingest_channels = 0
+            for clip in included:
+                bwf = clip.get('_aaf_bwf')
+                if not bwf:
+                    continue
+                # Même clé que `bwf_id` plus bas dans la boucle principale — DOIT
+                # rester identique, sinon ce pré-calcul et le cache réel divergent.
+                bwf_key = bwf.get('path') or bwf['id']
+                if bwf_key not in bwf_channel_count_cache:
+                    hdr = _wav_header(bwf.get('path', ''))
+                    bwf_channel_count_cache[bwf_key] = (
+                        (hdr and hdr.get('channels')) or bwf.get('channels') or 1)
+                max_ingest_channels = max(max_ingest_channels, bwf_channel_count_cache[bwf_key])
+
+            ingest_tracks = [comp.create_sound_slot(edit_rate=seq_fps) for _ in range(max_ingest_channels)]
+
+            video_masters = {}   # clip_id -> (pic_master, cam_master)
+            bwf_real_cache = {}  # chemin réel du BWF -> real mob (tous ses canaux réels exposés)
+            bwf_master_cache = {}  # (clip_id, chemin réel du BWF, canal) -> master mob (dédié par clip+canal, voir §21)
+
+            record_offset = 0.0
+            for clip in included:
+                path = clip.get('path', '')
+                if not path:
+                    continue
+                clip_fps = seq_fps  # une seule fréquence de composition (voir plus haut)
+                dur = clip.get('duration_sec', 0) or 0
+                total_frames = max(1, int(round(dur * clip_fps)))
+                res = clip.get('resolution') or '1920x1080'
+                parts = res.split('x')
+                width, height = (int(parts[0]), int(parts[1])) if len(parts) == 2 else (1920, 1080)
+                tc_in_sec = _clip_asset_tc_sec(clip, clip_fps)
+                tc_in_frames = int(round(tc_in_sec * clip_fps))
+
+                if clip['id'] not in video_masters:
+                    sound_ch = _aaf_camera_sound_channel(clip.get('camera'), clip.get('day'))
+                    real = _aaf_build_video_real_mob(f, clip.get('filename', clip['id']), path,
+                                                      width, height, clip_fps, total_frames, sound_ch)
+                    video_masters[clip['id']] = _aaf_build_video_masters(
+                        f, real, clip.get('filename', clip['id']), clip_fps, total_frames, tc_in_frames, sound_ch)
+                pic_master, cam_master = video_masters[clip['id']]
+
+                bwf = clip.get('_aaf_bwf')
+                bwf_masters = []  # un MasterMob par canal réel de ce BWF (index 0 = canal 1)
+                bwf_channels = 0
+                if bwf:
+                    # Clé de cache sur le CHEMIN réel, jamais sur bwf['id'] : cet id
+                    # (dérivé du seul nom de fichier par scan_son_dir) collisionne entre
+                    # journées différentes qui réutilisent les mêmes noms génériques
+                    # d'enregistreur (ex. Mixpre6 "REC-B-001.WAV" chaque jour). Avec une
+                    # clé non qualifiée par jour, un second clip matché au même NOM mais
+                    # un AUTRE fichier (jour différent, chemin différent, durée
+                    # différente) retombait sur le mob réel déjà construit pour le
+                    # premier jour — mauvais fichier ET dépassement de la durée source
+                    # réelle (confirmé par validate_aaf.py : OFFSET_SON/DEPASSEMENT_SOURCE
+                    # sur Clip0008/REC-B-003.WAV, sept. 2026).
+                    bwf_id = bwf.get('path') or bwf['id']
+                    bwf_channels = bwf_channel_count_cache.get(bwf_id) or 1
+                    bwf_dur = bwf.get('duration_sec') or 0
+                    bwf_total_frames = max(1, int(round(bwf_dur * clip_fps)))
+                    bwf_total_samples = int(round(bwf_dur * (bwf.get('sample_rate') or 48000)))
+                    bwf_tc_frames = int(round((bwf.get('tc_in_sec') or 0) * clip_fps))
+                    if bwf_id not in bwf_real_cache:
+                        # TOUS les canaux réels exposés (repli 1 canal abandonné, voir plus haut).
+                        bwf_real_cache[bwf_id] = _aaf_build_bwf_real_mob(
+                            f, bwf.get('filename', bwf['id']), bwf.get('path', ''),
+                            bwf_channels, bwf_total_frames, bwf_total_samples)
+                    bwf_real = bwf_real_cache[bwf_id]
+                    for ch in range(1, bwf_channels + 1):
+                        master_key = (clip['id'], bwf_id, ch)
+                        if master_key not in bwf_master_cache:
+                            bwf_master_cache[master_key] = _aaf_build_bwf_channel_master(
+                                f, bwf_real, bwf.get('filename', bwf['id']), clip_fps, ch,
+                                bwf_total_frames, bwf_tc_frames)
+                        bwf_masters.append(bwf_master_cache[master_key])
+
+                segments = _aaf_kept_segments(clip, notes, users)
+                for seg_start, seg_end in segments:
+                    seg_dur = seg_end - seg_start
+                    if seg_dur <= 0:
+                        continue
+                    seg_start_frames = int(round(seg_start * clip_fps))
+                    seg_dur_frames = max(1, int(round(seg_dur * clip_fps)))
+
+                    pic_track.segment.components.append(
+                        pic_master.create_source_clip(slot_id=1, start=seg_start_frames, length=seg_dur_frames))
+                    cam_track.segment.components.append(
+                        cam_master.create_source_clip(slot_id=1, start=seg_start_frames, length=seg_dur_frames))
+
+                    # Silence/son/silence par tronçon — voir _aaf_bwf_segment_plan
+                    # pour pourquoi (un plan qui déborde un peu du son ingé de
+                    # chaque côté est la norme, pas une raison de tout rejeter).
+                    # Tout est passé en images déjà arrondies (pas en secondes) —
+                    # voir la docstring de la fonction pour l'écart d'1 image que
+                    # ça évite.
+                    plan = _aaf_bwf_segment_plan(
+                        seg_start_frames, seg_dur_frames, tc_in_frames, bwf, clip_fps,
+                        bwf_tc_frames=bwf_tc_frames if bwf else None,
+                        bwf_total_frames=bwf_total_frames if bwf else None)
+                    # Le découpage silence/son/silence est IDENTIQUE pour tous les
+                    # canaux d'un même BWF (même minutage) — seul le MasterMob
+                    # source diffère par canal. Chaque piste ingé au-delà du
+                    # nombre de canaux réels de CE clip (ou si pas de BWF du tout)
+                    # reçoit du silence pour la durée totale du segment.
+                    for track_idx, ingest_track in enumerate(ingest_tracks):
+                        if track_idx >= bwf_channels:
+                            ingest_track.segment.components.append(
+                                f.create.Filler(media_kind="sound", length=seg_dur_frames))
+                            continue
+                        bwf_master = bwf_masters[track_idx]
+                        for part in plan:
+                            if part[0] == 'audio':
+                                _, bwf_offset_frames, n_frames = part
+                                ingest_track.segment.components.append(
+                                    bwf_master.create_source_clip(slot_id=1, start=bwf_offset_frames, length=n_frames))
+                            else:
+                                n_frames = part[-1]
+                                ingest_track.segment.components.append(
+                                    f.create.Filler(media_kind="sound", length=n_frames))
+
+                    record_offset += seg_dur
+
+            # Longueur réelle de la piste Timecode de la composition
+            comp_tc.segment.length = max(1, int(round(record_offset * seq_fps)))
+
+        with open(tmp_path, 'rb') as fh:
+            return fh.read()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def export_fcpxml(project, filter_config=None):
     clips = _chrono_sort_clips(project.get('clips', []))
     notes = project.get('notes', {})
@@ -752,15 +1288,25 @@ def export_rough_cut_fcpxml(project, min_rating=2, user_filter=None):
     return xml_str
 
 
-def _basket_entries(project, user_key):
+def _basket_entries(project, user_key, item_ids=None):
     """Résout le panier personnel d'un user en une liste ordonnée [(clip, select)],
     en ignorant silencieusement les entrées orphelines (clip ou select supprimé
-    depuis l'ajout au panier)."""
+    depuis l'ajout au panier).
+
+    `item_ids` (optionnel) : itérable d'`item['id']` (id propre à la ligne du
+    panier, distinct du select_id) — quand fourni, ne garde QUE ces entrées,
+    dans leur ordre d'apparition dans le panier (pas l'ordre de `item_ids`,
+    qui n'a pas de signification temporelle côté front). Permet d'exporter
+    une timeline sur une sélection partielle du pré-montage plutôt que la
+    bobine entière — cf. UI 📤 Exporter → "sélection cochée"."""
     clips_by_id = {c['id']: c for c in project.get('clips', [])}
     user_notes = project.get('notes', {}).get(user_key, {})
     basket = (project.get('baskets', {}) or {}).get(user_key, [])
+    id_filter = set(item_ids) if item_ids is not None else None
     entries = []
     for item in basket:
+        if id_filter is not None and item.get('id') not in id_filter:
+            continue
         clip = clips_by_id.get(item.get('clip_id'))
         if not clip:
             continue
@@ -772,13 +1318,14 @@ def _basket_entries(project, user_key):
     return entries
 
 
-def export_basket_fcpxml(project, user_key):
+def export_basket_fcpxml(project, user_key, item_ids=None):
     """Export du panier personnel d'un utilisateur : une séquence FCPXML avec
     exactement les sélections (in/out) qu'il a retenues, dans l'ordre où il les
     a rangées — pas de filtre rating/X ici, l'ordre et le contenu sont sa
     décision explicite (contrairement à export_fcpxml/export_rough_cut_fcpxml
-    qui infèrent la sélection depuis les notes d'équipe)."""
-    entries = _basket_entries(project, user_key)
+    qui infèrent la sélection depuis les notes d'équipe). `item_ids` (optionnel)
+    restreint l'export à un sous-ensemble d'items du panier — voir _basket_entries."""
+    entries = _basket_entries(project, user_key, item_ids)
 
     root = ET.Element('fcpxml', version='1.8')
     resources = ET.SubElement(root, 'resources')
@@ -865,10 +1412,11 @@ def export_basket_fcpxml(project, user_key):
     return xml_str
 
 
-def export_basket_xml_fcp7(project, user_key):
+def export_basket_xml_fcp7(project, user_key, item_ids=None):
     """Panier personnel en Adobe Premiere XML (FCP7 Interchange), même source
-    (_basket_entries) et même logique d'ordre/segments que export_basket_fcpxml."""
-    entries = _basket_entries(project, user_key)
+    (_basket_entries) et même logique d'ordre/segments que export_basket_fcpxml.
+    `item_ids` (optionnel) restreint l'export à un sous-ensemble d'items du panier."""
+    entries = _basket_entries(project, user_key, item_ids)
 
     seq_fps = 25
     seq_w, seq_h = 1920, 1080

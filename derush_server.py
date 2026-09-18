@@ -28,10 +28,11 @@ except ImportError:
 from derush_core import (hash_password, is_legacy_hash, verify_password,
                         tc_to_seconds, seconds_to_tc, seconds_to_rational,
                         find_project_user, user_note_key)
+from derush_drt import export_drt, export_basket_drt, DrtExportError
 from derush_exports import (export_fcpxml, export_xml_fcp7, export_subclips_fcpxml,
                             export_rough_cut_fcpxml, export_report_html,
                             export_edl, export_markers_edl, export_csv,
-                            export_basket_fcpxml, export_basket_xml_fcp7)
+                            export_basket_fcpxml, export_basket_xml_fcp7, export_aaf)
 
 # ─── Heartbeat / auto-shutdown ───
 _last_heartbeat = _time.time()
@@ -898,6 +899,66 @@ def _proj_with_resolved_export_paths(proj, prefer_root=None):
     prioritaire sur le chemin figé au scan (voir `_resolve_clip_src_path`)."""
     patched = dict(proj)
     patched['clips'] = [{**c, 'path': _resolve_clip_src_path(proj, c, prefer_root)} for c in proj.get('clips', [])]
+    return patched
+
+
+def _bwf_best_overlap_for_clip(audio_clips, clip, min_overlap=5.0):
+    """Meilleur BWF pour l'export AAF (son ingé) — DÉLIBÉRÉMENT plus permissif
+    que `_bwf_candidates_for_clips` (qui exige un confinement quasi total,
+    ±2s, pensé pour la précision du multicam). Ici, un plan qui démarre
+    quelques secondes avant que le son ingé ne roule (ou qui continue un peu
+    après sa fin) est la norme, pas l'exception — `export_aaf` sait déjà
+    combler ces bords par du silence (voir _aaf_kept_segments/export_aaf).
+    Choisit simplement le fichier avec le plus grand recouvrement réel en
+    secondes (au moins `min_overlap`s, pour éviter un faux positif sur un
+    chevauchement anecdotique), et non le plus proche par avance/retard —
+    au contraire de `_bwf_candidates_for_clips` qui trie par retard cumulé.
+    Retourne `None` si rien ne dépasse ce seuil."""
+    tc = _clip_tc_seconds(clip)
+    if tc is None:
+        return None
+    dur = clip.get('duration_sec') or 0
+    clip_date = _clip_origination_date(clip)
+    best, best_overlap = None, 0.0
+    for af in audio_clips:
+        af_tc = af.get('tc_in_sec')
+        af_dur = af.get('duration_sec') or 0
+        if af_tc is None or af_dur <= 0:
+            continue
+        if clip_date:
+            af_date = _bwf_origination_date(af)
+            if af_date and af_date != clip_date:
+                continue
+        overlap = min(tc + dur, af_tc + af_dur) - max(tc, af_tc)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best = af
+    return best if best_overlap >= min_overlap else None
+
+
+def _proj_with_resolved_bwf_links(proj, prefer_root=None):
+    """Copie de `proj` (chemins clips déjà résolus comme
+    `_proj_with_resolved_export_paths`) où chaque clip reçoit en plus
+    `clip['_aaf_bwf']` : le BWF au meilleur recouvrement réel
+    (`_bwf_best_overlap_for_clip` — volontairement plus permissif que le
+    confinement strict de `_bwf_candidates_for_clips`, utilisé par le
+    multicam) avec son chemin RÉEL résolu (`_resolve_audio_clip_path`) — ou
+    `None` si rien ne recouvre suffisamment ce clip. À utiliser juste avant
+    `export_aaf` (voir ce commentaire dans derush_exports.py pour le détail
+    de la construction AAF)."""
+    patched = _proj_with_resolved_export_paths(proj, prefer_root)
+    audio_clips = proj.get('audio_clips', [])
+    new_clips = []
+    for clip in patched['clips']:
+        bwf_info = None
+        if audio_clips:
+            af = _bwf_best_overlap_for_clip(audio_clips, clip)
+            if af:
+                resolved = _resolve_audio_clip_path(af, proj)
+                if resolved is not None:
+                    bwf_info = {**af, 'path': str(resolved)}
+        new_clips.append({**clip, '_aaf_bwf': bwf_info})
+    patched['clips'] = new_clips
     return patched
 
 # ─── Project Management ───
@@ -2790,8 +2851,8 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body_bytes)
             return
 
-        if re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7)$', path):
-            m = re.match(r'^/api/project/([^/]+)/export/(fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7)$', path)
+        if re.match(r'^/api/project/([^/]+)/export/(drt|aaf|fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7|basket_drt)$', path):
+            m = re.match(r'^/api/project/([^/]+)/export/(drt|aaf|fcpxml|edl|markers_edl|csv|subclips_fcpxml|rough_cut|report_html|xml_fcp7|basket_fcpxml|basket_xml_fcp7|basket_drt)$', path)
             pid, fmt = m.group(1), m.group(2)
             proj = load_project(pid)
             if not proj:
@@ -2821,7 +2882,31 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 # front doit passer explicitement le chemin voulu.
                 prefer_root = (qs.get('root', [''])[0] or '').strip() or None
                 proj = _proj_with_resolved_export_paths(proj, prefer_root)
-            if fmt == 'fcpxml':
+            elif fmt == 'aaf':
+                # Résout aussi le meilleur BWF candidat par clip (son ingé) en plus
+                # des chemins vidéo — voir _proj_with_resolved_bwf_links.
+                prefer_root = (qs.get('root', [''])[0] or '').strip() or None
+                proj = _proj_with_resolved_bwf_links(proj, prefer_root)
+            if fmt == 'drt':
+                # Pas de résolution de chemin ici : export_drt ne lit jamais
+                # clip['path'], le rattachement se fait par l'identité live du
+                # MediaPoolItem retrouvé dans le Media Pool DaVinci ouvert —
+                # voir derush_drt.py.
+                label = qs.get('label', [proj['name']])[0]
+                try:
+                    content = export_drt(proj, filter_config)
+                except DrtExportError as e:
+                    self.send_response(503)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(str(e).encode('utf-8'))
+                    return
+                self._binary_response(content, f"{label}_selects.drt", 'application/octet-stream')
+            elif fmt == 'aaf':
+                label = qs.get('label', [proj['name']])[0]
+                content = export_aaf(proj, filter_config)
+                self._binary_response(content, f"{label}_selects.aaf", 'application/octet-stream')
+            elif fmt == 'fcpxml':
                 label = qs.get('label', [proj['name']])[0]
                 content = export_fcpxml(proj, filter_config)
                 self._text_response(content, f"{label}_selects.fcpxml", 'application/xml')
@@ -2864,16 +2949,42 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                     self._json_response({'error': 'Paramètre user requis'}, 400)
                     return
                 label = qs.get('label', [proj['name']])[0]
-                content = export_basket_fcpxml(proj, user_key)
-                self._text_response(content, f"{label}_panier.fcpxml", 'application/xml')
+                items_p = qs.get('items', [''])[0]
+                item_ids = [i for i in items_p.split(',') if i] if items_p else None
+                content = export_basket_fcpxml(proj, user_key, item_ids)
+                suffix = '_selection' if item_ids else ''
+                self._text_response(content, f"{label}_panier{suffix}.fcpxml", 'application/xml')
             elif fmt == 'basket_xml_fcp7':
                 user_key = qs.get('user', [''])[0]
                 if not user_key:
                     self._json_response({'error': 'Paramètre user requis'}, 400)
                     return
                 label = qs.get('label', [proj['name']])[0]
-                content = export_basket_xml_fcp7(proj, user_key)
-                self._text_response(content, f"{label}_panier_premiere.xml", 'application/xml')
+                items_p = qs.get('items', [''])[0]
+                item_ids = [i for i in items_p.split(',') if i] if items_p else None
+                content = export_basket_xml_fcp7(proj, user_key, item_ids)
+                suffix = '_selection' if item_ids else ''
+                self._text_response(content, f"{label}_panier{suffix}_premiere.xml", 'application/xml')
+            elif fmt == 'basket_drt':
+                # Pas de résolution de chemin ici non plus (voir export_drt) —
+                # rattachement par l'identité live du MediaPoolItem.
+                user_key = qs.get('user', [''])[0]
+                if not user_key:
+                    self._json_response({'error': 'Paramètre user requis'}, 400)
+                    return
+                label = qs.get('label', [proj['name']])[0]
+                items_p = qs.get('items', [''])[0]
+                item_ids = [i for i in items_p.split(',') if i] if items_p else None
+                try:
+                    content = export_basket_drt(proj, user_key, item_ids)
+                except DrtExportError as e:
+                    self.send_response(503)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(str(e).encode('utf-8'))
+                    return
+                suffix = '_selection' if item_ids else ''
+                self._binary_response(content, f"{label}_panier{suffix}.drt", 'application/octet-stream')
             return
 
         if re.match(r'^/api/project/([^/]+)/health$', path):
@@ -4276,6 +4387,16 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(content.encode('utf-8'))
+
+    def _binary_response(self, content_bytes, filename, mime):
+        """Comme _text_response mais pour un contenu déjà en bytes (AAF/CFB —
+        jamais de charset, jamais .encode())."""
+        self.send_response(200)
+        self.send_header('Content-Type', mime)
+        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+        self.send_header('Content-Length', str(len(content_bytes)))
+        self.end_headers()
+        self.wfile.write(content_bytes)
 
     def _serve_file(self, filepath, mime):
         if filepath.exists():
