@@ -460,7 +460,7 @@ JS pur. L réaccélère 1x→2x→4x (`playbackRate`), K stoppe, J joue en arri�
 Implémenté manuellement (RFC 6455, pas de lib). Détection `Upgrade: websocket` dans `do_GET` → `_handle_ws_upgrade(qs)`. Auth par token en query param (`?token=`, pas de headers custom possibles en browser). Globals `_ws_clients: dict[pid→[(sock,token)]]`, `_ws_broadcast(pid, msg, exclude_token)`. Frames après save notes (`notes_updated`), reply (`discussion_updated`), save panier (`basket_updated`), publication LUT (`lut_assign_updated`). Client : reconnexion auto toutes les 6s.
 
 ### Permissions granulaires (rôles)
-`admin`/`annotator`/`viewer` dans `proj['users'][i]['role']` + `session['role']` (backward compat depuis `is_admin` si absent). `applyRoleUI(role)` : viewer masque édition (notes/tags/rating), non-admin masque gestion users + rescan.
+`admin`/`annotator`/`viewer` dans `proj['users'][i]['role']` + `session['role']` (backward compat depuis `is_admin` si absent). `applyRoleUI(role)` : viewer masque édition (notes/tags/rating) + rescan, non-admin masque gestion users. Le rescan (🔄) est ouvert à tous les annotateurs (chaque user scanne son propre `root_path`) — `POST /scan` n'a jamais exigé admin côté serveur.
 
 ### Pré-montage (Basket overlay, `js/selects.js`)
 Bouton 📽️ → overlay plein écran : liste réordonnable des sélections (`#basketBody`) + visionneuse (`#basketViewer`). Identifiants internes `basket`/panier, endpoints `/api/.../basket`.

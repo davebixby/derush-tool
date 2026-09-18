@@ -406,6 +406,9 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 13 septembre 2026</div>
   <a href="#silent-clip-adaptive-track-lead">Clips silencieux malgré données saines : piste ouverte côté patch audio Adaptive</a>
+
+  <div class="nav-section">Session 18 septembre 2026 (v0.3.100)</div>
+  <a href="#rescan-for-all">Bouton 🔄 Rescanner visible pour tous les annotateurs (plus réservé aux admins)</a>
 </nav>
 
 <main>
@@ -4198,6 +4201,16 @@ result['users'] = [u for u in result.get('users', [])
 
 <div style="color: var(--muted); font-size: 0.82em; text-align: center; padding: 24px 0 48px;">
   Derush Tool · Journal de développement · Dernière mise à jour 15 septembre 2026 (export DRT — coupes multiples, nom + emplacement de fichier, liaison vidéo/son : les trois confirmés fonctionnels de bout en bout, build Electron 0.3.99)
+</div>
+
+<div class="entry" id="rescan-for-all">
+  <div class="entry-header">
+    <span class="entry-date">18 septembre 2026 · v0.3.100</span>
+    <span class="entry-title">Bouton 🔄 Rescanner visible pour tous les annotateurs</span>
+    <span class="entry-tag tag-feature">Fonctionnalité</span>
+  </div>
+  <p>Retour terrain : « Sur mac je ne vois pas le bouton rescanner les medias en haut à gauche ». Cause : le compte utilisé sur le Mac avait été créé par clé d'invitation, donc avec le rôle <em>annotateur</em>, et <code>applyRoleUI</code> masquait le bouton 🔄 pour tout rôle non-admin. Le serveur, lui, n'a jamais exigé le rôle admin sur <code>POST /scan</code> — c'était une restriction purement visuelle.</p>
+  <div class="box box-note">Décision de l'utilisateur : le rescan doit être accessible à tout le monde. Chaque collaborateur scanne son propre <code>root_path</code> (le scan lit les rushs locaux de la machine qui le lance), il n'y a donc pas de raison de le réserver aux admins. Seul le rôle <strong>lecteur</strong> (lecture seule) reste exclu, par cohérence avec les autres actions d'écriture. La gestion des utilisateurs reste réservée aux admins.</div>
 </div>
 
 </main>

@@ -3234,7 +3234,8 @@ function applyRoleUI(role) {
     if(isViewer) document.getElementById('ratingBtns').style.opacity = '0.4';
     // Boutons réservés admin
     document.querySelectorAll('[onclick="showUserMgmt()"]').forEach(b => b.style.display = isAdmin ? '' : 'none');
-    document.querySelectorAll('[onclick^="rescanProject"]').forEach(b => b.style.display = isAdmin ? '' : 'none');
+    // Rescan ouvert à tous les annotateurs (chaque user scanne son propre root_path) — seul viewer est exclu
+    document.querySelectorAll('[onclick^="rescanProject"]').forEach(b => b.style.display = isViewer ? 'none' : '');
     // Save button
     const saveBtn = document.querySelector('button[onclick="saveNotes()"]');
     if(saveBtn) saveBtn.style.display = isViewer ? 'none' : '';
