@@ -309,12 +309,13 @@ td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.05); vertical
 Le logiciel utilise automatiquement le LTC quand il est disponible (à décoder via le bouton ci-dessous), sinon il retombe sur le tag <code>format.timecode</code>.</div>
 
 <h3>Étape 1 — 🎶 Décoder LTC (à faire une fois par projet)</h3>
-<p>Dans la modale <strong>🔄 Multi-cam</strong>, cadre <em>🎶 LTC</em>, cliquez sur <strong>🎶 Décoder LTC</strong>. Le serveur scanne tous les clips, extrait l'audio canal L de leur proxy, détecte les signaux LTC, et stocke le vrai TC dans le projet.</p>
+<p>Dans la modale <strong>🔄 Multi-cam</strong>, cadre <em>🎶 LTC</em>, cliquez sur <strong>🎶 Décoder LTC</strong>. Le serveur scanne tous les clips, extrait l'audio de leur proxy, détecte les signaux LTC — et pour un FS5 dont le proxy n'en contient pas (ça dépend du réglage caméra du jour), retombe automatiquement sur les pistes du fichier source — puis stocke le vrai TC dans le projet.</p>
 
 <div class="step"><div class="step-num">1</div><div class="step-body">Le bouton lance un job en background. Progress bar avec le nom du clip en cours.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">Quand fini, message du type <em>"45 avec LTC · 12 sans LTC"</em>. Les clips sans LTC sont ceux dont l'audio ne contient pas de signal LTC (caméra non connectée à la multiprise, GoPro, FX6 dont le TC est dans les métadonnées, etc.).</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Quand fini, message du type <em>"45 avec LTC · 12 sans LTC"</em>. Les clips sans LTC sont ceux dont l'audio ne contient nulle part (proxy ET source) de signal LTC (caméra non connectée à la multiprise, GoPro, FX6 dont le TC est dans les métadonnées, etc.).</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">Décodage persistant : stocké dans le JSON projet, à faire une seule fois. Le bouton <strong>↻ Re-décoder tout</strong> force un re-décodage si vous avez refait vos proxys.</div></div>
 <div class="warn"><strong>Projet ayant décodé du LTC avant sept. 2026 :</strong> un bug de calibration (décalage systématique d'1 frame) a été corrigé — cliquez <strong>↻ Re-décoder tout</strong> une fois pour recalculer les valeurs existantes avant de régénérer un export FCPXML basé sur le TC LTC des FS5.</div>
+<div class="warn"><strong>Symptôme : le tri sidebar "par heure" affiche un bloc entier de FS5 avant/après les FX6 au lieu de s'entremêler.</strong> Signe que le LTC de ces FS5 n'a jamais été décodé avec succès (le tri retombe alors sur le TC interne dérivant de la caméra). Un bug corrigé fin sept. 2026 faisait échouer le décodage sur les jours où le proxy ne portait pas le canal LTC — cliquez <strong>↻ Re-décoder tout</strong> pour récupérer ces clips.</div>
 
 <div class="tip"><strong>Durée :</strong> quelques minutes pour 100-500 clips selon la machine (parallélisé, throttlé pour ne pas saturer le CPU).</div>
 

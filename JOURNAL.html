@@ -4273,6 +4273,18 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-note">Pas un changement de code : clarification ajoutée à <code>CLAUDE.md</code> et au bandeau d'avertissement DRT de <code>GUIDE.html</code>. Rappel des deux préconditions à vérifier en cas d'échec : édition <strong>Studio</strong> installée, et <em>Preferences › System › General › External scripting using</em> réglé sur <em>Local</em> ou <em>Network</em> (pas <em>None</em>).</div>
 </div>
 
+<div class="entry" id="ltc-source-fallback">
+  <div class="entry-header">
+    <span class="entry-date">28 septembre 2026</span>
+    <span class="entry-title">Décodage LTC FS5 qui échouait selon le jour (proxy sans canal LTC)</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain : « drole de truc pour le jour 10 si je sélectionne les clips par ordre de temps, il m'affiche d'abord les clips de la fs5 puis ceux de la fx6 alors qu'ils devraient être plus entremélés. » Diagnostic initial (TC brut FS5 dérivant, cf. piège habituel) confirmé par lecture du JSON projet — mais le conseil « lancez 🎶 Décoder LTC » n'a rien changé : « j'ai lancer le décodage ltc mais ça ne change rien sur l'ordre des rushs. »</p>
+  <p>Vérification du JSON après le décodage réel : <code>ltc_tc_in_sec</code> restait <code>null</code> sur 100% des FS5 de J10, et seulement 6/147 FS5 du projet entier avaient un LTC décodé, tous jours confondus. Reproduction directe sur les fichiers réels (disque monté, accessible) : le canal 0 du proxy J10 (supposé porter le LTC) était <strong>totalement silencieux</strong>, alors que la piste 1 du fichier MXF <strong>source</strong> décodait un LTC parfaitement valide, cohérent avec l'heure des FX6 du même jour.</p>
+  <div class="box box-fail">Le downmix stéréo AAC du proxy ne fait pas systématiquement passer le canal porteur du LTC dedans — variable selon le jour/réglage caméra. La doc mentionnait une « détection auto crest factor » censée gérer ce cas ; elle n'avait en réalité jamais été implémentée, le code lisait juste le canal 0 du proxy en dur.</div>
+  <div class="box box-note">Fix (<code>derush_server.py</code>) : nouvelle fonction <code>_ltc_decode_from_source()</code> — quand le décodage proxy échoue sur un clip FS5, retombe sur les pistes mono discrètes du fichier <strong>source</strong> (toujours intactes, jamais compressées) jusqu'à la première qui décode. Validé sur les fichiers réels : J10 passe de 0/13 à 13/13 FS5 décodés, nette amélioration sur les autres jours testés. Un jour peut légitimement rester sans LTC (multiprise non branchée ce jour-là, ex. J06) — pas une régression. <strong>Action restante :</strong> redémarrer DerushTool puis relancer 🎶 Décoder LTC → ↻ Re-décoder tout pour appliquer le fix à l'ensemble du projet.</div>
+</div>
+
 </main>
 </div>
 </body>

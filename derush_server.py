@@ -1638,6 +1638,41 @@ def _ltc_proxy_path(clip, project):
     return p if p.exists() else None
 
 
+def _ltc_decode_from_source(file_path, fps, max_streams=8, max_sec=8.0, sample_rate=48000):
+    """Retombe sur les pistes audio mono DISCRÈTES du fichier SOURCE (pas le proxy)
+    quand le décodage sur le proxy échoue. Le MXF FS5 porte jusqu'à 4-8 pistes mono
+    séparées (dont une LTC) ; le downmix stéréo du proxy ne fait PAS toujours passer
+    le canal LTC dedans — variable selon le jour/réglage caméra, contrairement au
+    fichier source dont les pistes restent toutes intactes (piège #48, retour terrain
+    27/09/2026 : proxy J10 FS5 100% silencieux sur le canal L supposé porter le LTC,
+    alors que la piste 1 du MXF source décode parfaitement). Essaie chaque piste mono
+    dans l'ordre jusqu'à la première qui décode ; s'arrête dès qu'une piste n'existe
+    plus (ffmpeg renvoie une erreur de map)."""
+    for idx in range(1, max_streams + 1):
+        cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error',
+               '-analyzeduration', '1M', '-probesize', '5M',
+               '-t', str(max_sec), '-i', str(file_path),
+               '-map', f'0:{idx}', '-ac', '1', '-ar', str(sample_rate),
+               '-f', 's16le', '-vn', 'pipe:1']
+        try:
+            r = _ffmpeg_run(cmd, timeout=15)
+        except Exception:
+            break
+        if r.returncode != 0:
+            break  # plus de piste audio à cet index
+        if not r.stdout:
+            continue
+        try:
+            import numpy as np
+            pcm = np.frombuffer(r.stdout, dtype=np.int16)
+        except Exception:
+            continue
+        tc = _ltc_decode_pcm(pcm, sample_rate=sample_rate, fps=fps)
+        if tc is not None:
+            return tc
+    return None
+
+
 def decode_project_ltc(project, pid, progress_cb=None, force=False):
     """Decode LTC for every clip of the project whose proxy contains an LTC signal.
     Stores result in clip['ltc_tc_in_sec'] (None if no LTC was found).
@@ -1666,6 +1701,12 @@ def decode_project_ltc(project, pid, progress_cb=None, force=False):
             fps = round(c.get('fps', 25)) or 25
             pcm = _ltc_extract_pcm(str(path), channel=0, max_sec=8.0, sample_rate=48000)
             tc = _ltc_decode_pcm(pcm, sample_rate=48000, fps=fps) if pcm is not None else None
+            if tc is None and c.get('camera') == 'FS5':
+                # Le proxy ne porte pas toujours le canal LTC (piège #48) — retomber
+                # sur les pistes mono discrètes du fichier source, toujours intactes.
+                src = _resolve_clip_src_path(project, c)
+                if src and Path(src).exists():
+                    tc = _ltc_decode_from_source(str(src), fps)
             c['ltc_tc_in_sec'] = tc
             if tc is not None:
                 n_with += 1
