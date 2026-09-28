@@ -44,6 +44,7 @@ from derush_exports import _chrono_sort_clips, _aaf_kept_segments, user_note_key
 
 _RESOLVE_API_PATHS = (
     r"C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting",
+    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
 )
 _RESOLVE_LIB_PATHS = (
     r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll",
@@ -101,30 +102,39 @@ def _walk_media_pool(folder, path=""):
 
 
 def _find_media_pool_item(all_items, clip):
-    """Retrouve le MediaPoolItem Resolve correspondant à un clip Derush, en
-    matchant NOM DE FICHIER + JOUR (code court, ex. "J11" pour
-    "J11_2026_05_08") — les noms seuls collisionnent entre journées (FS5
-    notamment, voir piège #38/#41 CLAUDE.md). Lève une erreur explicite
-    plutôt que de deviner en cas d'ambiguïté ou d'absence, cohérent avec
+    """Retrouve le MediaPoolItem Resolve correspondant à un clip Derush.
+
+    Match par NOM DE FICHIER seul d'abord — suffisant et plus permissif pour
+    un Media Pool qui n'est pas rangé en bins nommés par jour (n'importe quel
+    projet qui n'a pas suivi la convention `J02_...`/`J11_...` de ce
+    tournage). Le code jour (`clip['day']`, ex. "J11" pour "J11_2026_05_08")
+    ne sert QU'à désambiguïser quand plusieurs items du Media Pool partagent
+    le même nom de fichier (FS5 notamment, deux journées peuvent réutiliser
+    la même numérotation de caméra — voir piège #38/#41 CLAUDE.md), et
+    seulement s'il apparaît comme segment entier du chemin de bin. Si
+    l'ambiguïté persiste malgré ça (ou si le Media Pool n'a pas de bins par
+    jour du tout), erreur explicite plutôt que de deviner — cohérent avec
     toute l'enquête sur les mauvais rattachements silencieux menée sur ce
-    projet — mieux vaut un export qui échoue clairement qu'un qui réussit
-    sur le mauvais clip."""
+    projet : mieux vaut un export qui échoue clairement qu'un qui réussit sur
+    le mauvais clip."""
     filename = clip.get('filename', '')
     day_short = (clip.get('day') or '').split('_')[0]
-    matches = [
-        (bin_path, item) for bin_path, item in all_items
-        if item.GetName() == filename and day_short and day_short in bin_path.split('/')
-    ]
-    if not matches:
+    by_name = [(bin_path, item) for bin_path, item in all_items if item.GetName() == filename]
+    if not by_name:
         raise DrtExportError(
-            f"Clip introuvable dans le Media Pool DaVinci : {filename} (jour {day_short}). "
+            f"Clip introuvable dans le Media Pool DaVinci : {filename}. "
             "Le Media Pool doit contenir tous les médias référencés avant l'export.")
-    if len(matches) > 1:
-        bins = ', '.join(b for b, _ in matches)
-        raise DrtExportError(
-            f"Plusieurs clips {filename} trouvés pour le jour {day_short} dans le Media Pool "
-            f"({bins}) — ambigu, export annulé plutôt que de deviner.")
-    return matches[0][1]
+    if len(by_name) == 1:
+        return by_name[0][1]
+    if day_short:
+        by_day = [(bin_path, item) for bin_path, item in by_name if day_short in bin_path.split('/')]
+        if len(by_day) == 1:
+            return by_day[0][1]
+    bins = ', '.join(b for b, _ in by_name)
+    raise DrtExportError(
+        f"Plusieurs clips {filename} trouvés dans le Media Pool ({bins}) — ambigu "
+        f"(jour {day_short or 'inconnu'}), export annulé plutôt que de deviner. "
+        "Rangez ces clips dans des bins distincts nommés par jour pour lever l'ambiguïté.")
 
 
 def _included_clips(project, filter_config):
@@ -171,12 +181,17 @@ def _included_clips(project, filter_config):
     return included, notes, users
 
 
-def export_drt(project, filter_config=None):
+def export_drt(project, filter_config=None, timeline_name=None):
     """Construit une timeline DaVinci Resolve EN DIRECT (via
     `MediaPool.CreateTimelineFromClips`) et la retourne exportée au format
     `.drt` (bytes). Lève `DrtExportError` (message montrable à l'utilisateur
     tel quel) en cas de problème de connexion, de Media Pool incomplet, ou
-    de clip ambigu."""
+    de clip ambigu.
+
+    `timeline_name` (optionnel) : nom final voulu pour la timeline DaVinci
+    (typiquement le nom choisi par l'utilisateur dans la modale d'export,
+    déjà utilisé pour le fichier téléchargé — voir § Export DRT — nom de
+    timeline CLAUDE.md). Sans ça, retombe sur le nom du projet."""
     resolve, proj = _connect_resolve()
     pool = proj.GetMediaPool()
     all_items = list(_walk_media_pool(pool.GetRootFolder()))
@@ -190,16 +205,24 @@ def export_drt(project, filter_config=None):
         for clip in included
         for seg_start, seg_end in _aaf_kept_segments(clip, notes, users)
     ]
-    timeline_name = (project.get('name') or 'Projet').replace('/', '_')
-    return _build_and_export_drt(resolve, pool, all_items, picks, timeline_name)
+    label = (timeline_name or project.get('name') or 'Projet').replace('/', '_')
+    return _build_and_export_drt(resolve, pool, all_items, picks, label)
 
 
-def export_basket_drt(project, user_key, item_ids=None):
+def export_basket_drt(project, user_key, item_ids=None, timeline_name=None):
     """Export du panier personnel d'un utilisateur (voir `_basket_entries`) en
     timeline DaVinci Resolve — mêmes contraintes/mécanisme que `export_drt`
     (connexion live à Resolve, `CreateTimelineFromClips`), mais la sélection
     et l'ordre viennent du pré-montage de l'utilisateur, pas d'un filtre
-    rating/équipe. `item_ids` (optionnel) restreint aux items cochés."""
+    rating/équipe. `item_ids` (optionnel) restreint aux items cochés.
+
+    Chaque plan reçoit un marker (nom de la sélection en titre, description+tags
+    en note) posé via `_add_selection_markers` — seul moyen fiable d'écrire ce
+    texte dans un `.drt` (voir § Export DRT — titres de sélection CLAUDE.md).
+
+    `timeline_name` (optionnel) : nom final voulu pour la timeline DaVinci,
+    déjà suffixé par l'appelant (ex. `<label>_panier`) pour matcher le nom du
+    fichier téléchargé — voir § Export DRT — nom de timeline CLAUDE.md."""
     resolve, proj = _connect_resolve()
     pool = proj.GetMediaPool()
     all_items = list(_walk_media_pool(pool.GetRootFolder()))
@@ -208,12 +231,19 @@ def export_basket_drt(project, user_key, item_ids=None):
     if not entries:
         raise DrtExportError("Panier vide (ou aucun item sélectionné).")
 
-    picks = [
-        (clip, float(sel.get('in', 0) or 0), float(sel.get('out', 0) or 0))
-        for clip, sel in entries
-    ]
-    timeline_name = f"{(project.get('name') or 'Projet').replace('/', '_')}_panier"
-    return _build_and_export_drt(resolve, pool, all_items, picks, timeline_name)
+    picks = []
+    marker_info = []
+    for clip, sel in entries:
+        picks.append((clip, float(sel.get('in', 0) or 0), float(sel.get('out', 0) or 0)))
+        note_parts = []
+        if sel.get('desc'):
+            note_parts.append(sel['desc'])
+        if sel.get('tags'):
+            note_parts.append('#' + ' #'.join(sel['tags']))
+        marker_info.append({'name': sel.get('name') or '', 'note': ' — '.join(note_parts)})
+
+    label = timeline_name or f"{(project.get('name') or 'Projet').replace('/', '_')}_panier"
+    return _build_and_export_drt(resolve, pool, all_items, picks, label, marker_info=marker_info)
 
 
 def _seq_container_name(zf):
@@ -493,7 +523,84 @@ def _splice_repeated_clips(base_bytes, ordered_picks):
     return buf.getvalue()
 
 
-def _build_and_export_drt(resolve, pool, all_items, picks, timeline_name):
+_SELECTION_MARKER_COLOR = 'Fuchsia'
+
+
+def _add_selection_markers(resolve, pool, drt_bytes, marker_info, export_label):
+    """Pose un marker par plan (titre = nom de la sélection panier, note =
+    description+tags) sur un `.drt` déjà fini, en passant PAR L'API OFFICIELLE
+    plutôt que par une manipulation binaire : ce texte vit dans un blob
+    ZSTD-compressé + protobuf non documenté (`Sm2TiItemLockableBlob` dans
+    `project.xml`, keyé par `BlobOwner` = DbId du plan) qu'on a rétro-ingénié
+    par curiosité (sept. 2026) mais qu'on choisit délibérément de ne PAS
+    reproduire à la main — contrairement au `FieldsBlob` de liaison
+    (§ Export DRT — liaison vidéo/son), il existe ici une voie 100% officielle
+    qui produit le même résultat sans aucun risque de corruption.
+
+    Méthode : réimporte `drt_bytes` en timeline temporaire
+    (`MediaPool.ImportTimelineFromFile`), pose les markers via
+    `TimelineItem.AddMarker(frameId=0, ...)` (relatif au début de CHAQUE
+    plan, pas à la timeline — pas de calcul de position absolue nécessaire),
+    ré-exporte, supprime la timeline temporaire. Validé (sept. 2026) : ce
+    cycle réimport→marker→réexport préserve à l'identique le nombre de
+    pistes/items son ingé et leur câblage MediaRef — la liaison vidéo/son
+    posée par `_fix_clip_linking` en amont n'est pas perturbée.
+
+    `export_label` est réappliqué via `Timeline.SetName()` juste avant le
+    ré-export : `ImportOptions.timelineName` est documenté « not valid for
+    DRT import » dans le stub de l'API et est bien ignoré en pratique — sans
+    ce `SetName`, la timeline reimportée hérite du nom du fichier `.drt`
+    temporaire (`tempfile.mkstemp`, un nom illisible type `tmpXXXXXXXX`), qui
+    se retrouve ensuite embarqué comme nom de timeline dans le fichier final
+    (piège du nom "TMP" à l'import DaVinci — voir § Export DRT — nom de
+    timeline CLAUDE.md).
+
+    Repli silencieux vers `drt_bytes` tel quel (jamais d'exception) si
+    Resolve refuse la réimportation ou si l'ordre des items ne correspond
+    plus à `marker_info` — un export sans titres reste plus sûr qu'un export
+    cassé pour une fonctionnalité annexe."""
+    if not any((m or {}).get('name') or (m or {}).get('note') for m in marker_info):
+        return drt_bytes
+
+    fd_in, tmp_in = tempfile.mkstemp(suffix='.drt')
+    os.close(fd_in)
+    os.remove(tmp_in)
+    fd_out, tmp_out = tempfile.mkstemp(suffix='.drt')
+    os.close(fd_out)
+    os.remove(tmp_out)
+    tl = None
+    try:
+        with open(tmp_in, 'wb') as fh:
+            fh.write(drt_bytes)
+        tl = pool.ImportTimelineFromFile(tmp_in)
+        if tl is None:
+            return drt_bytes
+        tl.SetName(export_label)
+        items = tl.GetItemListInTrack('video', 1) or []
+        if len(items) != len(marker_info):
+            return drt_bytes
+        for item, info in zip(items, marker_info):
+            name = (info or {}).get('name') or ''
+            note = (info or {}).get('note') or ''
+            if not name and not note:
+                continue
+            item.AddMarker(0, _SELECTION_MARKER_COLOR, name, note, 1)
+        ok = tl.Export(tmp_out, resolve.EXPORT_DRT)
+        if not ok:
+            return drt_bytes
+        with open(tmp_out, 'rb') as fh:
+            return fh.read()
+    finally:
+        if tl is not None:
+            pool.DeleteTimelines([tl])
+        for p in (tmp_in, tmp_out):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def _build_and_export_drt(resolve, pool, all_items, picks, timeline_name, marker_info=None):
     """Cœur commun à `export_drt`/`export_basket_drt` : résout chaque
     `(clip, seg_start_sec, seg_end_sec)` en `MediaPoolItem` + startFrame/
     endFrame, construit une timeline DE BASE via `CreateTimelineFromClips`
@@ -518,10 +625,22 @@ def _build_and_export_drt(resolve, pool, all_items, picks, timeline_name):
     échoue si une timeline de ce nom existe déjà dans le projet — ce qui
     arrive systématiquement dès qu'un .drt précédent a été réimporté (le nom
     du fichier redevient le nom d'une timeline persistante dans le projet
-    DaVinci)."""
+    DaVinci).
+
+    `marker_info` (optionnel, fourni par `export_basket_drt` seulement — les
+    segments d'`export_drt` n'ont pas de titre de sélection) : liste de
+    `{'name', 'note'}` ALIGNÉE avec `picks` (même longueur, même ordre),
+    pour poser un marker par plan (titre = nom de la sélection, note =
+    description+tags) via `_add_selection_markers`."""
     import datetime as _dt
 
-    valid_picks = [(clip, s, e) for clip, s, e in picks if e - s > 0]
+    if marker_info is not None and len(marker_info) != len(picks):
+        marker_info = None  # incohérence interne : pas de titres plutôt qu'un mauvais appariement
+
+    paired = list(zip(picks, marker_info)) if marker_info is not None else [(p, None) for p in picks]
+    paired = [(p, m) for p, m in paired if p[2] - p[1] > 0]
+    valid_picks = [p for p, _ in paired]
+    valid_markers = [m for _, m in paired] if marker_info is not None else None
     if not valid_picks:
         raise DrtExportError("Aucun segment à exporter.")
 
@@ -543,10 +662,19 @@ def _build_and_export_drt(resolve, pool, all_items, picks, timeline_name):
             "endFrame": int(round(seg_end * fps)),
         })
 
-    timeline_name = f"{timeline_name}_{_dt.datetime.now():%Y%m%d_%H%M%S}"
-    tl = pool.CreateTimelineFromClips(timeline_name, infos)
+    export_label = timeline_name
+    internal_name = f"{timeline_name}_{_dt.datetime.now():%Y%m%d_%H%M%S}"
+    tl = pool.CreateTimelineFromClips(internal_name, infos)
     if not tl:
         raise DrtExportError("Échec de la création de la timeline dans DaVinci Resolve (CreateTimelineFromClips).")
+    # Renomme vers le nom propre voulu par l'utilisateur AVANT l'export : c'est
+    # ce nom (pas `internal_name`, horodaté pour éviter toute collision avec une
+    # timeline déjà présente dans le projet live) qui finit embarqué dans le
+    # `.drt` et proposé par DaVinci à la réimportation (piège du nom "TMP",
+    # voir § Export DRT — nom de timeline CLAUDE.md). Best-effort : si une
+    # timeline `export_label` existe déjà dans le projet live, `SetName` échoue
+    # silencieusement et on garde `internal_name` plutôt que de bloquer l'export.
+    tl.SetName(export_label)
 
     # PAS de `Timeline.SetClipsLinked` ici (essayé puis retiré, sept. 2026) : la
     # méthode fonctionne réellement en direct sur la timeline temporaire (icône
@@ -578,14 +706,18 @@ def _build_and_export_drt(resolve, pool, all_items, picks, timeline_name):
             pass
 
     if len(valid_picks) == len(unique_picks):
-        return _apply_linking_fix(base_bytes)
+        result_bytes = _apply_linking_fix(base_bytes)
+    else:
+        media_ref_by_clip_id = _discover_media_refs(base_bytes, [c['id'] for c, _, _ in unique_picks])
+        ordered = []
+        for clip, seg_start, seg_end in valid_picks:
+            fps = round(clip.get('fps', 25) or 25)
+            start_frame = int(round(seg_start * fps))
+            end_frame = int(round(seg_end * fps))
+            ordered.append((media_ref_by_clip_id[clip['id']], start_frame, end_frame - start_frame))
+        result_bytes = _splice_repeated_clips(base_bytes, ordered)
 
-    media_ref_by_clip_id = _discover_media_refs(base_bytes, [c['id'] for c, _, _ in unique_picks])
-    ordered = []
-    for clip, seg_start, seg_end in valid_picks:
-        fps = round(clip.get('fps', 25) or 25)
-        start_frame = int(round(seg_start * fps))
-        end_frame = int(round(seg_end * fps))
-        ordered.append((media_ref_by_clip_id[clip['id']], start_frame, end_frame - start_frame))
+    if valid_markers is not None:
+        result_bytes = _add_selection_markers(resolve, pool, result_bytes, valid_markers, export_label)
 
-    return _splice_repeated_clips(base_bytes, ordered)
+    return result_bytes

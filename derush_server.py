@@ -1915,11 +1915,22 @@ def _resolve_audio_clip_path(ac, proj):
     return None
 
 
-def _bwf_candidates_for_clips(audio_clips, clip_ids, clip_map, grace=2):
+def _bwf_candidates_for_clips(audio_clips, clip_ids, clip_map, grace=35):
     """Retourne la liste des BWF qui contiennent strictement TOUS les clips
-    (grace ±2s seulement) ET qui matchent la date des clips.
+    (grace ±35s) ET qui matchent la date des clips.
     Triée du plus contenant au moins contenant (BWF qui démarre juste avant
-    le premier clip et finit juste après le dernier = idéal)."""
+    le premier clip et finit juste après le dernier = idéal).
+
+    `grace=35` (sept. 2026, était 2s) : un perchman ne démarre pas
+    forcément l'enregistrement pile à la frame où la caméra se met à
+    tourner — sur ce projet, des écarts réels jusqu'à ~29s ont été mesurés
+    (démarrage décalé du son ingé par rapport à l'image) et validés un par
+    un contre le `Synced Audio` du Media Pool DaVinci (déjà conformé via
+    Auto Sync Audio) : ±2s ratait 11 clips légitimes sans qu'aucun ne soit
+    ambigu (un seul WAV du jour recouvre chacun, même à ±35s) — élargir la
+    fenêtre ne change donc aucune association déjà correcte, juste le seuil
+    de rejet. Le filtre par date + le tri par plus petit slack restent le
+    garde-fou contre un mauvais fichier sur un jour chargé en prises son."""
     # Date attendue : celle du earliest clip
     clip_dates = set()
     for cid in clip_ids:
@@ -2894,7 +2905,10 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 # voir derush_drt.py.
                 label = qs.get('label', [proj['name']])[0]
                 try:
-                    content = export_drt(proj, filter_config)
+                    # Même nom que le fichier téléchargé pour la timeline DaVinci
+                    # embarquée (piège #45 CLAUDE.md — sinon DaVinci propose un
+                    # nom illisible à l'import).
+                    content = export_drt(proj, filter_config, timeline_name=f"{label}_selects")
                 except DrtExportError as e:
                     self.send_response(503)
                     self.send_header('Content-Type', 'text/plain; charset=utf-8')
@@ -2975,15 +2989,18 @@ class DerushHandler(http.server.BaseHTTPRequestHandler):
                 label = qs.get('label', [proj['name']])[0]
                 items_p = qs.get('items', [''])[0]
                 item_ids = [i for i in items_p.split(',') if i] if items_p else None
+                suffix = '_selection' if item_ids else ''
                 try:
-                    content = export_basket_drt(proj, user_key, item_ids)
+                    # Même nom que le fichier téléchargé pour la timeline DaVinci
+                    # embarquée (piège #45 CLAUDE.md — sinon DaVinci propose un
+                    # nom illisible à l'import).
+                    content = export_basket_drt(proj, user_key, item_ids, timeline_name=f"{label}_panier{suffix}")
                 except DrtExportError as e:
                     self.send_response(503)
                     self.send_header('Content-Type', 'text/plain; charset=utf-8')
                     self.end_headers()
                     self.wfile.write(str(e).encode('utf-8'))
                     return
-                suffix = '_selection' if item_ids else ''
                 self._binary_response(content, f"{label}_panier{suffix}.drt", 'application/octet-stream')
             return
 

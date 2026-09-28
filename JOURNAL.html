@@ -409,6 +409,10 @@ hr.section { border: none; border-top: 2px solid var(--border); margin: 48px 0; 
 
   <div class="nav-section">Session 18 septembre 2026 (v0.3.100)</div>
   <a href="#rescan-for-all">Bouton 🔄 Rescanner visible pour tous les annotateurs (plus réservé aux admins)</a>
+
+  <div class="nav-section">Session 27 septembre 2026</div>
+  <a href="#drt-mac-support">Export DRT : chemin API manquant sur Mac + matching clip trop strict corrigés</a>
+  <a href="#drt-studio-required">Export DRT : nécessite DaVinci Resolve Studio, pas la version gratuite</a>
 </nav>
 
 <main>
@@ -4211,6 +4215,62 @@ result['users'] = [u for u in result.get('users', [])
   </div>
   <p>Retour terrain : « Sur mac je ne vois pas le bouton rescanner les medias en haut à gauche ». Cause : le compte utilisé sur le Mac avait été créé par clé d'invitation, donc avec le rôle <em>annotateur</em>, et <code>applyRoleUI</code> masquait le bouton 🔄 pour tout rôle non-admin. Le serveur, lui, n'a jamais exigé le rôle admin sur <code>POST /scan</code> — c'était une restriction purement visuelle.</p>
   <div class="box box-note">Décision de l'utilisateur : le rescan doit être accessible à tout le monde. Chaque collaborateur scanne son propre <code>root_path</code> (le scan lit les rushs locaux de la machine qui le lance), il n'y a donc pas de raison de le réserver aux admins. Seul le rôle <strong>lecteur</strong> (lecture seule) reste exclu, par cohérence avec les autres actions d'écriture. La gestion des utilisateurs reste réservée aux admins.</div>
+</div>
+
+<div class="entry" id="basket-drt-markers">
+  <div class="entry-header">
+    <span class="entry-date">22 septembre 2026</span>
+    <span class="entry-title">Titre des sélections du pré-montage dans l'export DRT</span>
+    <span class="entry-tag tag-feature">Fonctionnalité</span>
+  </div>
+  <p>Question terrain : « quand j'exporte la sélection en DRT, je me rends compte que les clips gardent le nom de leur fichier — est-ce que le descriptif que j'ai mis comme titre à la sélection peut apparaître quelque part ? » Logique : dans le DRT, un plan référence l'objet <code>MediaPoolItem</code> existant du Media Pool (c'est ce qui permet de restituer le son ingé multipiste) — il ne peut donc pas être renommé comme un asset FCPXML autonome le serait.</p>
+  <p>Piste envisagée d'abord : un champ « Notes » par plan, par analogie avec l'attribut <code>note</code> déjà utilisé sur l'export FCPXML du panier. Question suivante de l'utilisateur (« je ne comprends pas où ce champ apparaîtrait dans DaVinci ») a obligé à vérifier plutôt que deviner : aucun champ de texte libre équivalent n'est confirmé exister côté DRT pour un item qui référence un <code>MediaPoolItem</code> live. Le <strong>marker</strong> (position + nom + note, déjà un mécanisme DaVinci standard) restait la seule option vérifiable — accord de l'utilisateur pour partir dessus.</p>
+  <p>Investigation en direct sur le poste de développement (DaVinci Resolve était lancé avec un vrai projet ouvert) : décompilation du format <code>.drt</code> a montré que le texte d'un marker vit dans un blob <code>Sm2TiItemLockableBlob</code> (dans <code>project.xml</code>, keyé par <code>BlobOwner</code> = l'identifiant du plan) contenant un protobuf non documenté, parfois compressé en ZSTD, parfois stocké tel quel selon la taille. Contrairement au <code>FieldsBlob</code> de liaison vidéo/son (entrée précédente), il existe ici une voie <strong>100% officielle</strong> : <code>TimelineItem.AddMarker()</code> produit exactement ce même blob, sans qu'on ait besoin de le reconstruire à la main.</p>
+  <div class="box box-note">Solution retenue (<code>derush_drt.py</code>, <code>_add_selection_markers</code>) : une fois le <code>.drt</code> fini construit (après la gestion des coupes répétées du même plan), on le <strong>réimporte</strong> temporairement dans DaVinci (<code>MediaPool.ImportTimelineFromFile</code>), on pose un marker par plan via l'API officielle (<code>frameId=0</code>, relatif au début de chaque plan — aucun calcul de position absolue requis), on ré-exporte, puis on supprime la timeline temporaire. Validé en conditions réelles sur le projet en cours, y compris avec un plan coupé deux fois dans le panier : chaque coupe reçoit son propre titre distinct, et le nombre de pistes/items son ingé (8 pistes × 2 occurrences = 16 items) reste identique avant/après le cycle — la liaison vidéo/son posée juste avant n'est pas perturbée. Marker couleur fuchsia, titre = nom de la sélection, note = description + tags. Ne s'applique qu'à l'export du <strong>pré-montage</strong> (<code>export_basket_drt</code>) — la timeline filtrée par notes d'équipe n'a pas de titre de sélection à porter.</div>
+</div>
+
+<div class="entry" id="bwf-grace-window">
+  <div class="entry-header">
+    <span class="entry-date">22 septembre 2026</span>
+    <span class="entry-title">Son ingé non détecté sur DRIFT_MAI0136 (fenêtre de tolérance trop stricte)</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain : « chose étrange pour le rush drift_mai0136 je n'ai aucun son ingé détecté dans derushtool alors que dans davinci il y a bien le son 12-5T01.WAV d'associé. » Calcul immédiat sur les données réelles du projet : le TC du clip démarre à 55934,28s, celui du WAV à 55937,0s — un écart de <strong>2,72 secondes</strong> (le perchman a démarré l'enregistrement un peu après que la caméra ait commencé à tourner). <code>_bwf_candidates_for_clips</code> (<code>derush_server.py</code>) exigeait que le BWF <strong>contienne entièrement</strong> la plage TC du clip avec une tolérance fixe de ±2s seulement — 0,72s de trop, aucun candidat retenu.</p>
+  <p>Avant de choisir une nouvelle valeur de tolérance, vérification sur l'ensemble du projet plutôt qu'un correctif au pif : <strong>11 clips</strong> au total tombaient hors de la fenêtre ±2s, avec des écarts allant de 2,4s à -28,5s. Plutôt que de deviner si élargir la fenêtre risquait de faire remonter un mauvais fichier son sur un des cas extrêmes, comparaison directe avec la <strong>vérité terrain DaVinci</strong> : le champ <code>Synced Audio</code> de <code>MediaPoolItem.GetClipProperty()</code> sur le projet réellement ouvert et déjà conformé (Auto Sync Audio fait). Résultat : <strong>10 des 11 correspondent exactement</strong> à ce qu'une fenêtre élargie aurait trouvé — y compris le cas extrême à -28,5s (<code>DRIFT_MAI0217</code> → <code>2-2T03.WAV</code>, confirmé correct par DaVinci, seul candidat possible même à ±35s). Le seul écart concerne un plan technique de 12,8s où deux enregistreurs tournaient manifestement en même temps (ambiguïté réelle, pas un problème de fenêtre).</p>
+  <div class="box box-note">Fix : <code>grace</code> élargi de 2s à 35s dans <code>_bwf_candidates_for_clips</code> — couvre les 10 cas validés avec une petite marge. Le filtre par date + le tri par plus petit écart restent le garde-fou contre une mauvaise association ; sur ce projet, aucun clip (hors le cas technique ambigu) n'avait plus d'un candidat possible même à fenêtre large, donc élargir ne change aucune association déjà correcte.</div>
+</div>
+
+<div class="entry" id="drt-timeline-name">
+  <div class="entry-header">
+    <span class="entry-date">22 septembre 2026</span>
+    <span class="entry-title">Nom de timeline "TMP" à l'import d'un DRT</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain : « j'aimerais quand j'importe une timeline qui vient d'une sélection dans derushTool, qu'il me demande le nom de la timeline [...] plutôt que d'avoir un truc TMP [...] avoir en fait le nom du fichier DRT que j'ai enregistré ». Régression introduite par la fonctionnalité juste précédente (titres de sélection en markers) — vérifiée en direct sur le poste de dev (DaVinci ouvert) plutôt que devinée.</p>
+  <p><code>_add_selection_markers</code> réimporte le `.drt` fini via <code>MediaPool.ImportTimelineFromFile(tmp_in, {"timelineName": ...})</code> pour poser les markers, puis ré-exporte. Test isolé sur le projet réel : passer <code>timelineName</code> dans <code>importOptions</code> pour un fichier <code>.drt</code> n'a <strong>aucun effet</strong> — le stub officiel de l'API le dit noir sur blanc (<code>"not valid for DRT import"</code>), mais seul un test réel l'a confirmé de façon absolue. Sans nom forcé, la timeline réimportée hérite du nom du <strong>fichier source</strong> — ici <code>tmp_in</code>, un <code>tempfile.mkstemp</code> du genre <code>tmpXXXXXXXX.drt</code>. Ce nom illisible se retrouvait ensuite embarqué comme nom de timeline dans le <code>.drt</code> final ré-exporté et proposé par DaVinci à l'import — alors même que le fichier téléchargé, lui, portait bien le nom choisi par l'utilisateur.</p>
+  <div class="box box-note">Fix (<code>derush_drt.py</code> + <code>derush_server.py</code>) : <code>export_drt</code>/<code>export_basket_drt</code> acceptent maintenant un <code>timeline_name</code> optionnel, renseigné côté serveur avec le même <code>label</code> (+ suffixe) que le fichier téléchargé. <code>_build_and_export_drt</code> garde un nom interne horodaté UNIQUEMENT pour la création via <code>CreateTimelineFromClips</code> (évite une collision avec une timeline déjà présente dans le projet live), puis appelle <code>Timeline.SetName()</code> — qui, elle, fonctionne bien — pour repasser au nom propre avant CHAQUE export réel (la timeline de base, et la timeline réimportée de <code>_add_selection_markers</code> le cas échéant). Validé en direct sur le projet réel : le <code>&lt;ProjectName&gt;</code> embarqué dans le <code>.drt</code> final correspond maintenant exactement au nom tapé par l'utilisateur, sur les deux chemins (avec et sans titres de sélection).</div>
+</div>
+
+<div class="entry" id="drt-mac-support">
+  <div class="entry-header">
+    <span class="entry-date">27 septembre 2026</span>
+    <span class="entry-title">Export DRT : chemin API manquant sur Mac + matching clip trop strict</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Question de l'utilisateur : « le lien .drt qui passe par l'API de Resolve, il se base sur quoi pour créer la timeline ? Est-ce que ça marche sur Mac, as-tu pris en compte les différences de chemins/API ? » Relecture de <code>derush_drt.py</code> plutôt que réponse de mémoire — deux problèmes trouvés.</p>
+  <p><strong>1. Chemin API manquant sur Mac.</strong> <code>_RESOLVE_API_PATHS</code> (dossier <code>Scripting</code>, contient les bindings Python de l'API) ne listait que le chemin Windows. <code>_RESOLVE_LIB_PATHS</code> (la lib <code>fusionscript.dll</code>/<code>.so</code>) avait bien les deux systèmes, ce qui masquait l'oubli à une relecture rapide — sur Mac, <code>_connect_resolve</code> ne trouvait jamais <code>RESOLVE_SCRIPT_API</code> et l'export échouait avec « DaVinci Resolve introuvable sur cette machine », même Resolve lancé et le bon projet ouvert.</p>
+  <p><strong>2. Matching clip → <code>MediaPoolItem</code> trop strict.</strong> Question de suivi de l'utilisateur : « si je n'ai pas des dossiers bins avec les jours dans Resolve, ça ne fonctionnera pas ? » — <code>_find_media_pool_item</code> exigeait un code jour (<code>J02</code>, <code>J11</code>...) comme segment de bin en plus du nom de fichier, une convention propre à ce tournage. Sur un futur projet dont le Media Pool n'est pas rangé en bins nommés par jour, l'export aurait échoué systématiquement avec « Clip introuvable », même le clip bel et bien présent.</p>
+  <div class="box box-note">Fix (<code>derush_drt.py</code>) : chemin Mac standard ajouté à <code>_RESOLVE_API_PATHS</code> (<code>/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting</code>). <code>_find_media_pool_item</code> assoupli : match par nom de fichier seul d'abord (couvre le cas courant, y compris tout Media Pool sans bins par jour) ; le code jour ne sert plus qu'à désambiguïser si le nom seul est ambigu (plusieurs items du Media Pool partagent le même nom de fichier) — toujours erreur explicite plutôt que deviner si l'ambiguïté persiste. Reste du module déjà cross-platform par construction (rattachement par identité live du <code>MediaPoolItem</code>, jamais par résolution de chemin de fichier local). Pas de test réel sur machine Mac à cette date — fix par lecture de code, à confirmer par un export réel dès que possible.</div>
+</div>
+
+<div class="entry" id="drt-studio-required">
+  <div class="entry-header">
+    <span class="entry-date">27 septembre 2026</span>
+    <span class="entry-title">Export DRT : nécessite DaVinci Resolve Studio, pas la version gratuite</span>
+    <span class="entry-tag tag-doc">Documentation</span>
+  </div>
+  <p>Question de suivi de l'utilisateur : « il faut que ça soit la version Studio de Resolve pour que ça fonctionne ? ». Précision qui manquait dans la documentation jusqu'ici : l'export DRT connecte un <strong>processus externe</strong> (<code>derush_server.py</code>) à Resolve via <code>dvr.scriptapp('Resolve')</code> — DaVinci réserve cet accès scripting externe (par opposition à un script lancé depuis sa propre Console intégrée) à Resolve <strong>Studio</strong>. En version gratuite, <code>_connect_resolve</code> échoue avec le même message que si Resolve n'était pas lancé du tout (« DaVinci Resolve n'est pas lancé (ou l'API de scripting externe est désactivée) ») — ne permet pas de distinguer les deux causes depuis l'erreur seule.</p>
+  <div class="box box-note">Pas un changement de code : clarification ajoutée à <code>CLAUDE.md</code> et au bandeau d'avertissement DRT de <code>GUIDE.html</code>. Rappel des deux préconditions à vérifier en cas d'échec : édition <strong>Studio</strong> installée, et <em>Preferences › System › General › External scripting using</em> réglé sur <em>Local</em> ou <em>Network</em> (pas <em>None</em>).</div>
 </div>
 
 </main>
