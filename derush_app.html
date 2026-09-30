@@ -4169,20 +4169,9 @@ async function _downloadWithPicker(url, suggestedName) {
         window.location.href = url;
         return;
     }
-    showToast('Export en cours (DaVinci Resolve doit être lancé, projet ouvert)…', 'info');
-    let res;
-    try {
-        res = await apiFetch(url);
-    } catch(e) {
-        showToast('Échec de l’export : ' + e.message, 'err');
-        return;
-    }
-    if (!res.ok) {
-        const msg = (await res.text().catch(() => '')) || 'Échec de l’export DRT.';
-        showToast(msg, 'err', 6000);
-        return;
-    }
-    const blob = await res.blob();
+    // Le sélecteur DOIT s'ouvrir AVANT l'appel réseau : showSaveFilePicker exige
+    // une activation utilisateur récente (~5 s). Un export DRT long (dizaines de
+    // plans) la faisait expirer → SecurityError, aucun fichier enregistré.
     let handle;
     try {
         handle = await window.showSaveFilePicker({
@@ -4191,12 +4180,31 @@ async function _downloadWithPicker(url, suggestedName) {
         });
     } catch(e) {
         if (e && e.name === 'AbortError') return;  // boîte de dialogue annulée par l'utilisateur
-        showToast('Échec de l’enregistrement : ' + e.message, 'err');
+        showToast('Échec de l’enregistrement : ' + e.message, 'err', 8000);
         return;
     }
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
+    showToast('Export en cours (DaVinci Resolve doit être lancé, projet ouvert) — peut durer plusieurs minutes…', 'info', 8000);
+    let res;
+    try {
+        res = await apiFetch(url);
+    } catch(e) {
+        showToast('Échec de l’export : ' + e.message, 'err', 8000);
+        return;
+    }
+    if (!res.ok) {
+        const msg = (await res.text().catch(() => '')) || 'Échec de l’export DRT.';
+        showToast(msg, 'err', 10000);
+        return;
+    }
+    const blob = await res.blob();
+    try {
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+    } catch(e) {
+        showToast('Échec de l’enregistrement : ' + e.message, 'err', 8000);
+        return;
+    }
     showToast('Export DRT enregistré ✓', 'ok');
 }
 

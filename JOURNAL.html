@@ -4287,6 +4287,19 @@ result['users'] = [u for u in result.get('users', [])
   <div class="box box-ok">Résultat confirmé en production après rebuild : <strong>129/428 clips</strong> avec LTC exploitable (contre 6/428 avant le fix) — J10 à 13/13, résolvant le symptôme initial. Le reste sans LTC (J06 entier, 1 clip J02) correspond à des journées/clips où la multiprise n'était pas branchée, déjà documenté comme cas attendu.</div>
 </div>
 
+<div class="entry" id="drt-picker-activation">
+  <div class="entry-header">
+    <span class="entry-date">30 septembre 2026</span>
+    <span class="entry-title">Export DRT du pré-montage (95 sélections) : aucun fichier enregistré + doublons de son ingé dans DaVinci</span>
+    <span class="entry-tag tag-fix">Correction</span>
+  </div>
+  <p>Retour terrain : l'export DRT de 95 sélections importait « pas mal de son ingé » dans DaVinci (déjà présent), ne proposait jamais où enregistrer le fichier, et un message d'erreur fugace était passé trop vite.</p>
+  <div class="box box-fail">Cause 1 : <code>showSaveFilePicker</code> était appelé APRÈS l'attente réseau. Ce sélecteur exige une activation utilisateur récente (~5 s) ; un export long l'avait périmée → erreur de sécurité, fichier jamais écrit. Cause 2 : <code>_add_selection_markers</code> réimportait le DRT temporaire avec <code>ImportTimelineFromFile</code> sans <code>importSourceClips:False</code>, donc Resolve réimportait les sources (son ingé) déjà présentes dans le Media Pool.</div>
+  <div class="box box-note">Fix : le sélecteur « Enregistrer sous » s'ouvre AVANT l'export (<code>_downloadWithPicker</code>), les toasts d'erreur restent affichés plus longtemps, et la réimportation utilise <code>{"importSourceClips": False}</code>. Les doublons déjà créés dans le Media Pool sont à supprimer à la main.</div>
+  <div class="box box-fail">Rebondissement : l'option <code>importSourceClips:False</code> est sans effet sur un DRT. Mesuré sur le vrai projet (95 plans) : la réimportation ajoute 16 clips « … .WAV import » (doublons du son ingé J10) au Media Pool, qui survivent à la suppression de la timeline.</div>
+  <div class="box box-ok">Vrai fix : <code>_add_selection_markers</code> note les identifiants du Media Pool avant la réimportation puis supprime les items apparus (<code>_delete_new_pool_items</code>). Vérifié : 666 items avant, 666 après.</div>
+</div>
+
 </main>
 </div>
 </body>

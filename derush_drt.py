@@ -526,6 +526,36 @@ def _splice_repeated_clips(base_bytes, ordered_picks):
 _SELECTION_MARKER_COLOR = 'Fuchsia'
 
 
+def _pool_item_ids(pool):
+    """`{UniqueId: MediaPoolItem}` de tout le Media Pool (hors timelines)."""
+    out = {}
+    stack = [pool.GetRootFolder()]
+    while stack:
+        f = stack.pop()
+        for c in f.GetClipList() or []:
+            try:
+                out[c.GetUniqueId()] = c
+            except Exception:
+                pass
+        stack.extend(f.GetSubFolderList() or [])
+    return out
+
+
+def _delete_new_pool_items(pool, before_ids):
+    """Supprime du Media Pool les items apparus depuis `before_ids` : la
+    réimportation temporaire d'un .drt (`ImportTimelineFromFile`) y ajoute des
+    doublons des sources (son ingé…) même avec `importSourceClips=False`.
+    Best-effort, jamais d'exception."""
+    if before_ids is None:
+        return
+    try:
+        new = [c for uid, c in _pool_item_ids(pool).items() if uid not in before_ids]
+        if new:
+            pool.DeleteClips(new)
+    except Exception:
+        pass
+
+
 def _add_selection_markers(resolve, pool, drt_bytes, marker_info, export_label):
     """Pose un marker par plan (titre = nom de la sélection panier, note =
     description+tags) sur un `.drt` déjà fini, en passant PAR L'API OFFICIELLE
@@ -569,10 +599,14 @@ def _add_selection_markers(resolve, pool, drt_bytes, marker_info, export_label):
     os.close(fd_out)
     os.remove(tmp_out)
     tl = None
+    before_ids = None
     try:
         with open(tmp_in, 'wb') as fh:
             fh.write(drt_bytes)
-        tl = pool.ImportTimelineFromFile(tmp_in)
+        # importSourceClips=False : sinon Resolve réimporte les sources (son ingé
+        # inclus) déjà présentes dans le Media Pool → doublons par dizaines.
+        before_ids = _pool_item_ids(pool)
+        tl = pool.ImportTimelineFromFile(tmp_in, {"importSourceClips": False})
         if tl is None:
             return drt_bytes
         tl.SetName(export_label)
@@ -593,6 +627,7 @@ def _add_selection_markers(resolve, pool, drt_bytes, marker_info, export_label):
     finally:
         if tl is not None:
             pool.DeleteTimelines([tl])
+        _delete_new_pool_items(pool, before_ids)
         for p in (tmp_in, tmp_out):
             try:
                 os.remove(p)
